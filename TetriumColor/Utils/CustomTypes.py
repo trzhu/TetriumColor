@@ -1,6 +1,9 @@
+import numpy.typing as npt
+from typing import List
+
 from dataclasses import dataclass
 from enum import Enum
-import numpy.typing as npt
+
 
 
 class ColorTestResult(Enum):
@@ -24,3 +27,12 @@ class TetraColor:
 class PlateColor:
     shape: TetraColor
     background: TetraColor
+
+# TODO: maybe implement this in a different module and have some general functions to compute on this data structure
+@dataclass
+class ColorSpaceTransform:
+    ConeToDisp: npt.ArrayLike
+    MaxBasisToDisp: npt.ArrayLike
+    HeringToDisp: npt.ArrayLike
+    MetamericAxis: int
+    DisplayBasis: List

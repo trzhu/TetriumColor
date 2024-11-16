@@ -39,7 +39,7 @@ class IshiharaPlate:
 
     def __set_secret_image(self, secret:int):
         if secret in IshiharaPlate.plates:
-            with resources.path("TetraColor.assets.hiddenImages", f"{str(secret)}.png") as data_path:
+            with resources.path("TetriumColor.Assets.HiddenImages", f"{str(secret)}.png") as data_path:
                 self.secret = Image.open(data_path)
             self.secret = self.secret.resize([self.image_size, self.image_size])
             self.secret = np.asarray(self.secret)
@@ -118,7 +118,10 @@ class IshiharaPlate:
         
         if np.issubdtype(color.OCV.dtype, np.integer):
             color.OCV = color.OCV.astype(float) / 255.0
-
+        try:
+            np.concatenate([color.RGB, color.OCV])
+        except:
+            import pdb; pdb.set_trace()
         return np.concatenate([color.RGB, color.OCV])
 
 
@@ -220,7 +223,6 @@ class IshiharaPlate:
         :param fill: RGBOCV tuple represented as float [0, 1].
         """
         ellipse_color = (fill * 255).astype(int)
-        print(fill)
         self.channel_draws[0].ellipse(bounding_box, fill=tuple(ellipse_color[:3]), width=0)
         self.channel_draws[1].ellipse(bounding_box, fill=tuple(ellipse_color[3:]), width=0)
             

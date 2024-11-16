@@ -6,7 +6,7 @@ from TetriumColor.PsychoPhys.IshiharaPlate import IshiharaPlate
 
 class PseudoIsochromaticPlateGenerator:
 
-    def __init__(self, numTests:int, seed:int=42):
+    def __init__(self, transformDir:str, numTests:int, seed:int=42):
         """
         Initializes the PseudoIsochromaticPlateGenerator with the given number of tests and seed
         
@@ -15,7 +15,8 @@ class PseudoIsochromaticPlateGenerator:
             seed (int): The seed for the plate pattern generation.
         """
         self.seed = seed
-        self.colorGenerator = ScreeningTestColorGenerator(numTests)
+        self.colorGenerator = ScreeningTestColorGenerator(numTests, transformDir)
+        self.currentPlate : IshiharaPlate = None
 
 
     def NewPlate(self, filenameRGB: str, filenameOCV: str, hiddenNumber:int): # must be called before GetPlate
@@ -41,10 +42,11 @@ class PseudoIsochromaticPlateGenerator:
             filenameOCV (str): The filename to save the plate in OCV LEDs
             hiddenNumber (int): The hidden number to save to the plate
         """
-        if not hasattr(self, 'currentPlate'): # @Tian lmk if this is necessary.....
+        
+        if self.currentPlate is None:
             self.NewPlate(filenameRGB, filenameOCV, hiddenNumber)
             return
         
         color = self.colorGenerator.GetColor(previousResult)
-        self.currentPlate.generate_plate(self.seed, color)
+        self.currentPlate.generate_plate(self.seed, hiddenNumber, color)
         self.currentPlate.export_plate(filenameRGB, filenameOCV) # should block until it is done writing

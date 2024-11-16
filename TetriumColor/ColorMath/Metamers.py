@@ -9,10 +9,13 @@ import numpy.typing as npt
 from collections import defaultdict
 
 import numpy as np
+from tqdm import tqdm
+
+from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, PlateColor, TetraColor
 
 ############################################################################################################
 # Varun's Functions
-def bucket_points(points: npt.NDArray , axis:int=2, prec:float=0.005, exponent:int=8) -> Dict:
+def bucketPoints(points: npt.NDArray , axis:int=2, prec:float=0.005, exponent:int=8) -> Dict:
     # disjointed buckets
     buckets = defaultdict(list)
     N, d = points.shape
@@ -37,7 +40,7 @@ def bucket_points(points: npt.NDArray , axis:int=2, prec:float=0.005, exponent:i
     return {k: v for k, v in buckets.items() if len(v) > 1}
 
 
-def sort_buckets(buckets, axis=2) -> List:
+def sortBuckets(buckets, axis=2) -> List:
     dist_buckets = []
 
     for metamers in buckets.values():
@@ -59,13 +62,11 @@ def sort_buckets(buckets, axis=2) -> List:
 
     return sorted(dist_buckets, reverse=True)
 
-def get_metamer_buckets(points, axis=2, prec=0.005, exponent=8) -> List:
+def getMetamerBuckets(points, axis=2, prec=0.005, exponent=8) -> List:
     sorted_points = []
-
-    buckets = sort_buckets(bucket_points(points, axis=axis, prec=prec, exponent=exponent), axis=axis)
+    buckets = sortBuckets(bucketPoints(points, axis=axis, prec=prec, exponent=exponent), axis=axis)
     for dst, (i, j) in buckets:
         sorted_points.append((dst, (tuple(points[i]), tuple(points[j]))))
-
     sorted_points.sort(reverse=True)
     return sorted_points
 
@@ -79,7 +80,7 @@ def getSampledHyperCube(step_size: float, dimension: int, outer_range: List[List
     return np.array(list(zip(*(x.flat for x in g))))
 
 
-def _get_refined_hypercube( metamer_led_weights: npt.ArrayLike, previous_step:float) -> npt.ArrayLike:
+def _getRefinedHypercube( metamer_led_weights: npt.ArrayLike, previous_step:float) -> npt.ArrayLike:
     """
     Get a hypercube around a points and a range.
     Args:
@@ -93,9 +94,9 @@ def _get_refined_hypercube( metamer_led_weights: npt.ArrayLike, previous_step:fl
     return getSampledHyperCube(0.004, 4, outer_range)
 
 
-def _get_top_metamer(M_weightToCone: npt.ArrayLike, hypercube: npt.ArrayLike, metameric_axis:int=2, prec:float =0.005, exponent:int=8)-> Union[npt.ArrayLike, npt.ArrayLike]:
+def _getTopKMetamers(M_WeightsInCone: npt.ArrayLike, hypercube: npt.ArrayLike, metameric_axis:int, K:int, prec:float =0.005, exponent:int=8)->npt.ArrayLike:
     """
-    Get the Top Metamer for a Given Transform
+    Get the Top K Metamers (in Display Space) for a Given Transform
     Args:
         M_weightToCone (npt.ArrayLike): Transform from display weights to Cone Space
         hypercube (float): Point Cloud in the Display Space That We're Using to Sample
@@ -103,16 +104,21 @@ def _get_top_metamer(M_weightToCone: npt.ArrayLike, hypercube: npt.ArrayLike, me
         prec (float): The precision of the bucketing (default is 0.005)
         exponent (int): The exponent for the bucketing (default is 8)
     """
-    all_lms_intensities = (M_weightToCone@hypercube.T).T # multiply all possible led combinations with the intensities
-    buckets = get_metamer_buckets(all_lms_intensities, axis=metameric_axis, prec=prec, exponent=exponent)
-    random_index = 0
-    dst, (metamer_1, metamer_2) = buckets[random_index]
-    return metamer_1, metamer_2
+    all_lms_intensities = (M_WeightsInCone@hypercube.T).T # multiply all possible led combinations with the intensities
+    buckets = getMetamerBuckets(all_lms_intensities, axis=metameric_axis, prec=prec, exponent=exponent)
+    random_indices = np.random.randint(0, len(buckets) //10, K)
+    metamers = np.zeros((K, 2, 4))
+    for i, idx in enumerate(random_indices):
+        metamers[i][0]= buckets[idx][1][0]
+        metamers[i][1] = buckets[idx][1][1]
+    metamers = metamers.reshape((K * 2, 4))
+    metamers = (np.linalg.inv(M_WeightsInCone)@metamers.T).T
+    return metamers.reshape(K, 2, 4)   # return in display space weight coordinates
 
 
-def _refine_metamers(weights_1:npt.ArrayLike, weights_2:npt.ArrayLike, M_weightToCone:npt.ArrayLike, metameric_axis:int=2, hypercube_sample:float=0.01)-> Union[npt.ArrayLike, npt.ArrayLike]:
+def _refineMetamer(weights_1:npt.ArrayLike, weights_2:npt.ArrayLike, M_weightToCone:npt.ArrayLike, metameric_axis:int=2, hypercube_sample:float=0.01)-> npt.ArrayLike:
     """
-    Refine the estimate of the metamers by sampling a smaller hypercube around the metamer
+    Refine the estimate of the metamers by sampling a smaller hypercube around each of the pair of metamers
     Args:
         weights_1 (npt.ArrayLike): The weights of the first metamer
         weights_2 (npt.ArrayLike): The weights of the second metamer
@@ -121,24 +127,55 @@ def _refine_metamers(weights_1:npt.ArrayLike, weights_2:npt.ArrayLike, M_weightT
         hypercube_sample (float): The step size for the hypercube
     """
     
-    hypercube1 = _get_refined_hypercube(weights_1, hypercube_sample * 2)
-    hypercube2 = _get_refined_hypercube(weights_2, hypercube_sample * 2)
+    hypercube1 = _getRefinedHypercube(weights_1, hypercube_sample * 2)
+    hypercube2 = _getRefinedHypercube(weights_2, hypercube_sample * 2)
     hypercube = np.vstack([hypercube1, hypercube2])
-    return _get_top_metamer(M_weightToCone, hypercube, metameric_axis=metameric_axis, prec=0.0005, exponent=11)
+    return _getTopKMetamers(M_weightToCone, hypercube, K=1, metameric_axis=metameric_axis, prec=0.0005, exponent=11)
 
+
+def _refineMetamers(metamers: npt.ArrayLike, M_weightToCone: npt.ArrayLike, metameric_axis:int=2, hypercube_sample:float=0.01)-> npt.ArrayLike:
+    """
+    Refine the estimate of the metamers by sampling a smaller hypercube around each of the pair of metamers
+    Args:
+        metamers (npt.ArrayLike): The metamers to refine
+        M_weightToCone (npt.ArrayLike): The matrix that converts the led weights to the cone space
+        metameric_axis (int): The axis that we are looking for the metamers
+        hypercube_sample (float): The step size for the hypercube
+    """
+    refined_metamers = []
+    print("Refining Metamers")
+    for met in tqdm(metamers):
+        refined = _refineMetamer(met[0], met[1], M_weightToCone, metameric_axis=metameric_axis, hypercube_sample=hypercube_sample)
+        refined_metamers.append(refined)
+    return np.concatenate(refined_metamers)
+
+
+def convertToPlateColors(colors: npt.ArrayLike, transform: ColorSpaceTransform) -> List[PlateColor]:
+    """
+    Nx4 Array, transform into PlateColor
+    """
+    mat = np.zeros((colors.shape[0], 6))
+    for i, mappedIdx in enumerate(transform.DisplayBasis):
+        mat[:, mappedIdx] = colors[:, i]
+    
+    metamers = mat.reshape((colors.shape[0]//2, 2, 6))
+    plateColors : List[PlateColor] = []
+    for i in range(metamers.shape[0]):
+        plateColors += [PlateColor(TetraColor(metamers[i][0][:3], metamers[i][0][3:]), TetraColor(metamers[i][1][:3], metamers[i][1][3:]))]
+    return plateColors
 
 # TODO: Modify method later in order to return a point close to a given direction in the cone space
-def get_metamers(M_weightToCone: npt.ArrayLike, metameric_axis:int=2, hypercube_sample:float = 0.01) -> Union[npt.ArrayLike, npt.ArrayLike]:
+# Or get top K that are furthest apart. For now return a random top K from top 100
+def getKMetamers(transform: ColorSpaceTransform, K:int, hypercubeSample:float = 0.05) -> List[PlateColor]:
     """
     Get the metamers for the given matrix and axis, and return the weights of the primaries for the metamers
     Args:
         M_weightToCone (npt.ArrayLike): The matrix that converts the led weights to the cone space
         metameric_axis (int): The axis that we are looking for the metamers
-        hypercube_sample (float): The step size for the hypercube (default is 0.01)
+        hypercube_sample (float): The step size for the hypercube (default is 0.05)
     """
-    invMat = np.linalg.inv(M_weightToCone)
-    # TODO: @Tian this should be cached so we don't have to spend time computing this. Idk how u want your filesystem organized, so I'm leaving it to you.
-    hypercube = getSampledHyperCube(hypercube_sample, 4) # takes 40 seconds at 0.01 step, fine if we only run it once
-    met1, met2 = _get_top_metamer(M_weightToCone, hypercube, metameric_axis=metameric_axis)
-    met1, met2 = _refine_metamers(invMat@ met1, invMat@ met2, M_weightToCone, metameric_axis=metameric_axis, hypercube_sample=hypercube_sample)
-    return invMat@met1, invMat@met2
+    invMat = np.linalg.inv(transform.ConeToDisp)
+    hypercube = getSampledHyperCube(hypercubeSample, 4) # takes no time at 0.05. 
+    metamers_first_pass = _getTopKMetamers(invMat, hypercube, metameric_axis=transform.MetamericAxis, K=K)
+    final_metamers = _refineMetamers(metamers_first_pass, invMat, metameric_axis=transform.MetamericAxis, hypercube_sample=hypercubeSample)
+    return convertToPlateColors(final_metamers.reshape(-1, 4), transform)
