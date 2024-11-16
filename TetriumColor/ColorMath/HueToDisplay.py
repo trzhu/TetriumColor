@@ -109,11 +109,11 @@ def computeMetamericAxisInHering(colorSpaceTransform: ColorSpaceTransform) -> np
     """
     Get Metameric Axis in Hering Space
     """
-    metamericAxis = np.zeros(colorSpaceTransform.ConeToDisp.shape[0])
-    metamericAxis[colorSpaceTransform.MetamericAxis] = 1
-    direction = np.dot(colorSpaceTransform.ConeToDisp, metamericAxis)
+    metamericAxis = np.zeros(colorSpaceTransform.cone_to_disp.shape[0])
+    metamericAxis[colorSpaceTransform.metameric_axis] = 1
+    direction = np.dot(colorSpaceTransform.cone_to_disp, metamericAxis)
     normalized_direction = direction / np.linalg.norm(direction)
-    return np.linalg.inv(colorSpaceTransform.HeringToDisp)@normalized_direction
+    return np.linalg.inv(colorSpaceTransform.hering_to_disp)@normalized_direction
 
 
 def getMetamericSteps(colorSpaceTransform: ColorSpaceTransform, stepSize:float) -> npt.ArrayLike:
@@ -125,4 +125,4 @@ def getMetamericSteps(colorSpaceTransform: ColorSpaceTransform, stepSize:float) 
     metamericAxis = computeMetamericAxisInHering(colorSpaceTransform)
     hsv_hering = convertHeringToHSV(metamericAxis)
     hsv_samples = SampleAlongDirection(hsv_hering, stepSize)
-    return HSVtoDisplaySpace(hsv_samples, colorSpaceTransform.HeringToDisp)
+    return HSVtoDisplaySpace(hsv_samples, colorSpaceTransform.hering_to_disp)

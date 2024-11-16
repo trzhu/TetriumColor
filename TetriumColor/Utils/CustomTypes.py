@@ -12,9 +12,9 @@ class ColorTestResult(Enum):
 
 
 class TestType(Enum): # should be some sort of gui opening selection
-    Screening = 0   # Maximal Metamers
-    Targeted = 1    # Targeted Quest Along N=1 Axis, the Q-axis
-    InDepth = 2     # In Depth Quest Along N Hue Directions
+    screening = 0   # Maximal Metamers
+    targeted = 1    # Targeted Quest Along N=1 Axis, the Q-axis
+    in_depth = 2     # In Depth Quest Along N Hue Directions
 
 
 @dataclass
@@ -31,8 +31,17 @@ class PlateColor:
 # TODO: maybe implement this in a different module and have some general functions to compute on this data structure
 @dataclass
 class ColorSpaceTransform:
-    ConeToDisp: npt.ArrayLike
-    MaxBasisToDisp: npt.ArrayLike
-    HeringToDisp: npt.ArrayLike
-    MetamericAxis: int
-    DisplayBasis: List
+    """
+    A dataclass to hold the color space transform data
+    Attributes: 
+        cone_to_disp: The cone to display transform matrix
+        maxbasis_to_disp: The maxbasis to display transform matrix
+        hering_to_disp: The hering to display transform matrix
+        metameric_axis: The axis of the metameric transform
+        display_basis: The indices of the LED in RGVOCV order
+    """
+    cone_to_disp: npt.ArrayLike
+    maxbasis_to_disp: npt.ArrayLike
+    hering_to_disp: npt.ArrayLike
+    metameric_axis: int
+    display_basis: List

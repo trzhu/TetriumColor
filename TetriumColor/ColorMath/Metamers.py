@@ -155,7 +155,7 @@ def convertToPlateColors(colors: npt.ArrayLike, transform: ColorSpaceTransform) 
     Nx4 Array, transform into PlateColor
     """
     mat = np.zeros((colors.shape[0], 6))
-    for i, mappedIdx in enumerate(transform.DisplayBasis):
+    for i, mappedIdx in enumerate(transform.display_basis):
         mat[:, mappedIdx] = colors[:, i]
     
     metamers = mat.reshape((colors.shape[0]//2, 2, 6))
@@ -174,8 +174,8 @@ def getKMetamers(transform: ColorSpaceTransform, K:int, hypercubeSample:float = 
         metameric_axis (int): The axis that we are looking for the metamers
         hypercube_sample (float): The step size for the hypercube (default is 0.05)
     """
-    invMat = np.linalg.inv(transform.ConeToDisp)
+    invMat = np.linalg.inv(transform.cone_to_disp)
     hypercube = getSampledHyperCube(hypercubeSample, 4) # takes no time at 0.05. 
-    metamers_first_pass = _getTopKMetamers(invMat, hypercube, metameric_axis=transform.MetamericAxis, K=K)
-    final_metamers = _refineMetamers(metamers_first_pass, invMat, metameric_axis=transform.MetamericAxis, hypercube_sample=hypercubeSample)
+    metamers_first_pass = _getTopKMetamers(invMat, hypercube, metameric_axis=transform.metameric_axis, K=K)
+    final_metamers = _refineMetamers(metamers_first_pass, invMat, metameric_axis=transform.metameric_axis, hypercube_sample=hypercubeSample)
     return convertToPlateColors(final_metamers.reshape(-1, 4), transform)
