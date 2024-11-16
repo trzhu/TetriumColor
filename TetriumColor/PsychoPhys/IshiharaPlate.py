@@ -10,20 +10,20 @@ from TetriumColor.Utils.CustomTypes import PlateColor, TetraColor
 
 
 class IshiharaPlate:
-    plates = [27, 35, 39, 64, 67, 68, 72, 73, 85, 87, 89, 96]
+    _secrets = [27, 35, 39, 64, 67, 68, 72, 73, 85, 87, 89, 96]
 
-    def __init__(self, color: PlateColor, secret: int,
+    def __init__(self, plate_color: PlateColor=None, secret:int = _secrets[0],
                 num_samples:int = 100, dot_sizes:List[int] = [16,22,28], 
                 image_size:int = 1024,directory:str = '.', seed:int = 0,
-                lum_noise:float =0, noise:float = 0, gradient:bool = False):
+                lum_noise:float = 0, noise:float = 0, gradient:bool = False):
         """
         :param plate_color: A PlateColor object with shape and background colors (RGB/OCV tuples).
 
         :param secret:  May be either a string or integer, specifies which
                         secret file to use from the secrets directory.
         """
-        self.inside_color:TetraColor = self.__standardizeColor(color.shape)
-        self.outside_color:TetraColor = self.__standardizeColor(color.background)
+        self.inside_color:TetraColor = self.__standardizeColor(plate_color.shape)
+        self.outside_color:TetraColor = self.__standardizeColor(plate_color.background)
 
         self.num_samples:int = num_samples
         self.dot_sizes:List[int] = dot_sizes
@@ -31,15 +31,16 @@ class IshiharaPlate:
         self.directory:str = directory
         self.seed:int = seed
         self.noise:float= noise
-        self.gradien:bool = gradient
+        self.gradient:bool = gradient
         self.lum_noise:float = lum_noise
-
+        
+        self.__generateGeometry()
         self.__setSecretImage(secret)
-
         self.__resetPlate()
 
+
     def __setSecretImage(self, secret:int):
-        if secret in IshiharaPlate.plates:
+        if secret in IshiharaPlate._secrets:
             with resources.path("TetriumColor.Assets.HiddenImages", f"{str(secret)}.png") as data_path:
                 self.secret = Image.open(data_path)
             self.secret = self.secret.resize([self.image_size, self.image_size])
@@ -56,6 +57,7 @@ class IshiharaPlate:
         without modifying the geometry.
 
         :param seed: A seed for RNG when creating the plate pattern.
+        :param hidden_number: The hidden number to embed in the plate.
         :param inside_color: A 6-tuple RGBOCV color.
         :param outside_color: A 6-tuple RGBOCV color.
         """
@@ -85,14 +87,14 @@ class IshiharaPlate:
             return
         
         # Don't regenerate geometry but recolor w/new hidden number
-        if not seed and hidden_number:
+        if hidden_number:
             self.__computeInsideOutside()
             self.__resetImages()
             self.__drawPlate()
             return
 
         # Need to re-color, but don't need to re-generate geometry or hidden number.
-        if not seed and (plate_color):
+        if plate_color:
             self.__resetImages()
             self.__drawPlate()
             return
@@ -119,10 +121,7 @@ class IshiharaPlate:
         
         if np.issubdtype(color.OCV.dtype, np.integer):
             color.OCV = color.OCV.astype(float) / 255.0
-        try:
-            np.concatenate([color.RGB, color.OCV])
-        except:
-            import pdb; pdb.set_trace()
+        
         return np.concatenate([color.RGB, color.OCV])
 
 

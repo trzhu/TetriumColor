@@ -15,7 +15,7 @@ from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, PlateColor, Tetr
 
 ############################################################################################################
 # Varun's Functions
-def bucketPoints(points: npt.NDArray , axis:int=2, prec:float=0.005, exponent:int=8) -> Dict:
+def BucketPoints(points: npt.NDArray , axis:int=2, prec:float=0.005, exponent:int=8) -> Dict:
     # disjointed buckets
     buckets = defaultdict(list)
     N, d = points.shape
@@ -40,7 +40,7 @@ def bucketPoints(points: npt.NDArray , axis:int=2, prec:float=0.005, exponent:in
     return {k: v for k, v in buckets.items() if len(v) > 1}
 
 
-def sortBuckets(buckets, axis=2) -> List:
+def SortBuckets(buckets:defaultdict, axis:int=2) -> List:
     dist_buckets = []
 
     for metamers in buckets.values():
@@ -62,9 +62,9 @@ def sortBuckets(buckets, axis=2) -> List:
 
     return sorted(dist_buckets, reverse=True)
 
-def getMetamerBuckets(points, axis=2, prec=0.005, exponent=8) -> List:
+def GetMetamerBuckets(points: npt.ArrayLike, axis:int=2, prec:float =0.005, exponent:int=8) -> List:
     sorted_points = []
-    buckets = sortBuckets(bucketPoints(points, axis=axis, prec=prec, exponent=exponent), axis=axis)
+    buckets = SortBuckets(BucketPoints(points, axis=axis, prec=prec, exponent=exponent), axis=axis)
     for dst, (i, j) in buckets:
         sorted_points.append((dst, (tuple(points[i]), tuple(points[j]))))
     sorted_points.sort(reverse=True)
@@ -72,7 +72,7 @@ def getMetamerBuckets(points, axis=2, prec=0.005, exponent=8) -> List:
 
 ############################################################################################################
 
-def getSampledHyperCube(step_size: float, dimension: int, outer_range: List[List[float]]=[[0, 1], [0, 1], [0, 1], [0, 1]]) -> npt.ArrayLike:
+def GetSampledHyperCube(step_size: float, dimension: int, outer_range: List[List[float]]=[[0, 1], [0, 1], [0, 1], [0, 1]]) -> npt.ArrayLike:
     """
     Get a hypercube sample of the space
     """
@@ -91,7 +91,7 @@ def _getRefinedHypercube( metamer_led_weights: npt.ArrayLike, previous_step:floa
     outer_range = [[round(max(0, min(1, outer_range[i][0])) * 255) / 255, 
             round(max(0, min(1, outer_range[i][1])) * 255) / 255] 
                 for i in range(4)]
-    return getSampledHyperCube(0.004, 4, outer_range)
+    return GetSampledHyperCube(0.004, 4, outer_range)
 
 
 def _getTopKMetamers(M_WeightsInCone: npt.ArrayLike, hypercube: npt.ArrayLike, metameric_axis:int, K:int, prec:float =0.005, exponent:int=8)->npt.ArrayLike:
@@ -105,7 +105,7 @@ def _getTopKMetamers(M_WeightsInCone: npt.ArrayLike, hypercube: npt.ArrayLike, m
         exponent (int): The exponent for the bucketing (default is 8)
     """
     all_lms_intensities = (M_WeightsInCone@hypercube.T).T # multiply all possible led combinations with the intensities
-    buckets = getMetamerBuckets(all_lms_intensities, axis=metameric_axis, prec=prec, exponent=exponent)
+    buckets = GetMetamerBuckets(all_lms_intensities, axis=metameric_axis, prec=prec, exponent=exponent)
     random_indices = np.random.randint(0, len(buckets) //10, K)
     metamers = np.zeros((K, 2, 4))
     for i, idx in enumerate(random_indices):
@@ -150,7 +150,7 @@ def _refineMetamers(metamers: npt.ArrayLike, M_weightToCone: npt.ArrayLike, meta
     return np.concatenate(refined_metamers)
 
 
-def convertToPlateColors(colors: npt.ArrayLike, transform: ColorSpaceTransform) -> List[PlateColor]:
+def ConvertToPlateColors(colors: npt.ArrayLike, transform: ColorSpaceTransform) -> List[PlateColor]:
     """
     Nx4 Array, transform into PlateColor
     """
@@ -166,7 +166,7 @@ def convertToPlateColors(colors: npt.ArrayLike, transform: ColorSpaceTransform) 
 
 # TODO: Modify method later in order to return a point close to a given direction in the cone space
 # Or get top K that are furthest apart. For now return a random top K from top 100
-def getKMetamers(transform: ColorSpaceTransform, K:int, hypercubeSample:float = 0.05) -> List[PlateColor]:
+def GetKMetamers(transform: ColorSpaceTransform, K:int, hypercubeSample:float = 0.05) -> List[PlateColor]:
     """
     Get the metamers for the given matrix and axis, and return the weights of the primaries for the metamers
     Args:
@@ -175,7 +175,7 @@ def getKMetamers(transform: ColorSpaceTransform, K:int, hypercubeSample:float = 
         hypercube_sample (float): The step size for the hypercube (default is 0.05)
     """
     invMat = np.linalg.inv(transform.cone_to_disp)
-    hypercube = getSampledHyperCube(hypercubeSample, 4) # takes no time at 0.05. 
+    hypercube = GetSampledHyperCube(hypercubeSample, 4) # takes no time at 0.05. 
     metamers_first_pass = _getTopKMetamers(invMat, hypercube, metameric_axis=transform.metameric_axis, K=K)
     final_metamers = _refineMetamers(metamers_first_pass, invMat, metameric_axis=transform.metameric_axis, hypercube_sample=hypercubeSample)
-    return convertToPlateColors(final_metamers.reshape(-1, 4), transform)
+    return ConvertToPlateColors(final_metamers.reshape(-1, 4), transform)

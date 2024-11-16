@@ -115,7 +115,7 @@ class Quest:
 
         This was converted from the Psychtoolbox's QuestCreate function.
         """
-        super(QuestObject, self).__init__()
+        super(Quest, self).__init__()
         grain = float(grain) # make sure grain is a float
         if range is None:
             dim = 500

@@ -2,7 +2,7 @@
 
 import math
 
-def sampleFibonacciSphere(samples=1000):
+def SampleFibonacciSphere(samples=1000):
     points = []
     phi = math.pi * (math.sqrt(5.) - 1.)  # golden angle in radians
 

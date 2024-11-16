@@ -16,7 +16,7 @@ class PseudoIsochromaticPlateGenerator:
         """
         self.seed = seed
         self.color_generator = ScreeningTestColorGenerator(num_tests, transform_dirs, pregenerated_filenames)
-        self.current_plate : IshiharaPlate = None
+        self.current_plate : IshiharaPlate = IshiharaPlate(seed=self.seed)
 
 
     def NewPlate(self, filename_RGB: str, filename_OCV: str, hidden_number:int): # must be called before GetPlate
@@ -24,15 +24,14 @@ class PseudoIsochromaticPlateGenerator:
         Generates a new plate with the given hidden number, and colored by the ScreenTestColorGenerator
 
         Args:
-            hiddenNumber (int): The hidden number to save to the plate
+            hidden_number (int): The hidden number to save to the plate
         """
-        newColor = self.color_generator.NewColor()
-        self.current_plate = IshiharaPlate(newColor, hidden_number)
-        self.current_plate.GeneratePlate(self.seed, hidden_number, newColor)
+        plate_color = self.color_generator.NewColor()
+        self.current_plate.GeneratePlate(self.seed, hidden_number, plate_color)
         self.current_plate.ExportPlate(filename_RGB, filename_OCV)
         
 
-    def GetPlate(self, previousResult: ColorTestResult, filenameRGB: str, filenameOCV: str, hiddenNumber:int):
+    def GetPlate(self, previous_result: ColorTestResult, filename_RGB: str, filename_OCV: str, hidden_number:int):
         """
         Generates a new plate and saves it to a file with the given hidden number, and colored by the ScreenTestColorGenerator
 
@@ -42,11 +41,6 @@ class PseudoIsochromaticPlateGenerator:
             filenameOCV (str): The filename to save the plate in OCV LEDs
             hiddenNumber (int): The hidden number to save to the plate
         """
-        
-        if self.current_plate is None:
-            self.NewPlate(filenameRGB, filenameOCV, hiddenNumber)
-            return
-        
-        color = self.color_generator.GetColor(previousResult)
-        self.current_plate.GeneratePlate(self.seed, hiddenNumber, color)
-        self.current_plate.ExportPlate(filenameRGB, filenameOCV) # should block until it is done writing
+        plate_color = self.color_generator.GetColor(previous_result)
+        self.current_plate.GeneratePlate(self.seed, hidden_number, plate_color)
+        self.current_plate.ExportPlate(filename_RGB, filename_OCV) # should block until it is done writing

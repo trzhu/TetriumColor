@@ -3,15 +3,15 @@ import numpy as np
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform
 
 
-def loadColorSpaceTransform(directory:str) -> ColorSpaceTransform:
+def LoadColorSpaceTransform(directory:str) -> ColorSpaceTransform:
     """
     Load a Color Space Transform from a file
     Args:
         filename (str): The filename of the Color Space Transform
     """
-    ConeToDisp = np.load(directory + "/ConeToDisp.npy")
-    MaxBasisToDisp = np.load(directory + "/MaxBasisToDisp.npy")
-    HeringToDisp = np.load(directory + "/HeringToDisp.npy")
-    Axis = np.load(directory + "/Axis.npy")[0]
-    DisplayBasis = np.load(directory + "/DisplayBasis.npy").tolist()
-    return ColorSpaceTransform(ConeToDisp, MaxBasisToDisp, HeringToDisp, Axis, DisplayBasis)
+    cone_to_disp = np.load(directory + "/ConeToDisp.npy")
+    maxbasis_to_disp = np.load(directory + "/MaxBasisToDisp.npy")
+    hering_to_disp = np.load(directory + "/HeringToDisp.npy")
+    axis = np.load(directory + "/Axis.npy")[0]
+    display_basis = np.load(directory + "/DisplayBasis.npy").tolist()
+    return ColorSpaceTransform(cone_to_disp, maxbasis_to_disp, hering_to_disp, axis, display_basis)
