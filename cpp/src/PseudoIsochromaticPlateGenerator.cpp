@@ -22,12 +22,6 @@ PseudoIsochromaticPlateGenerator::PseudoIsochromaticPlateGenerator(
         }
     }
 
-    printf("transform_dirs: ");
-    for (const auto& dir : transform_dirs) {
-        printf("%s ", dir.c_str());
-    }
-    printf("\n");
-
     // Convert vectors to Python lists
     PyObject* py_transform_dirs = PyList_New(transform_dirs.size());
     for (size_t i = 0; i < transform_dirs.size(); ++i) {
@@ -87,7 +81,6 @@ void PseudoIsochromaticPlateGenerator::NewPlate(
 )
 {
     if (pInstance != nullptr) {
-        printf("iweofioaweio");
         PyObject* pValue = PyObject_CallMethod(
             pInstance, "NewPlate", "ssi", filename_RGB.c_str(), filename_OCV.c_str(), hidden_number
         );
