@@ -61,9 +61,11 @@ PseudoIsochromaticPlateGenerator::PseudoIsochromaticPlateGenerator(
             Py_DECREF(pArgs);
         } else {
             PyErr_Print();
+            exit(-1);
         }
     } else {
         PyErr_Print();
+        exit(-1);
     }
 
     Py_DECREF(py_transform_dirs);
@@ -85,6 +87,7 @@ void PseudoIsochromaticPlateGenerator::NewPlate(
 )
 {
     if (pInstance != nullptr) {
+        printf("iweofioaweio");
         PyObject* pValue = PyObject_CallMethod(
             pInstance, "NewPlate", "ssi", filename_RGB.c_str(), filename_OCV.c_str(), hidden_number
         );
@@ -93,6 +96,9 @@ void PseudoIsochromaticPlateGenerator::NewPlate(
         } else {
             PyErr_Print();
         }
+    } else {
+        printf("gg, exiting\n");
+        exit(-1);
     }
 }
 
