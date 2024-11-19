@@ -12,44 +12,39 @@ from TetriumColor.Utils.CustomTypes import PlateColor, TetraColor
 class IshiharaPlate:
     _secrets = [27, 35, 39, 64, 67, 68, 72, 73, 85, 87, 89, 96]
 
-    def __init__(self, plate_color: PlateColor=None, secret:int = _secrets[0],
-                num_samples:int = 100, dot_sizes:List[int] = [16,22,28], 
-                image_size:int = 1024,directory:str = '.', seed:int = 0,
-                lum_noise:float = 0, noise:float = 0, gradient:bool = False):
+    def __init__(self, plate_color: PlateColor = None, secret: int = _secrets[0],
+                 num_samples: int = 100, dot_sizes: List[int] = [16, 22, 28],
+                 image_size: int = 1024, directory: str = '.', seed: int = 0,
+                 lum_noise: float = 0, noise: float = 0, gradient: bool = False):
         """
         :param plate_color: A PlateColor object with shape and background colors (RGB/OCV tuples).
 
         :param secret:  May be either a string or integer, specifies which
                         secret file to use from the secrets directory.
         """
-        self.inside_color:TetraColor = self.__standardizeColor(plate_color.shape)
-        self.outside_color:TetraColor = self.__standardizeColor(plate_color.background)
+        self.num_samples: int = num_samples
+        self.dot_sizes: List[int] = dot_sizes
+        self.image_size: tuple = image_size
+        self.directory: str = directory
+        self.seed: int = seed
+        self.noise: float = noise
+        self.gradient: bool = gradient
+        self.lum_noise: float = lum_noise
 
-        self.num_samples:int = num_samples
-        self.dot_sizes:List[int] = dot_sizes
-        self.image_size:tuple = image_size
-        self.directory:str = directory
-        self.seed:int = seed
-        self.noise:float= noise
-        self.gradient:bool = gradient
-        self.lum_noise:float = lum_noise
-        
         self.__generateGeometry()
         self.__setSecretImage(secret)
-        self.__resetPlate()
 
-
-    def __setSecretImage(self, secret:int):
+    def __setSecretImage(self, secret: int):
         if secret in IshiharaPlate._secrets:
             with resources.path("TetriumColor.Assets.HiddenImages", f"{str(secret)}.png") as data_path:
                 self.secret = Image.open(data_path)
-            self.secret = self.secret.resize([self.image_size, self.image_size])
+            self.secret = self.secret.resize(
+                [self.image_size, self.image_size])
             self.secret = np.asarray(self.secret)
         else:
             raise ValueError(f"Invalid Hidden Number {secret}")
 
-
-    def GeneratePlate(self, seed: int = None, hidden_number:int = None, plate_color: PlateColor = None):
+    def GeneratePlate(self, seed: int = None, hidden_number: int = None, plate_color: PlateColor = None):
         """
         Generate the Ishihara Plate with specified inside/outside colors and secret.
         A new seed can be specified to generate a different plate pattern.
@@ -68,11 +63,12 @@ class IshiharaPlate:
 
         if plate_color:
             self.inside_color = self.__standardizeColor(plate_color.shape)
-            self.outside_color = self.__standardizeColor(plate_color.background)
-        
+            self.outside_color = self.__standardizeColor(
+                plate_color.background)
+
         if hidden_number:
             self.__setSecretImage(hidden_number)
-        
+
         # Plate doesn't exist; set seed and colors and generate whole plate.
         if self.circles is None:
             self.seed = seed or self.seed
@@ -85,7 +81,7 @@ class IshiharaPlate:
             self.__resetPlate()
             helper_generate()
             return
-        
+
         # Don't regenerate geometry but recolor w/new hidden number
         if hidden_number:
             self.__computeInsideOutside()
@@ -99,7 +95,6 @@ class IshiharaPlate:
             self.__drawPlate()
             return
 
-
     def ExportPlate(self, filename_RGB: str, filename_OCV: str):
         """
         This method saves two images - RGB and OCV encoded image.
@@ -111,19 +106,17 @@ class IshiharaPlate:
         self.channels[0].save(filename_RGB)
         self.channels[1].save(filename_OCV)
 
-
     def __standardizeColor(self, color: TetraColor):
         """
         :param color: Ensure a TetraColor is a float in [0, 1].
         """
         if np.issubdtype(color.RGB.dtype, np.integer):
             color.RGB = color.RGB.astype(float) / 255.0
-        
+
         if np.issubdtype(color.OCV.dtype, np.integer):
             color.OCV = color.OCV.astype(float) / 255.0
-        
-        return np.concatenate([color.RGB, color.OCV])
 
+        return np.concatenate([color.RGB, color.OCV])
 
     def __generateGeometry(self):
         """
@@ -145,10 +138,9 @@ class IshiharaPlate:
         for (x, y, radius) in packed_circles:
             if np.sqrt((x - center) ** 2 + (y - center) ** 2) < center * 0.95:
                 r = radius - np.random.randint(2, 5)
-                output_circles.append([x,y,r])
+                output_circles.append([x, y, r])
 
         self.circles = output_circles
-
 
     def __computeInsideOutside(self):
         """
@@ -157,7 +149,7 @@ class IshiharaPlate:
         """
         # Inside corresponds to numbers; outside corresponds to background
         outside = np.int32(np.sum(self.secret == 255, -1) == 4)
-        inside  = np.int32((self.secret[:,:,3] == 255)) - outside
+        inside = np.int32((self.secret[:, :, 3] == 255)) - outside
 
         inside_props = []
         outside_props = []
@@ -181,8 +173,10 @@ class IshiharaPlate:
                 elif outside[y_grid, x_grid]:
                     outside_count += 1
 
-            in_p  = np.clip(inside_count  / self.num_samples * (1 - (n[i] * self.noise / 100)), 0, 1)
-            out_p = np.clip(outside_count / self.num_samples * (1 - (n[i] * self.noise / 100)), 0, 1)
+            in_p = np.clip(inside_count / self.num_samples *
+                           (1 - (n[i] * self.noise / 100)), 0, 1)
+            out_p = np.clip(outside_count / self.num_samples *
+                            (1 - (n[i] * self.noise / 100)), 0, 1)
 
             inside_props.append(in_p)
             outside_props.append(out_p)
@@ -190,13 +184,13 @@ class IshiharaPlate:
         self.inside_props = inside_props
         self.outside_props = outside_props
 
-
     def __drawPlate(self):
         """
         Using generated geometry data and computed inside/outside proportions,
         draw the plate.
         """
-        assert None not in [self.circles, self.inside_props, self.outside_props]
+        assert None not in [self.circles,
+                            self.inside_props, self.outside_props]
 
         for i, [x, y, r] in enumerate(self.circles):
             in_p, out_p = self.inside_props[i], self.outside_props[i]
@@ -208,11 +202,11 @@ class IshiharaPlate:
             # noise apply to the six channel, scale the entire vector
             lum_noise = np.random.normal(0, self.lum_noise)
             # only apply to vector that are on
-            new_color = np.clip(circle_color + (lum_noise * (circle_color > 0)), 0, 1)
+            new_color = np.clip(
+                circle_color + (lum_noise * (circle_color > 0)), 0, 1)
             self.__drawEllipse([x-r, y-r, x+r, y+r], new_color)
-            
 
-    def __drawEllipse(self, bounding_box:List, fill:ArrayLike):
+    def __drawEllipse(self, bounding_box: List, fill: ArrayLike):
         """
         Wrapper function for PIL ImageDraw. Draws to each of the
         R, G1, G2, and B channels; each channel is represented as
@@ -223,10 +217,11 @@ class IshiharaPlate:
         :param fill: RGBOCV tuple represented as float [0, 1].
         """
         ellipse_color = (fill * 255).astype(int)
-        self.channel_draws[0].ellipse(bounding_box, fill=tuple(ellipse_color[:3]), width=0)
-        self.channel_draws[1].ellipse(bounding_box, fill=tuple(ellipse_color[3:]), width=0)
-            
-        
+        self.channel_draws[0].ellipse(
+            bounding_box, fill=tuple(ellipse_color[:3]), width=0)
+        self.channel_draws[1].ellipse(
+            bounding_box, fill=tuple(ellipse_color[3:]), width=0)
+
     def __resetGeometry(self):
         """
         Reset plate geometry. Useful if we want to regenerate the plate pattern
@@ -236,15 +231,14 @@ class IshiharaPlate:
         self.inside_props = None
         self.outside_props = None
 
-
     def __resetImages(self):
         """
         Reset plate images. Useful if we want to regenerate the plate with
         different inside/outside colors.
         """
-        self.channels = [Image.new(mode='RGB', size=(self.image_size, self.image_size)) for _ in range(4)]
+        self.channels = [Image.new(mode='RGB', size=(
+            self.image_size, self.image_size)) for _ in range(4)]
         self.channel_draws = [ImageDraw.Draw(ch) for ch in self.channels]
-
 
     def __resetPlate(self):
         """
