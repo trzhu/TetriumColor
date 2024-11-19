@@ -1,9 +1,10 @@
+#include <vector>
+
 #include "TetriumColor/PseudoIsochromaticPlateGenerator.h"
 
-
 PseudoIsochromaticPlateGenerator::PseudoIsochromaticPlateGenerator(
-    const std::string& transform_dirs,
-    const std::string& pregenerated_filenames,
+    const std::vector<std::string>& transform_dirs,
+    const std::vector<std::string>& pregenerated_filenames,
     int num_tests,
     int seed
 )
@@ -21,6 +22,23 @@ PseudoIsochromaticPlateGenerator::PseudoIsochromaticPlateGenerator(
         }
     }
 
+    printf("transform_dirs: ");
+    for (const auto& dir : transform_dirs) {
+        printf("%s ", dir.c_str());
+    }
+    printf("\n");
+
+    // Convert vectors to Python lists
+    PyObject* py_transform_dirs = PyList_New(transform_dirs.size());
+    for (size_t i = 0; i < transform_dirs.size(); ++i) {
+        PyList_SetItem(py_transform_dirs, i, PyUnicode_FromString(transform_dirs[i].c_str()));
+    }
+
+    PyObject* py_pregenerated_filenames = PyList_New(pregenerated_filenames.size());
+    for (size_t i = 0; i < pregenerated_filenames.size(); ++i) {
+        PyList_SetItem(py_pregenerated_filenames, i, PyUnicode_FromString(pregenerated_filenames[i].c_str()));
+    }
+
     // Import the Python module
     PyObject* pName = PyUnicode_DecodeFSDefault("TetriumColor.TetraPlate");
     pModule = PyImport_Import(pName);
@@ -34,8 +52,8 @@ PseudoIsochromaticPlateGenerator::PseudoIsochromaticPlateGenerator(
             // Create an instance of the Python class
             PyObject* pArgs = PyTuple_Pack(
                 4,
-                PyUnicode_FromString(transform_dirs.c_str()),
-                PyUnicode_FromString(pregenerated_filenames.c_str()),
+                py_transform_dirs,
+                py_pregenerated_filenames,
                 PyLong_FromLong(num_tests),
                 PyLong_FromLong(seed)
             );
@@ -47,6 +65,9 @@ PseudoIsochromaticPlateGenerator::PseudoIsochromaticPlateGenerator(
     } else {
         PyErr_Print();
     }
+
+    Py_DECREF(py_transform_dirs);
+    Py_DECREF(py_pregenerated_filenames);
 }
 
 PseudoIsochromaticPlateGenerator::~PseudoIsochromaticPlateGenerator()

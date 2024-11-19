@@ -7,8 +7,8 @@ class PseudoIsochromaticPlateGenerator
 {
   public:
     PseudoIsochromaticPlateGenerator(
-        const std::string& transform_dirs,
-        const std::string& pregenerated_filenames,
+        const std::vector<std::string>& transform_dirs,
+        const std::vector<std::string>& pregenerated_filenames,
         int num_tests,
         int seed = 42
     );

@@ -3,6 +3,18 @@ cmake_minimum_required(VERSION 3.22)
 # Define the project name and version
 project(TetriumColor VERSION 1.0 LANGUAGES CXX)
 
+# python
+set(PYTHON_EXECUTABLE $ENV{CONDA_PREFIX}/bin/python)
+set(PYTHON_INCLUDE_DIR $ENV{CONDA_PREFIX}/include/python3.13)
+
+if (UNIX)
+    if(APPLE)
+        set(PYTHON_LIBRARY $ENV{CONDA_PREFIX}/lib/libpython3.13.dylib)
+    else()
+        set(PYTHON_LIBRARY $ENV{CONDA_PREFIX}/lib/libpython3.13.so)
+    endif()
+endif()
+
 # Specify the C++ standard
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
