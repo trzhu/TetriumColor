@@ -9,19 +9,6 @@ PseudoIsochromaticPlateGenerator::PseudoIsochromaticPlateGenerator(
     int seed
 )
 {
-    Py_Initialize();
-
-    { // configure the Python path
-        PyObject* sys_path = PyImport_ImportModule("sys");
-        if (sys_path != nullptr) {
-            PyObject* sys_path_obj = PyObject_GetAttrString(sys_path, "path");
-            if (sys_path_obj != nullptr) {
-                // Append the directory to the sys.path
-                PyList_Append(sys_path_obj, PyUnicode_FromString(TETRIUM_COLOR_MODULE_PATH));
-            }
-        }
-    }
-
     // Convert vectors to Python lists
     PyObject* py_transform_dirs = PyList_New(transform_dirs.size());
     for (size_t i = 0; i < transform_dirs.size(); ++i) {
@@ -71,7 +58,6 @@ PseudoIsochromaticPlateGenerator::~PseudoIsochromaticPlateGenerator()
     Py_XDECREF(pInstance);
     Py_XDECREF(pClass);
     Py_XDECREF(pModule);
-    Py_Finalize();
 }
 
 void PseudoIsochromaticPlateGenerator::NewPlate(

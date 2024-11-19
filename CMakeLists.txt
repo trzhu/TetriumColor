@@ -22,6 +22,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 # Add the source files
 set(SOURCES
     cpp/src/PseudoIsochromaticPlateGenerator.cpp
+    cpp/src/TetriumColor.cpp
 )
 
 # Create the library
