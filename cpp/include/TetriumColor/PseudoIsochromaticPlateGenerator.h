@@ -3,6 +3,8 @@
 #include <Python.h>
 #include <string>
 
+namespace TetriumColor
+{
 class PseudoIsochromaticPlateGenerator
 {
   public:
@@ -33,3 +35,4 @@ class PseudoIsochromaticPlateGenerator
     PyObject* pClass;
     PyObject* pInstance;
 };
+} // namespace TetriumColor
