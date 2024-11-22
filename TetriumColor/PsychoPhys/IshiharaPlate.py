@@ -22,6 +22,11 @@ class IshiharaPlate:
         :param secret:  May be either a string or integer, specifies which
                         secret file to use from the secrets directory.
         """
+        if not gradient:
+            # only need to sample center of circles for once
+            num_samples = 1
+            if noise != 0:
+                raise ValueError("None-zero noise is not supported for non-gradient plates -- it doesn't make sense!")
         self.num_samples: int = num_samples
         self.dot_sizes: List[int] = dot_sizes
         self.image_size: int = image_size
@@ -150,7 +155,11 @@ class IshiharaPlate:
         """
         # Inside corresponds to numbers; outside corresponds to background
         outside = np.int32(np.sum(self.secret == 255, -1) == 4)
-        inside = np.int32((self.secret[:, :, 3] == 255)) - outside
+        inside = None
+
+        if self.gradient:
+            # TODO: is this necessary for gradient? it's cursed to be both inside and outside
+            inside = np.int32((self.secret[:, :, 3] == 255)) - outside 
 
         inside_props = []
         outside_props = []
@@ -158,29 +167,40 @@ class IshiharaPlate:
 
         for i, [x, y, r] in enumerate(self.circles):
             x, y = int(round(x)), int(round(y))
-            inside_count, outside_count = 0, 0
 
-            for _ in range(self.num_samples):
-                while True:
-                    dx = np.random.uniform(-r, r)
-                    dy = np.random.uniform(-r, r)
-                    if (dx**2 + dy**2) <= r**2:
-                        break
+            if self.gradient:
+                assert inside is not None
+                inside_count, outside_count = 0, 0
 
-                x_grid = int(np.clip(np.round(x + dx), 0, self.image_size - 1))
-                y_grid = int(np.clip(np.round(y + dy), 0, self.image_size - 1))
-                if inside[y_grid, x_grid]:
-                    inside_count += 1
-                elif outside[y_grid, x_grid]:
-                    outside_count += 1
+                for _ in range(self.num_samples):
+                    while True:
+                        dx = np.random.uniform(-r, r)
+                        dy = np.random.uniform(-r, r)
+                        if (dx**2 + dy**2) <= r**2:
+                            break
 
-            in_p = np.clip(inside_count / self.num_samples *
-                           (1 - (n[i] * self.noise / 100)), 0, 1)
-            out_p = np.clip(outside_count / self.num_samples *
-                            (1 - (n[i] * self.noise / 100)), 0, 1)
+                    x_grid = int(np.clip(np.round(x + dx), 0, self.image_size - 1))
+                    y_grid = int(np.clip(np.round(y + dy), 0, self.image_size - 1))
+                    if inside[y_grid, x_grid]:
+                        inside_count += 1
+                    elif outside[y_grid, x_grid]:
+                        outside_count += 1
 
-            inside_props.append(in_p)
-            outside_props.append(out_p)
+                in_p = np.clip(inside_count / self.num_samples *
+                               (1 - (n[i] * self.noise / 100)), 0, 1)
+                out_p = np.clip(outside_count / self.num_samples *
+                                (1 - (n[i] * self.noise / 100)), 0, 1)
+
+                inside_props.append(in_p)
+                outside_props.append(out_p)
+            else: # non-gradient sampling -- only sample center of circles
+                x = np.clip(x, 0, self.image_size - 1)
+                y = np.clip(y, 0, self.image_size - 1)
+                is_outside: int = 1 if outside[y, x] else 0
+                is_inside: int = 1 - is_outside
+
+                inside_props.append(is_inside)
+                outside_props.append(is_outside)
 
         self.inside_props = inside_props
         self.outside_props = outside_props
@@ -195,9 +215,6 @@ class IshiharaPlate:
 
         for i, [x, y, r] in enumerate(self.circles):
             in_p, out_p = self.inside_props[i], self.outside_props[i]
-            if not self.gradient:
-                in_p = 1 if in_p > 0.5 else 0
-                out_p = 1 - in_p
 
             circle_color = in_p * self.inside_color + out_p * self.outside_color
             # noise apply to the six channel, scale the entire vector
