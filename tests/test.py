@@ -22,17 +22,19 @@ saveDirs: List[str] = [os.path.join(
 screening_test_color_generator: ScreeningTestColorGenerator = ScreeningTestColorGenerator(
     num_tests, transformDirs, saveDirs)
 
-# targeted_test_color_generator: TargetedTestColorGenerator = TargetedTestColorGenerator(
-#     num_tests, transformDirs[0], 0.7, 5)
+targeted_test_color_generator: TargetedTestColorGenerator = TargetedTestColorGenerator(
+    num_tests, transformDirs[0], 0.7, 5)
 
-# indepth_test_color_generator: InDepthTestColorGenerator = InDepthTestColorGenerator(
-#     transformDirs[0], 0.7, 0.3, 25, 5)
+indepth_test_color_generator: InDepthTestColorGenerator = InDepthTestColorGenerator(
+    transformDirs[0], 0.7, 0.3, 25, 5)
 
 all_color_generators: List[ColorGenerator] = [
-    screening_test_color_generator]
-# targeted_test_color_generator]
+    screening_test_color_generator,
+    targeted_test_color_generator,
+    indepth_test_color_generator
+]
 
-all_color_generator_names: List[str] = ["Screening", "Targeted"]
+all_color_generator_names: List[str] = ["Screening", "Targeted", "InDepth"]
 
 # Test PseudoIsochromaticPlateGenerator with each of the color generators
 for color_generator_name, color_generator in zip(all_color_generator_names, all_color_generators):

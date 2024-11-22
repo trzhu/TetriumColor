@@ -102,7 +102,7 @@ class TargetedTestColorGenerator(ColorGenerator):
     def __init__(self, num_trials: int, transform_dir: str, luminance: float, num_saturation_levels: int):
         self.current_idx: int = 0
         self.num_trials: int = num_trials
-        self.color_space_transform = LoadColorSpaceTransform(transform_dir)
+        self.color_space_transform: ColorSpaceTransform = LoadColorSpaceTransform(transform_dir)
 
         # get parameters for a single direction (kind of terrible, might need to refactor)
         max_L: float = (np.linalg.inv(self.color_space_transform.hering_to_disp) @
@@ -119,7 +119,8 @@ class TargetedTestColorGenerator(ColorGenerator):
 
     def NewColor(self) -> PlateColor:
         vsh = np.concatenate([[self.luminance, self.saturations[self.current_idx]], self.angles])
-        color: PlateColor = HueToDisplay.ConvertVSHToPlateColor(vsh, self.color_space_transform)
+        color: PlateColor = HueToDisplay.ConvertVSHToPlateColor(vsh, self.luminance, self.color_space_transform)
+        print(color)
         self.current_idx += 1
         return color
 
@@ -134,6 +135,8 @@ class InDepthTestColorGenerator(ColorGenerator):
     def __init__(self, transform_dir: str, luminance: float, saturation: float, num_directions: int = 25, num_saturation_levels: int = 5):
         self.color_space_transform: ColorSpaceTransform = LoadColorSpaceTransform(transform_dir)
         self.num_directions: int = num_directions
+        self.luminance: float = luminance
+        self.saturation: float = saturation
         self.hue_space: npt.NDArray = HueToDisplay.SampleHueManifold(
             luminance, saturation, self.color_space_transform.dim, num_directions)
         map_angle_to_cusp = HueToDisplay.GenerateGamutLUT(self.color_space_transform, num_directions)
@@ -149,7 +152,7 @@ class InDepthTestColorGenerator(ColorGenerator):
         lum, sat = self.map_angle_to_lum_plane[hue]
         current_sat_level = self.current_saturation_per_direction[self.current_direction]/self.num_saturation_levels
         color = HueToDisplay.ConvertVSHToPlateColor(
-            np.array([lum, sat*current_sat_level, *hue]), self.color_space_transform)
+            np.array([lum, sat*current_sat_level, *hue]), self.luminance, self.color_space_transform)
         self.current_saturation_per_direction[self.current_direction] -= 1
         self.current_direction = (self.current_direction + 1) % self.num_directions
         return color

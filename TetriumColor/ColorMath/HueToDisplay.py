@@ -89,18 +89,20 @@ def ConvertHeringToVSH(hering: npt.NDArray) -> npt.NDArray:
         raise NotImplementedError("Not implemented for dimensions other than 3 or 4")
 
 
-def ConvertVSHToPlateColor(vsh: npt.NDArray, color_space_transform: ColorSpaceTransform) -> PlateColor:
+def ConvertVSHToPlateColor(vsh: npt.NDArray, luminance: float, color_space_transform: ColorSpaceTransform) -> PlateColor:
     """
     Convert VSH to PlateColor
     Args:
         vsh (npt.NDArray): The VSH coordinates to convert
+        luminance (float): The luminance value of the plane
         color_space_transform (ColorSpaceTransform): The ColorSpaceTransform to use for the conversion
     """
-    hering = ConvertVSHToHering(vsh[np.newaxis, :])
+    pair_colors = np.concatenate([vsh[np.newaxis, :], np.array([luminance, 0, 0, 0])[np.newaxis, :]])
+    hering = ConvertVSHToHering(pair_colors)
     disp = (color_space_transform.hering_to_disp@hering.T).T
     six_d_color = ColorMathUtils.Map4DTo6D(disp, color_space_transform)
     # TODO: Fix this to be the achromatic background that it is supposed to be testing against.
-    return PlateColor(TetraColor(six_d_color[0][:3], six_d_color[0][3:]), TetraColor(np.zeros(3), np.zeros(3)))
+    return PlateColor(TetraColor(six_d_color[0][:3], six_d_color[0][3:]), TetraColor(six_d_color[1][:3], six_d_color[1][3:]))
 
 
 def SampleAlongDirection(vsh: npt.ArrayLike, step_size: float, max_saturation: float) -> npt.ArrayLike:
