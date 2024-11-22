@@ -139,7 +139,7 @@ class InDepthTestColorGenerator(ColorGenerator):
         self.saturation: float = saturation
         self.hue_space: npt.NDArray = HueToDisplay.SampleHueManifold(
             luminance, saturation, self.color_space_transform.dim, num_directions)
-        map_angle_to_cusp = HueToDisplay.GenerateGamutLUT(self.color_space_transform, num_directions)
+        map_angle_to_cusp = HueToDisplay.GenerateGamutLUT(self.hue_space, self.color_space_transform)
         self.map_angle_to_lum_plane = HueToDisplay.GetEquiluminantPlane(
             luminance, self.color_space_transform, map_angle_to_cusp)
 

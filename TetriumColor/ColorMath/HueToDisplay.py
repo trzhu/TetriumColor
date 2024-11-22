@@ -3,6 +3,7 @@ Goal: Sample Directions in Color Space.
 3.5 -- probably want to precompute the bounds on each direction so quest doesn't try to keep testing useless saturations
 """
 import numpy.typing as npt
+from typing import List
 
 from tqdm import tqdm
 import numpy as np
@@ -89,6 +90,18 @@ def ConvertHeringToVSH(hering: npt.NDArray) -> npt.NDArray:
         raise NotImplementedError("Not implemented for dimensions other than 3 or 4")
 
 
+def ConvertVSHtoTetraColor(vsh: npt.NDArray, color_space_transform: ColorSpaceTransform) -> List[TetraColor]:
+    """
+    Convert VSH to TetraColor
+    Args:
+        vsh (npt.NDArray): The VSH coordinates to convert
+    """
+    hering = ConvertVSHToHering(vsh)
+    disp = (color_space_transform.hering_to_disp@hering.T).T
+    six_d_color = ColorMathUtils.Map4DTo6D(disp, color_space_transform)
+    return [TetraColor(six_d_color[i, :3], six_d_color[i, 3:]) for i in range(six_d_color.shape[0])]
+
+
 def ConvertVSHToPlateColor(vsh: npt.NDArray, luminance: float, color_space_transform: ColorSpaceTransform) -> PlateColor:
     """
     Convert VSH to PlateColor
@@ -128,16 +141,14 @@ def FindMaxSaturationForVSH(vsh: npt.NDArray, color_space_transform: ColorSpaceT
     return tuple([max_sat_per_angle[0], max_sat_per_angle[1]])
 
 
-def GenerateGamutLUT(color_space_transform: ColorSpaceTransform, num_points: int = 250) -> dict:
+def GenerateGamutLUT(all_vshh: npt.NDArray, color_space_transform: ColorSpaceTransform) -> dict:
     """
     Generate a Look-Up Table for the Gamut of the Given ColorSpaceTransform
     Args:
+        all_vshh (npt.NDArray): The VSHH points to generate the LUT for
         color_space_transform (ColorSpaceTransform): The ColorSpaceTransform to generate the LUT for
     """
     dim = color_space_transform.cone_to_disp.shape[0]
-
-    # get VSH coordinates, to sample the hue directions
-    all_vshh = SampleHueManifold(0, 1, dim, num_points)
     all_cartesian_points = (color_space_transform.hering_to_disp@ConvertVSHToHering(all_vshh).T).T
 
     # get max sat points for each hue direction

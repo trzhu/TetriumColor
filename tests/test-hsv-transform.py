@@ -20,9 +20,9 @@ def getTransformDirs(display_primaries: str):
 def test3DCase():
     dirs = getTransformDirs('RGB')
     color_space_transform: ColorSpaceTransform = LoadColorSpaceTransform(dirs[0])
-    map_angle_sat = GenerateGamutLUT(color_space_transform)
-
     vshh = SampleHueManifold(1.7/2, 0.6, 3, 250)  # 0.6 is the max with all contained
+    map_angle_sat = GenerateGamutLUT(vshh, color_space_transform)
+
     remapped_points = RemapGamutPoints(vshh, color_space_transform, map_angle_sat)
 
     all_hering_points = ConvertVSHToHering(remapped_points)
@@ -51,9 +51,8 @@ def test3DCase():
 def test4DCase():
     dirs = getTransformDirs('RGBO')
     color_space_transform: ColorSpaceTransform = LoadColorSpaceTransform(dirs[0])
-    map_angle_sat = GenerateGamutLUT(color_space_transform, num_points=1000)
-
     vshh = SampleHueManifold(1.7/2, 0.4, 4, 1000)
+    map_angle_sat = GenerateGamutLUT(vshh, color_space_transform)
     remapped_points = RemapGamutPoints(vshh, color_space_transform, map_angle_sat)
     print(np.min(remapped_points[:, 1]), np.max(remapped_points[:, 1]))
     all_hering_points = ConvertVSHToHering(remapped_points)
