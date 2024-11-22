@@ -1,128 +1,260 @@
 """
-Goal: Sample Directions in Color Space. 
+Goal: Sample Directions in Color Space.
 3.5 -- probably want to precompute the bounds on each direction so quest doesn't try to keep testing useless saturations
 """
 import numpy.typing as npt
-from TetriumColor.Utils.CustomTypes import ColorSpaceTransform
 
+from tqdm import tqdm
 import numpy as np
 
-#TODO: Implement the above, also generate all of the precomputed matrices. We also need to account for S-cone noise somewhere, still not applied.
+from TetriumColor.ColorMath.SubSpaceIntersection import FindMaximalSaturation
+import TetriumColor.ColorMath.ColorMathUtils as ColorMathUtils
+from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, PlateColor, TetraColor
 
-def __convertPolarToCartesian(VSH: npt.ArrayLike) -> npt.ArrayLike:
+
+def __convertPolarToCartesian(SH: npt.NDArray) -> npt.NDArray:
     """
     Convert Polar to Cartesian Coordinates
     Args:
-        HSV (npt.ArrayLike, N x 3): The HSV coordinates that we want to transform. Value is the same but Hue and Saturation are transformed
+        SH (npt.ArrayLike, N x 2): The SH coordinates that we want to transform. Saturation and Hue are transformed
     """
-    V, S, H = VSH[:, 0], VSH[:, 1], VSH[:, 2]
-    return np.array([S * np.cos(H), S * np.sin(H), V])
+    S, H = SH[:, 0], SH[:, 1]
+    return np.array([S * np.cos(H), S * np.sin(H)]).T
 
 
-def __convertCartesianToPolar(VCC: npt.ArrayLike) -> npt.ArrayLike:
+def __convertCartesianToPolar(CC: npt.NDArray) -> npt.NDArray:
     """
-    Convert Cartesian to Polar Coordinates (VSH)
+    Convert Cartesian to Polar Coordinates (SH)
     Args:
-        Cartesian (npt.ArrayLike, N x 3): The Cartesian coordinates that we want to transform
+        Cartesian (npt.ArrayLike, N x 2): The Cartesian coordinates that we want to transform
     """
-    x, y, z = VCC[:, 0], VCC[:, 1], VCC[:, 2]
-    return np.array([x, np.sqrt(y**2 + z**2), np.arctan2(z, y)])
+    x, y = CC[:, 0], CC[:, 1]
+    rTheta = np.array([np.sqrt(x**2 + y**2), np.arctan2(y, x)]).T
+    rTheta[:, 1] = np.where(rTheta[:, 1] < -1e-9, rTheta[:, 1] + 2 * np.pi, rTheta[:, 1])  # Ensure θ is in [0, 2π]
+    return rTheta
 
 
-def __convertSphericalToCartesian(thetaPhiRValue: npt.ArrayLike) -> npt.ArrayLike:
+def __convertSphericalToCartesian(rPhiTheta: npt.NDArray) -> npt.NDArray:
     """
     Convert Spherical Coordinates (VSHH) to Cartesian Coordinates
     Args:
-        thetaPhiRValue (npt.ArrayLike, N x 4): The Theta, Phi, Radius and Value ordered in a columnar fashion 
+        thetaPhiRValue (npt.ArrayLike, N x 4): The Theta, Phi, Radius and Value ordered in a columnar fashion
     """
-    value, r, phi, theta = thetaPhiRValue[:, 0], thetaPhiRValue[:, 1], thetaPhiRValue[:, 2], thetaPhiRValue[:, 3]
-    return np.array([value, r * np.sin(phi) * np.cos(theta), r * np.sin(phi) * np.sin(theta), r * np.cos(phi)])
+    r, phi, theta = rPhiTheta[:, 0], rPhiTheta[:, 1], rPhiTheta[:, 2]
+    return np.array([r * np.sin(phi) * np.cos(theta), r * np.sin(phi) * np.sin(theta), r * np.cos(phi)]).T
 
 
-def __convertCartesianToSpherical(Cartesian: npt.ArrayLike) -> npt.ArrayLike:
+def __convertCartesianToSpherical(cartesian: npt.NDArray) -> npt.NDArray:
     """
     Convert Cartesian Coordinates to Spherical Coordinates
     Args:
         Cartesian (npt.ArrayLike, N x 4): The Cartesian coordinates that we want to transform
+
+    Returns:
+        npt.ArrayLike: The Spherical Coordinates in the form of R Theta Phi as Nx3 Matrix
     """
-    v, x, y, z = Cartesian[:, 0], Cartesian[:, 1], Cartesian[:, 2], Cartesian[:, 3]
+    x, y, z = cartesian[:, 0], cartesian[:, 1], cartesian[:, 2]
     r = np.sqrt(x**2 + y**2 + z**2)
     phi = np.arccos(z / r)
     theta = np.arctan2(y, x)
-    return np.array([v, r, theta, phi])
+    return np.array([r, theta, phi]).T
 
 
-def convertHSVToHering(HSV: npt.ArrayLike) -> npt.ArrayLike:
+def ConvertVSHToHering(vsh: npt.NDArray) -> npt.NDArray:
     """
     Converts from HSV to the Max Basis. Returns an Nxdim array of points in the Max Basis
     Args:
         HSV (npt.ArrayLike, Nxdim): The HSV coordinates that we want to transform
     """
-    if HSV.shape[1] == 4:
-        return __convertSphericalToCartesian(HSV)
-    elif HSV.shape[1] == 3:
-        return __convertPolarToCartesian(HSV)
+    if vsh.shape[1] == 4:
+        return np.hstack([vsh[:, [0]], __convertSphericalToCartesian(vsh[:, 1:])])
+    elif vsh.shape[1] == 3:
+        return np.hstack([vsh[:, [0]], __convertPolarToCartesian(vsh[:, 1:])])
     else:
-        raise NotImplementedError("Not implemented for dimensions other than 3 or 4")
+        raise NotImplementedError(
+            "Not implemented for dimensions other than 3 or 4")
 
-def convertHeringToHSV(Hering: npt.ArrayLike) -> npt.ArrayLike:
+
+def ConvertHeringToVSH(hering: npt.NDArray) -> npt.NDArray:
     """
     Converts from the Hering Basis to HSV. Returns an Nxdim array of points in HSV #TODO: decide on ordering.
     Args:
         Hering (npt.ArrayLike, Nxdim): The Max Basis coordinates that we want to transform
     """
-    if Hering.shape[1] == 4:
-        return np.vstack(Hering[:, 0], __convertCartesianToSpherical(Hering[:, 1:]))
-    elif Hering.shape[1] == 3:
-        return np.vstack(Hering[:, 0], __convertCartesianToPolar(Hering[:, 1:]))
+    if hering.shape[1] == 4:
+        return np.hstack([hering[:, [0]], __convertCartesianToSpherical(hering[:, 1:])])
+    elif hering.shape[1] == 3:
+        return np.hstack([hering[:, [0]], __convertCartesianToPolar(hering[:, 1:])])
     else:
         raise NotImplementedError("Not implemented for dimensions other than 3 or 4")
 
 
-# TODO: @Jess make sure ordering of HSV is right when the matrices are formed
-def HSVtoDisplaySpace(HSV: npt.ArrayLike, M_HeringToDisp: npt.ArrayLike) -> npt.ArrayLike:
+def ConvertVSHToPlateColor(vsh: npt.NDArray, color_space_transform: ColorSpaceTransform) -> PlateColor:
     """
-    Transform from HSV to Display Space, returns an Nxdim array of HSV points in Display Space
+    Convert VSH to PlateColor
     Args:
-        HSV (npt.ArrayLike): The HSV coordinates that we want to transform
-        M_HSVToDisplay (npt.ArrayLike): The Transform from HSV to Display Space
+        vsh (npt.NDArray): The VSH coordinates to convert
+        color_space_transform (ColorSpaceTransform): The ColorSpaceTransform to use for the conversion
     """
-    return np.clip((M_HeringToDisp@convertHSVToHering(HSV).T).T, 0, 1)
+    hering = ConvertVSHToHering(vsh[np.newaxis, :])
+    disp = (color_space_transform.hering_to_disp@hering.T).T
+    six_d_color = ColorMathUtils.Map4DTo6D(disp, color_space_transform)
+    # TODO: Fix this to be the achromatic background that it is supposed to be testing against.
+    return PlateColor(TetraColor(six_d_color[0][:3], six_d_color[0][3:]), TetraColor(np.zeros(3), np.zeros(3)))
 
 
-def SampleAlongDirection(VSH: npt.ArrayLike, stepSize: float) -> npt.ArrayLike:
+def SampleAlongDirection(vsh: npt.ArrayLike, step_size: float, max_saturation: float) -> npt.ArrayLike:
     """
     Sample saturation along the given HSV coordinate
     Args:
         HSV (npt.ArrayLike): The HSV coordinates to sample from
         stepSize (float): The step size to sample at
     """
-    # TODO: settle on ordering. I think it should be VSHH because H can always be more dims, less casing can happen for different dimensions
-    maxS = VSH[:, 1]
-    sampleSat = np.arange(0, maxS, stepSize)
-    samplesAlongH = np.repeat(VSH, len(sampleSat), axis=0)
-    samplesAlongH[:, 1] = sampleSat
-    return samplesAlongH
+    sample_sat = np.arange(0, max_saturation, step_size)
+    samples_along_h = np.repeat(vsh, len(sample_sat), axis=0)
+    samples_along_h[:, 1] = sample_sat
+    return samples_along_h
 
 
-def computeMetamericAxisInHering(colorSpaceTransform: ColorSpaceTransform) -> npt.ArrayLike:
+def FindMaxSaturationForVSH(vsh: npt.NDArray, color_space_transform: ColorSpaceTransform) -> tuple[float, float]:
+    cartesian = (color_space_transform.hering_to_disp@ConvertVSHToHering(vsh).T).T
+    max_sat_pt_in_display = np.array([FindMaximalSaturation(cartesian[0], np.eye(color_space_transform.dim))])
+
+    # convert display points back to VSH, and set parameters
+    invMat = np.linalg.inv(color_space_transform.hering_to_disp)
+    max_sat_per_angle = ConvertHeringToVSH((invMat@max_sat_pt_in_display.T).T)[0]
+    return tuple([max_sat_per_angle[0], max_sat_per_angle[1]])
+
+
+def GenerateGamutLUT(color_space_transform: ColorSpaceTransform, num_points: int = 250) -> dict:
     """
-    Get Metameric Axis in Hering Space
-    """
-    metamericAxis = np.zeros(colorSpaceTransform.cone_to_disp.shape[0])
-    metamericAxis[colorSpaceTransform.metameric_axis] = 1
-    direction = np.dot(colorSpaceTransform.cone_to_disp, metamericAxis)
-    normalized_direction = direction / np.linalg.norm(direction)
-    return np.linalg.inv(colorSpaceTransform.hering_to_disp)@normalized_direction
-
-
-def getMetamericSteps(colorSpaceTransform: ColorSpaceTransform, stepSize:float) -> npt.ArrayLike:
-    """
-    Get the Metameric Steps for the given ColorSpaceTransform
+    Generate a Look-Up Table for the Gamut of the Given ColorSpaceTransform
     Args:
-        colorSpaceTransform (ColorSpaceTransform): The ColorSpaceTransform to get the Metameric Steps for
+        color_space_transform (ColorSpaceTransform): The ColorSpaceTransform to generate the LUT for
     """
-    metamericAxis = computeMetamericAxisInHering(colorSpaceTransform)
-    hsv_hering = convertHeringToHSV(metamericAxis)
-    hsv_samples = SampleAlongDirection(hsv_hering, stepSize)
-    return HSVtoDisplaySpace(hsv_samples, colorSpaceTransform.hering_to_disp)
+    dim = color_space_transform.cone_to_disp.shape[0]
+
+    # get VSH coordinates, to sample the hue directions
+    all_vshh = SampleHueManifold(0, 1, dim, num_points)
+    all_cartesian_points = (color_space_transform.hering_to_disp@ConvertVSHToHering(all_vshh).T).T
+
+    # get max sat points for each hue direction
+    map_angle_to_sat = {}
+    pts = []
+    for pt in tqdm(all_cartesian_points):
+        pts += [FindMaximalSaturation(pt, np.eye(dim))]  # paralletope is the unit cube..? yes.
+    max_sat_cartesian_per_angle = np.array(pts)
+
+    # convert display points back to VSH, and set parameters
+    invMat = np.linalg.inv(color_space_transform.hering_to_disp)
+    max_sat_per_angle = ConvertHeringToVSH((invMat@max_sat_cartesian_per_angle.T).T)
+    for angle, sat in zip(all_vshh[:, 2:], max_sat_per_angle):
+        map_angle_to_sat[tuple(angle)] = tuple([sat[0], sat[1]])
+    return map_angle_to_sat
+
+
+def SolveForBoundary(L: float, max_L: float, lum_cusp: float, sat_cusp: float) -> float:
+    """
+    Solve for the boundary of the gamut
+    Args:
+        L (float): The Luminance Value to solve for
+        max_L (float): The Maximum Luminance Value
+        lum_cusp (float): The Luminance Value at the Cusp
+        sat_cusp (float): The Saturation Value at the Cusp
+
+    Returns:
+        float: The Saturation Value that corresponds to the boundary point at L
+    """
+    # get the cusp point for the given angle -- either presolved or solved on the fly atm
+    if L > lum_cusp:
+        slope = -(max_L - lum_cusp) / sat_cusp
+        return (L - max_L) / (slope)
+    else:
+        slope = lum_cusp / sat_cusp
+        return L / slope
+
+
+def GetEquiluminantPlane(luminance: float, color_space_transform: ColorSpaceTransform, map_angle_sat: dict) -> dict:
+    """Get the saturation plane for the given VSHH points
+
+    Args:
+        luminance (float): luminance value
+        color_space_transform (ColorSpaceTransform): color space transform object
+        map_angle_sat (dict): dictionary that solves for the boundary of the gamut
+
+    Returns:
+        map_angle_lum_sat(dict): Mapping from angle to constant luminance varying saturation
+    """
+    map_angle_lum_sat = {}
+    max_L = (np.linalg.inv(color_space_transform.hering_to_disp) @
+             np.ones(color_space_transform.cone_to_disp.shape[0]))[0]
+    for angle, (lum_cusp, sat_cusp) in map_angle_sat.items():
+        sat = SolveForBoundary(luminance, max_L, lum_cusp, sat_cusp)
+        map_angle_lum_sat[angle] = (luminance, sat)
+    return map_angle_lum_sat
+
+
+def RemapGamutPoints(VSHH: npt.NDArray, color_space_transform: ColorSpaceTransform, map_angle_sat: dict) -> npt.NDArray:
+    """Given a set of VSHH points, remap the saturation values to be within the gamut
+
+    Args:
+        VSHH (npt.NDArray): value, saturation, hue(dim-2)
+        color_space_transform (ColorSpaceTransform): color space transform object
+        map_angle_sat (dict): dictionary that solves for the boundary of the gamut
+
+    Returns:
+        npt.NDArray: Remapped VSHH
+    """
+    max_L = (np.linalg.inv(color_space_transform.hering_to_disp) @
+             np.ones(color_space_transform.cone_to_disp.shape[0]))[0]
+    for i in range(len(VSHH)):
+        angle = tuple(VSHH[i, 2:])
+        if angle not in map_angle_sat:
+            lum_cusp, sat_cusp = FindMaxSaturationForVSH(np.array([[0, 1, *angle]]), color_space_transform)
+        else:
+            lum_cusp, sat_cusp = map_angle_sat[angle]
+        sat = SolveForBoundary(VSHH[i][0], max_L, lum_cusp, sat_cusp)
+        VSHH[i, 1] = min(sat, VSHH[i][1])
+    return VSHH
+
+
+def SampleHueManifold(luminance: float, saturation: float, dim: int, num_points: int) -> npt.NDArray:
+    """
+    Generate a sphere of hue values
+    Args:
+        luminance (float): The luminance value to generate the sphere at
+        saturation (float): The saturation value to generate the sphere at
+    """
+    all_angles = ColorMathUtils.SampleAnglesEqually(num_points, dim-1)
+    all_vshh = np.zeros((len(all_angles), dim))
+    all_vshh[:, 0] = luminance
+    all_vshh[:, 1] = saturation
+    all_vshh[:, 2:] = all_angles
+    return all_vshh
+
+
+def GetMetamericAxisInVSH(color_space_transform: ColorSpaceTransform) -> npt.NDArray:
+    """
+    Get the Metameric Axis in VSH
+    Args:
+        color_space_transform (ColorSpaceTransform): The ColorSpaceTransform to get the Metameric Axis for
+    """
+    metameric_axis = np.zeros(color_space_transform.cone_to_disp.shape[0])
+    metameric_axis[color_space_transform.metameric_axis] = 1
+    direction = np.dot(color_space_transform.cone_to_disp, metameric_axis)
+    normalized_direction = direction / np.linalg.norm(direction)  # return normalized direction
+    return ConvertHeringToVSH(normalized_direction[np.newaxis, :])
+
+# def GetMetamericSteps(color_space_transform: ColorSpaceTransform, step_size: float, max_saturation: float) -> List[PlateColor]:
+#     """
+#     Get the Metameric Steps for the given ColorSpaceTransform
+#     Args:
+#         color_space_transform? (ColorSpaceTransform): The ColorSpaceTransform to get the Metameric Steps for
+#     """
+#     metameric_axis = Utils.ComputeMetamericAxisInHering(color_space_transform)
+#     hsv_hering = ConvertHeringToVSH(metameric_axis[np.newaxis, :])
+#     hsv_samples = SampleAlongDirection(hsv_hering, step_size, max_saturation)
+#     # TODO: something is fucked up with the HSV transforms, not getting an achromatic value
+#     gray = HSVtoDisplaySpace(
+#         np.array([[hsv_hering[0][0], 0, 0, 0]]), color_space_transform.hering_to_disp)
+#     return Utils.ConvertColorsToPlateColors(HSVtoDisplaySpace(hsv_samples, color_space_transform.hering_to_disp), gray, color_space_transform)

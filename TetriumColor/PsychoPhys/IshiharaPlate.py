@@ -24,12 +24,13 @@ class IshiharaPlate:
         """
         self.num_samples: int = num_samples
         self.dot_sizes: List[int] = dot_sizes
-        self.image_size: tuple = image_size
+        self.image_size: int = image_size
         self.directory: str = directory
         self.seed: int = seed
         self.noise: float = noise
         self.gradient: bool = gradient
         self.lum_noise: float = lum_noise
+        self.circles: List = None
 
         self.__generateGeometry()
         self.__setSecretImage(secret)

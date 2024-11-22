@@ -1,5 +1,6 @@
 # repository 
 tmp
+.vscode
 
 # Mac
 *.DS_Store
