@@ -2,6 +2,8 @@
 
 #include "TetriumColor/PseudoIsochromaticPlateGenerator.h"
 
+namespace TetriumColor
+{
 PseudoIsochromaticPlateGenerator::PseudoIsochromaticPlateGenerator(
     const std::vector<std::string>& transform_dirs,
     const std::vector<std::string>& pregenerated_filenames,
@@ -17,7 +19,9 @@ PseudoIsochromaticPlateGenerator::PseudoIsochromaticPlateGenerator(
 
     PyObject* py_pregenerated_filenames = PyList_New(pregenerated_filenames.size());
     for (size_t i = 0; i < pregenerated_filenames.size(); ++i) {
-        PyList_SetItem(py_pregenerated_filenames, i, PyUnicode_FromString(pregenerated_filenames[i].c_str()));
+        PyList_SetItem(
+            py_pregenerated_filenames, i, PyUnicode_FromString(pregenerated_filenames[i].c_str())
+        );
     }
 
     // Import the Python module
@@ -105,3 +109,5 @@ void PseudoIsochromaticPlateGenerator::GetPlate(
         }
     }
 }
+
+} // namespace TetriumColor
