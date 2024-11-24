@@ -11,7 +11,7 @@ from collections import defaultdict
 import numpy as np
 from tqdm import tqdm
 
-from . import ColorMathUtils as Utils
+from TetriumColor.ColorMath.Conversion import ConvertMetamersToPlateColors
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, PlateColor, TetraColor
 
 ############################################################################################################
@@ -179,4 +179,4 @@ def GetKMetamers(transform: ColorSpaceTransform, K: int, hypercubeSample: float 
         invMat, hypercube, metameric_axis=transform.metameric_axis, K=K)
     final_metamers = _refineMetamers(
         metamers_first_pass, invMat, metameric_axis=transform.metameric_axis, hypercube_sample=hypercubeSample)
-    return Utils.ConvertMetamersToPlateColors(final_metamers.reshape(-1, 4), transform)
+    return ConvertMetamersToPlateColors(final_metamers.reshape(-1, 4), transform)

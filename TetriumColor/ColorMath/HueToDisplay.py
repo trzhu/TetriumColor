@@ -8,8 +8,10 @@ from typing import List
 from tqdm import tqdm
 import numpy as np
 
+from TetriumColor.ColorMath import Sampling
 from TetriumColor.ColorMath.SubSpaceIntersection import FindMaximalSaturation
-import TetriumColor.ColorMath.ColorMathUtils as ColorMathUtils
+import TetriumColor.ColorMath.Sampling as Sampling
+import TetriumColor.ColorMath.Conversion as Conversion
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, PlateColor, TetraColor
 
 
@@ -98,7 +100,7 @@ def ConvertVSHtoTetraColor(vsh: npt.NDArray, color_space_transform: ColorSpaceTr
     """
     hering = ConvertVSHToHering(vsh)
     disp = (color_space_transform.hering_to_disp@hering.T).T
-    six_d_color = ColorMathUtils.Map4DTo6D(disp, color_space_transform)
+    six_d_color = Conversion.Map4DTo6D(disp, color_space_transform)
     return [TetraColor(six_d_color[i, :3], six_d_color[i, 3:]) for i in range(six_d_color.shape[0])]
 
 
@@ -113,7 +115,7 @@ def ConvertVSHToPlateColor(vsh: npt.NDArray, luminance: float, color_space_trans
     pair_colors = np.concatenate([vsh[np.newaxis, :], np.array([luminance, 0, 0, 0])[np.newaxis, :]])
     hering = ConvertVSHToHering(pair_colors)
     disp = (color_space_transform.hering_to_disp@hering.T).T
-    six_d_color = ColorMathUtils.Map4DTo6D(disp, color_space_transform)
+    six_d_color = Conversion.Map4DTo6D(disp, color_space_transform)
     return PlateColor(TetraColor(six_d_color[0][:3], six_d_color[0][3:]), TetraColor(six_d_color[1][:3], six_d_color[1][3:]))
 
 
@@ -237,7 +239,7 @@ def SampleHueManifold(luminance: float, saturation: float, dim: int, num_points:
         luminance (float): The luminance value to generate the sphere at
         saturation (float): The saturation value to generate the sphere at
     """
-    all_angles = ColorMathUtils.SampleAnglesEqually(num_points, dim-1)
+    all_angles = Sampling.SampleAnglesEqually(num_points, dim-1)
     all_vshh = np.zeros((len(all_angles), dim))
     all_vshh[:, 0] = luminance
     all_vshh[:, 1] = saturation
