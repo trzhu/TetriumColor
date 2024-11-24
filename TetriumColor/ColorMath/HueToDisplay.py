@@ -178,7 +178,7 @@ def SolveForBoundary(L: float, max_L: float, lum_cusp: float, sat_cusp: float) -
         float: The Saturation Value that corresponds to the boundary point at L
     """
     # get the cusp point for the given angle -- either presolved or solved on the fly atm
-    if L > lum_cusp:
+    if L >= lum_cusp:
         slope = -(max_L - lum_cusp) / sat_cusp
         return (L - max_L) / (slope)
     else:
