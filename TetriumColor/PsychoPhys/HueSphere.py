@@ -124,8 +124,59 @@ def ConvertCubeUVToXYZ(index, u, v, radius) -> npt.NDArray:
     return np.array([x, y, z]).T
 
 
-def GenerateCubeMapTextures(luminance: float, saturation: float, color_space_transform: ColorSpaceTransform, image_size: int,
-                            filename_RGB: str, filename_OCV: str):
+def __rotateToZAxis(vector: npt.NDArray) -> npt.NDArray:
+    """
+    Returns a rotation matrix that rotates the given vector to align with the Z-axis.
+
+    Parameters:
+        vector (array-like): The input vector to align with the Z-axis.
+
+    Returns:
+        numpy.ndarray: A 3x3 rotation matrix.
+    """
+    # Normalize the input vector
+    v = np.array(vector, dtype=float)
+    v = v / np.linalg.norm(v)
+
+    # Z-axis unit vector
+    z_axis = np.array([0, 0, 1], dtype=float)
+
+    # Compute the axis of rotation (cross product)
+    axis = np.cross(v, z_axis)
+    axis_norm = np.linalg.norm(axis)
+
+    if axis_norm == 0:
+        # The vector is already aligned with the Z-axis
+        return np.eye(3)
+
+    axis = axis / axis_norm  # Normalize the axis
+
+    # Compute the angle of rotation (dot product)
+    angle = np.arccos(np.dot(v, z_axis))
+
+    # Compute the skew-symmetric cross-product matrix for the axis
+    K = np.array([
+        [0, -axis[2], axis[1]],
+        [axis[2], 0, -axis[0]],
+        [-axis[1], axis[0], 0]
+    ])
+
+    # Use the Rodrigues' rotation formula
+    R = np.eye(3) + np.sin(angle) * K + (1 - np.cos(angle)) * np.dot(K, K)
+
+    return R
+
+
+def GetTransformChromToQDir(transform: ColorSpaceTransform):
+    """
+    Get the transformation matrix from chromaticity to the metameric direction.
+    """
+    shh = HueToDisplay.GetMetamericAxisInVSH(transform)[0, 1:]  # remove luminance
+    return __rotateToZAxis(shh)
+
+
+def GenerateCubeMapTextures(luminance: float, saturation: float, color_space_transform: ColorSpaceTransform,
+                            image_size: int, filename_RGB: str, filename_OCV: str):
     """GenerateCubeMapTextures generates the cube map textures for a given luminance and saturation.
 
     Args:
@@ -140,8 +191,12 @@ def GenerateCubeMapTextures(luminance: float, saturation: float, color_space_tra
     # Grid of UV coordinate that are the size of image_size
     all_us = (np.arange(image_size) + 0.5) / image_size
     all_vs = (np.arange(image_size) + 0.5) / image_size
-    cube_u, cube_v = np.meshgrid(all_us, all_us)
+    cube_u, cube_v = np.meshgrid(all_us, all_vs)
     flattened_u, flattened_v = cube_u.flatten(), cube_v.flatten()
+
+    # change the associated xyzs -> to a new direction, but the same color values
+    qDirMat = GetTransformChromToQDir(color_space_transform)
+    invQDirMat = np.linalg.inv(qDirMat)
 
     # Create the RGB/OCV GenerateCubeMapTextures
     for i in range(6):
@@ -151,24 +206,21 @@ def GenerateCubeMapTextures(luminance: float, saturation: float, color_space_tra
         draw_rgb = ImageDraw.Draw(img_rgb)
         draw_ocv = ImageDraw.Draw(img_ocv)
 
-        # directions in space
+        # convert the xyz coordinates of the cube map back into the original hering space -- this defines the
+        # cubemap directions exactly !
         xyz = ConvertCubeUVToXYZ(i, cube_u, cube_v, saturation).reshape(-1, 3)
+        xyz = np.dot(invQDirMat, xyz.T).T
         lum_vector = luminance * np.ones(image_size * image_size)
+
         vxyz = np.hstack((lum_vector[np.newaxis, :].T, xyz))
         vshh = HueToDisplay.ConvertHeringToVSH(vxyz)
 
-        # TODO: add a transform to place the cubemap in whatever direction necessary
-
         map_angle_sat = HueToDisplay.GenerateGamutLUT(vshh, color_space_transform)
         remapped_vshh = HueToDisplay.RemapGamutPoints(vshh, color_space_transform, map_angle_sat)
-        remapped_cartesian = HueToDisplay.ConvertVSHToHering(remapped_vshh)
-
-        cube_uv_pts = ConvertXYZToCubeUV(remapped_cartesian[:, 1], remapped_cartesian[:, 2], remapped_cartesian[:, 3])
         corresponding_tetracolors = HueToDisplay.ConvertVSHtoTetraColor(remapped_vshh, color_space_transform)
 
-        for j in range(len(cube_uv_pts[0])):
+        for j in range(len(flattened_u)):
             u, v = flattened_u[j], flattened_v[j]
-            # idx, u, v = cube_uv_pts[0][j], cube_uv_pts[1][j], cube_uv_pts[2][j]
             color: TetraColor = corresponding_tetracolors[j]
             rgb_color = (int(color.RGB[0] * 255), int(color.RGB[1] * 255), int(color.RGB[2] * 255))
             draw_rgb.point((u * image_size, v * image_size), fill=rgb_color)
@@ -204,8 +256,6 @@ def ConcatenateCubeMap(basename: str, output_filename: str):
     height = 3 * face_height
     cubemap_image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
 
-    # TODO: decide the canonical direction for each of the cubemap faces?
-    # Place faces in the cross layout with correct orientation
     # +X (0)
     cubemap_image.paste(faces[0].rotate(90), (2 * face_width, face_height))
     # -X (1) flipped horizontally

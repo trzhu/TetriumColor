@@ -114,7 +114,6 @@ def ConvertVSHToPlateColor(vsh: npt.NDArray, luminance: float, color_space_trans
     hering = ConvertVSHToHering(pair_colors)
     disp = (color_space_transform.hering_to_disp@hering.T).T
     six_d_color = ColorMathUtils.Map4DTo6D(disp, color_space_transform)
-    # TODO: Fix this to be the achromatic background that it is supposed to be testing against.
     return PlateColor(TetraColor(six_d_color[0][:3], six_d_color[0][3:]), TetraColor(six_d_color[1][:3], six_d_color[1][3:]))
 
 
@@ -257,17 +256,3 @@ def GetMetamericAxisInVSH(color_space_transform: ColorSpaceTransform) -> npt.NDA
     direction = np.dot(color_space_transform.cone_to_disp, metameric_axis)
     normalized_direction = direction / np.linalg.norm(direction)  # return normalized direction
     return ConvertHeringToVSH(normalized_direction[np.newaxis, :])
-
-# def GetMetamericSteps(color_space_transform: ColorSpaceTransform, step_size: float, max_saturation: float) -> List[PlateColor]:
-#     """
-#     Get the Metameric Steps for the given ColorSpaceTransform
-#     Args:
-#         color_space_transform? (ColorSpaceTransform): The ColorSpaceTransform to get the Metameric Steps for
-#     """
-#     metameric_axis = Utils.ComputeMetamericAxisInHering(color_space_transform)
-#     hsv_hering = ConvertHeringToVSH(metameric_axis[np.newaxis, :])
-#     hsv_samples = SampleAlongDirection(hsv_hering, step_size, max_saturation)
-#     # TODO: something is fucked up with the HSV transforms, not getting an achromatic value
-#     gray = HSVtoDisplaySpace(
-#         np.array([[hsv_hering[0][0], 0, 0, 0]]), color_space_transform.hering_to_disp)
-#     return Utils.ConvertColorsToPlateColors(HSVtoDisplaySpace(hsv_samples, color_space_transform.hering_to_disp), gray, color_space_transform)

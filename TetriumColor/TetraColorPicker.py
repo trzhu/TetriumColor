@@ -96,7 +96,6 @@ class ScreeningTestColorGenerator(ColorGenerator):
         return self.NewColor()
 
 
-# TODO: Fix these classes (should be straightforward now)
 class TargetedTestColorGenerator(ColorGenerator):
 
     def __init__(self, num_trials: int, transform_dir: str, luminance: float, num_saturation_levels: int):
