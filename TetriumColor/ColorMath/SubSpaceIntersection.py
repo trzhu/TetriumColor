@@ -3,8 +3,6 @@ import numpy as np
 from scipy.optimize import linprog
 from scipy.spatial import ConvexHull
 
-from TetriumColor.Utils.CustomTypes import ColorSpaceTransform
-
 
 def ProjectPointOntoPlane(p: npt.NDArray, q: npt.NDArray, n: npt.NDArray) -> npt.NDArray:
     """

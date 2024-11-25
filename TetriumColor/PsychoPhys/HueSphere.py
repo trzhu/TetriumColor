@@ -1,4 +1,3 @@
-from re import I
 import numpy as np
 import numpy.typing as npt
 import os
@@ -9,50 +8,6 @@ import TetriumColor.ColorMath.HueToDisplay as HueToDisplay
 from TetriumColor.ColorMath.Geometry import ConvertCubeUVToXYZ
 
 import numpy as np
-
-
-def LMStoRGB(lms: np.ndarray) -> np.ndarray:
-    """
-    Converts LMS values to sRGB values.
-
-    Args:
-        lms (np.ndarray): Array of LMS values, shape (N, 3) or (3,).
-
-    Returns:
-        np.ndarray: Array of sRGB values, shape (N, 3) or (3,).
-    """
-    # LMS to XYZ conversion matrix
-    lms_to_xyz = np.array([
-        [0.4002, 0.7075, -0.0808],
-        [-0.2263, 1.1653, 0.0457],
-        [0.0000, 0.0000, 0.9182]
-    ])
-
-    # XYZ to linear sRGB conversion matrix
-    xyz_to_srgb = np.array([
-        [3.2406, -1.5372, -0.4986],
-        [-0.9689,  1.8758,  0.0415],
-        [0.0557, -0.2040,  1.0570]
-    ])
-
-    # Apply LMS to XYZ conversion
-    xyz = np.dot(lms, lms_to_xyz.T)
-
-    # Apply XYZ to linear sRGB conversion
-    srgb_linear = np.dot(xyz, xyz_to_srgb.T)
-
-    # Perform gamma correction to get sRGB
-    def gamma_correction(channel):
-        return np.where(channel <= 0.0031308,
-                        12.92 * channel,
-                        1.055 * np.power(channel, 1 / 2.4) - 0.055)
-
-    # srgb = gamma_correction(srgb_linear)
-
-    # Clamp values to [0, 1] range
-    # srgb = np.clip(srgb, 0, 1)
-
-    return srgb_linear
 
 
 def GenerateCubeMapTextures(luminance: float, saturation: float, color_space_transform: ColorSpaceTransform,
