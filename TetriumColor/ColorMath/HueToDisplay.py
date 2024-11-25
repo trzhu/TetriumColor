@@ -142,7 +142,7 @@ def GenerateGamutLUT(all_vshh: npt.NDArray, color_space_transform: ColorSpaceTra
     map_angle_to_sat = {}
     pts = []
     for pt in tqdm(all_cartesian_points):
-        pts += [FindMaximalSaturation(pt, np.eye(dim))]  # paralletope is the unit cube..? yes.
+        pts += [FindMaximalSaturation(pt, np.eye(dim))]
     max_sat_cartesian_per_angle = np.array(pts)
 
     # convert display points back to VSH, and set parameters
@@ -350,7 +350,7 @@ def GetMaximalMetamerPointsOnGrid(luminance: float, saturation: float, cube_idx:
 
     metamers_in_disp = np.zeros((vxyz.shape[0], 2, color_space_transform.dim))
     for i in range(metamers_in_disp.shape[0]):
-        # points in contention in disp space, bounded by unit cube, direction is the metameric axis
+        # points in contention in disp space, bounded by unit cube scaled by vectors, direction is the metameric axis
         metamers_in_disp[i] = FindMaximumIn1DimDirection(
             disp_points[i], metamer_dir_in_disp, np.eye(color_space_transform.dim))
         cone_responses = (disp_to_cone@metamers_in_disp[i].T).T

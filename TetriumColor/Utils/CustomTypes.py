@@ -65,4 +65,4 @@ class ColorSpaceTransform:
     hering_to_disp: npt.NDArray
     metameric_axis: int
     display_basis: List[int]
-    white_point: npt.NDArray
+    white_weights: npt.NDArray

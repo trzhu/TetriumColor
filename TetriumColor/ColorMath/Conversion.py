@@ -31,7 +31,11 @@ def Map4DTo6D(colors: npt.NDArray, transform: ColorSpaceTransform) -> npt.NDArra
     """
     mat = np.zeros((colors.shape[0], 6))
     for i, mapped_idx in enumerate(transform.display_basis):
-        mat[:, mapped_idx] = colors[:, i]
+        # Multiply the color by the white point weight
+        # All colors are [0, 1] inside of the color space to make things "nice"
+        # But when we need to transform to a display weight, we need to rescale them back
+        # in their dynamic range -- need to double check that this is right theoretically!
+        mat[:, mapped_idx] = colors[:, i] * transform.white_weights[i]
     return mat
 
 
