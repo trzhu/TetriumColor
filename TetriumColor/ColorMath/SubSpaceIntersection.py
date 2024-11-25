@@ -3,6 +3,8 @@ import numpy as np
 from scipy.optimize import linprog
 from scipy.spatial import ConvexHull
 
+from TetriumColor.Utils.CustomTypes import ColorSpaceTransform
+
 
 def ProjectPointOntoPlane(p: npt.NDArray, q: npt.NDArray, n: npt.NDArray) -> npt.NDArray:
     """
@@ -128,6 +130,34 @@ def FindMaximalSaturation(hue_direction: npt.NDArray, paralleletope_vecs: npt.ND
     # Back-transform to original space:
     x_max = p0 + np.dot(V, optimal_t)
     return x_max
+
+
+def FindMaximumIn1DimDirection(point: npt.NDArray, metameric_direction: npt.NDArray, paralleletope_vecs: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray]:
+    """Find maximal point that lies in one direction inside of a linear constraint set
+
+    Args:
+        display_space_direction (npt.NDArray): _description_
+        paralleletope_vecs (npt.NDArray): _description_
+
+    Returns:
+        tuple[npt.NDArray, npt.NDArray]: Returns in both positive and negative directions the maximal point
+    """
+    N = paralleletope_vecs.shape[1]  # Dimension of parallelepiped
+
+    p0 = np.zeros(N)
+    A, b = ParallelepipedToInequalities(p0, paralleletope_vecs)
+    V = metameric_direction[np.newaxis, :].T
+    # Maximize in the only dimension of the subspace
+    k = 0
+    # positive direction optimization
+    max_t1, optimal_t = MaximizeDimensionOnSubspace(A, b, point, V, k)
+    x_max = point + np.dot(V, optimal_t)
+
+    # negative direction optimization
+    max_t1, optimal_t = MaximizeDimensionOnSubspace(A, b, point, -1 * V, k)
+    x_min = point + np.dot(-1 * V, optimal_t)
+
+    return x_max, x_min
 
 
 if __name__ == "__main__":

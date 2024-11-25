@@ -8,9 +8,8 @@ from typing import List
 from tqdm import tqdm
 import numpy as np
 
-from TetriumColor.ColorMath import Sampling
-from TetriumColor.ColorMath.SubSpaceIntersection import FindMaximalSaturation
-import TetriumColor.ColorMath.Sampling as Sampling
+from TetriumColor.ColorMath.SubSpaceIntersection import FindMaximalSaturation, FindMaximumIn1DimDirection
+import TetriumColor.ColorMath.Geometry as Geometry
 import TetriumColor.ColorMath.Conversion as Conversion
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, PlateColor, TetraColor
 
@@ -117,19 +116,6 @@ def ConvertVSHToPlateColor(vsh: npt.NDArray, luminance: float, color_space_trans
     disp = (color_space_transform.hering_to_disp@hering.T).T
     six_d_color = Conversion.Map4DTo6D(disp, color_space_transform)
     return PlateColor(TetraColor(six_d_color[0][:3], six_d_color[0][3:]), TetraColor(six_d_color[1][:3], six_d_color[1][3:]))
-
-
-def SampleAlongDirection(vsh: npt.ArrayLike, step_size: float, max_saturation: float) -> npt.ArrayLike:
-    """
-    Sample saturation along the given HSV coordinate
-    Args:
-        HSV (npt.ArrayLike): The HSV coordinates to sample from
-        stepSize (float): The step size to sample at
-    """
-    sample_sat = np.arange(0, max_saturation, step_size)
-    samples_along_h = np.repeat(vsh, len(sample_sat), axis=0)
-    samples_along_h[:, 1] = sample_sat
-    return samples_along_h
 
 
 def FindMaxSaturationForVSH(vsh: npt.NDArray, color_space_transform: ColorSpaceTransform) -> tuple[float, float]:
@@ -239,12 +225,68 @@ def SampleHueManifold(luminance: float, saturation: float, dim: int, num_points:
         luminance (float): The luminance value to generate the sphere at
         saturation (float): The saturation value to generate the sphere at
     """
-    all_angles = Sampling.SampleAnglesEqually(num_points, dim-1)
+    all_angles = Geometry.SampleAnglesEqually(num_points, dim-1)
     all_vshh = np.zeros((len(all_angles), dim))
     all_vshh[:, 0] = luminance
     all_vshh[:, 1] = saturation
     all_vshh[:, 2:] = all_angles
     return all_vshh
+
+
+def __rotateToZAxis(vector: npt.NDArray) -> npt.NDArray:
+    """
+    Returns a rotation matrix that rotates the given vector to align with the Z-axis.
+
+    Parameters:
+        vector (array-like): The input vector to align with the Z-axis.
+
+    Returns:
+        numpy.ndarray: A 3x3 rotation matrix.
+    """
+    # Normalize the input vector
+    v = np.array(vector, dtype=float)
+    v = v / np.linalg.norm(v)
+
+    # Z-axis unit vector
+    z_axis = np.array([0, 0, 1], dtype=float)
+
+    # Compute the axis of rotation (cross product)
+    axis = np.cross(v, z_axis)
+    axis_norm = np.linalg.norm(axis)
+
+    if axis_norm == 0:
+        # The vector is already aligned with the Z-axis
+        return np.eye(3)
+
+    axis = axis / axis_norm  # Normalize the axis
+
+    # Compute the angle of rotation (dot product)
+    angle = np.arccos(np.dot(v, z_axis))
+
+    # Compute the skew-symmetric cross-product matrix for the axis
+    K = np.array([
+        [0, -axis[2], axis[1]],
+        [axis[2], 0, -axis[0]],
+        [-axis[1], axis[0], 0]
+    ])
+
+    # Use the Rodrigues' rotation formula
+    R = np.eye(3) + np.sin(angle) * K + (1 - np.cos(angle)) * np.dot(K, K)
+
+    return R
+
+
+def GetMetamericAxisInDispSpace(color_space_transform: ColorSpaceTransform) -> npt.NDArray:
+    """
+    Get the Metameric Axis in Hering
+    Args:
+        color_space_transform (ColorSpaceTransform): The ColorSpaceTransform to get the Metameric Axis for
+    """
+    metameric_axis = np.zeros(color_space_transform.cone_to_disp.shape[0])
+    metameric_axis[color_space_transform.metameric_axis] = 1
+    direction = np.dot(color_space_transform.cone_to_disp, metameric_axis)
+    normalized_direction = direction / np.linalg.norm(direction)  # return normalized direction
+    return normalized_direction
 
 
 def GetMetamericAxisInVSH(color_space_transform: ColorSpaceTransform) -> npt.NDArray:
@@ -253,8 +295,65 @@ def GetMetamericAxisInVSH(color_space_transform: ColorSpaceTransform) -> npt.NDA
     Args:
         color_space_transform (ColorSpaceTransform): The ColorSpaceTransform to get the Metameric Axis for
     """
-    metameric_axis = np.zeros(color_space_transform.cone_to_disp.shape[0])
-    metameric_axis[color_space_transform.metameric_axis] = 1
-    direction = np.dot(color_space_transform.cone_to_disp, metameric_axis)
-    normalized_direction = direction / np.linalg.norm(direction)  # return normalized direction
-    return ConvertHeringToVSH(normalized_direction[np.newaxis, :])
+    normalized_direction_in_hering: npt.NDArray = np.linalg.inv(
+        color_space_transform.hering_to_disp)@GetMetamericAxisInDispSpace(color_space_transform)
+    return ConvertHeringToVSH(normalized_direction_in_hering[np.newaxis, :])
+
+
+def GetTransformChromToQDir(transform: ColorSpaceTransform):
+    """
+    Get the transformation matrix from chromaticity to the metameric direction.
+    """
+    shh = GetMetamericAxisInVSH(transform)[0, 1:]  # remove luminance
+    return __rotateToZAxis(shh)
+
+
+def GetGridPoints(dist_from_axis: float, cube_idx: int, grid_size: int, color_space_transform: ColorSpaceTransform):
+    all_us = (np.arange(grid_size) + 0.5) / grid_size
+    all_vs = (np.arange(grid_size) + 0.5) / grid_size
+    cube_u, cube_v = np.meshgrid(all_us, all_vs)
+    flattened_u, flattened_v = cube_u.flatten(), cube_v.flatten()
+
+    qDirMat = GetTransformChromToQDir(color_space_transform)
+    invQDirMat = np.linalg.inv(qDirMat)
+
+    xyz_in_cube = Geometry.ConvertCubeUVToXYZ(cube_idx, cube_u, cube_v, dist_from_axis).reshape(-1, 3)
+    xyz_in_chrom = np.dot(invQDirMat, xyz_in_cube.T).T
+
+    return xyz_in_chrom, flattened_u, flattened_v
+
+
+def GetMaximalMetamerPointsOnGrid(luminance: float, saturation: float, cube_idx: int,
+                                  grid_size: int, color_space_transform: ColorSpaceTransform) -> npt.NDArray:
+    """ Get the metamer points for a given luminance and cube index
+    Args:
+        luminance (float): luminance value
+        saturation (float): saturation value
+        cube_idx (int): cube index
+        grid_size (int): grid size
+        color_space_transform (ColorSpaceTransform): color space transform object
+
+    Returns:
+        npt.NDArray: The metamer points
+    """
+    xyz_in_chrom, _, _ = GetGridPoints(saturation, cube_idx, grid_size, color_space_transform)
+    lum_vector = luminance * np.ones(grid_size * grid_size, dtype=float)
+    vxyz = np.hstack((lum_vector[np.newaxis, :].T, xyz_in_chrom))
+    disp_points = (color_space_transform.hering_to_disp@vxyz.T).T
+
+    # metamer_vec = np.zeros(color_space_transform.dim)
+    # metamer_vec[color_space_transform.metameric_axis] = 1
+    # metamer_in_disp = color_space_transform.cone_to_disp@metamer_vec
+    metamer_dir_in_disp = GetMetamericAxisInDispSpace(color_space_transform)
+
+    disp_to_cone = np.linalg.inv(color_space_transform.cone_to_disp)
+
+    metamers_in_disp = np.zeros((vxyz.shape[0], 2, color_space_transform.dim))
+    for i in range(metamers_in_disp.shape[0]):
+        # points in contention in disp space, bounded by unit cube, direction is the metameric axis
+        metamers_in_disp[i] = FindMaximumIn1DimDirection(
+            disp_points[i], metamer_dir_in_disp, np.eye(color_space_transform.dim))
+        cone_responses = (disp_to_cone@metamers_in_disp[i].T).T
+        print(np.round(np.abs(cone_responses[1] - cone_responses[0]), 4))
+        print(metamers_in_disp[i])
+    return Conversion.Map4DTo6D(metamers_in_disp.reshape(-1, 4), color_space_transform).reshape(grid_size, grid_size, 2, 6)

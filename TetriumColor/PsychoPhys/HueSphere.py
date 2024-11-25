@@ -1,178 +1,58 @@
+from re import I
 import numpy as np
-from importlib import resources
-import os
-
-from typing import List
 import numpy.typing as npt
+import os
 
 from PIL import Image, ImageDraw
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, TetraColor
 import TetriumColor.ColorMath.HueToDisplay as HueToDisplay
+from TetriumColor.ColorMath.Geometry import ConvertCubeUVToXYZ
 
-# vectorized cubemap utilities
-
-
-def ConvertXYZToCubeUV(x, y, z):
-    # Compute absolute values
-    absX = np.abs(x)
-    absY = np.abs(y)
-    absZ = np.abs(z)
-
-    # Determine the positive and dominant axes
-    isXPositive = x > 0
-    isYPositive = y > 0
-    isZPositive = z > 0
-
-    # Initialize arrays for index, u, v
-    index = np.zeros_like(x, dtype=int)
-    maxAxis = np.zeros_like(x, dtype=float)
-    uc = np.zeros_like(x, dtype=float)
-    vc = np.zeros_like(x, dtype=float)
-
-    # POSITIVE X
-    mask = isXPositive & (absX >= absY) & (absX >= absZ)
-    maxAxis[mask] = absX[mask]
-    uc[mask] = -z[mask]
-    vc[mask] = y[mask]
-    index[mask] = 0
-
-    # NEGATIVE X
-    mask = ~isXPositive & (absX >= absY) & (absX >= absZ)
-    maxAxis[mask] = absX[mask]
-    uc[mask] = z[mask]
-    vc[mask] = y[mask]
-    index[mask] = 1
-
-    # POSITIVE Y
-    mask = isYPositive & (absY >= absX) & (absY >= absZ)
-    maxAxis[mask] = absY[mask]
-    uc[mask] = x[mask]
-    vc[mask] = -z[mask]
-    index[mask] = 2
-
-    # NEGATIVE Y
-    mask = ~isYPositive & (absY >= absX) & (absY >= absZ)
-    maxAxis[mask] = absY[mask]
-    uc[mask] = x[mask]
-    vc[mask] = z[mask]
-    index[mask] = 3
-
-    # POSITIVE Z
-    mask = isZPositive & (absZ >= absX) & (absZ >= absY)
-    maxAxis[mask] = absZ[mask]
-    uc[mask] = x[mask]
-    vc[mask] = y[mask]
-    index[mask] = 4
-
-    # NEGATIVE Z
-    mask = ~isZPositive & (absZ >= absX) & (absZ >= absY)
-    maxAxis[mask] = absZ[mask]
-    uc[mask] = -x[mask]
-    vc[mask] = y[mask]
-    index[mask] = 5
-
-    # Convert range from -1 to 1 to 0 to 1
-    u = 0.5 * (uc / maxAxis + 1.0)
-    v = 0.5 * (vc / maxAxis + 1.0)
-
-    return index, u, v
+import numpy as np
 
 
-def ConvertCubeUVToXYZ(index, u, v, radius) -> npt.NDArray:
+def LMStoRGB(lms: np.ndarray) -> np.ndarray:
     """
-    Convert cube UV coordinates back to XYZ with all points at a specified radius from the origin.
-    """
-    # Convert range 0 to 1 to -1 to 1
-    uc = 2.0 * u - 1.0
-    vc = 2.0 * v - 1.0
+    Converts LMS values to sRGB values.
 
-    # Initialize x, y, z
-    x = np.zeros_like(u)
-    y = np.zeros_like(u)
-    z = np.zeros_like(u)
-
-    # POSITIVE X
-    mask = index == 0
-    x[mask], y[mask], z[mask] = 1.0, vc[mask], -uc[mask]
-
-    # NEGATIVE X
-    mask = index == 1
-    x[mask], y[mask], z[mask] = -1.0, vc[mask], uc[mask]
-
-    # POSITIVE Y
-    mask = index == 2
-    x[mask], y[mask], z[mask] = uc[mask], 1.0, -vc[mask]
-
-    # NEGATIVE Y
-    mask = index == 3
-    x[mask], y[mask], z[mask] = uc[mask], -1.0, vc[mask]
-
-    # POSITIVE Z
-    mask = index == 4
-    x[mask], y[mask], z[mask] = uc[mask], vc[mask], 1.0
-
-    # NEGATIVE Z
-    mask = index == 5
-    x[mask], y[mask], z[mask] = -uc[mask], vc[mask], -1.0
-
-    # Normalize to unit sphere
-    norm = np.sqrt(x**2 + y**2 + z**2)
-    x = (x / norm) * radius
-    y = (y / norm) * radius
-    z = (z / norm) * radius
-
-    return np.array([x, y, z]).T
-
-
-def __rotateToZAxis(vector: npt.NDArray) -> npt.NDArray:
-    """
-    Returns a rotation matrix that rotates the given vector to align with the Z-axis.
-
-    Parameters:
-        vector (array-like): The input vector to align with the Z-axis.
+    Args:
+        lms (np.ndarray): Array of LMS values, shape (N, 3) or (3,).
 
     Returns:
-        numpy.ndarray: A 3x3 rotation matrix.
+        np.ndarray: Array of sRGB values, shape (N, 3) or (3,).
     """
-    # Normalize the input vector
-    v = np.array(vector, dtype=float)
-    v = v / np.linalg.norm(v)
-
-    # Z-axis unit vector
-    z_axis = np.array([0, 0, 1], dtype=float)
-
-    # Compute the axis of rotation (cross product)
-    axis = np.cross(v, z_axis)
-    axis_norm = np.linalg.norm(axis)
-
-    if axis_norm == 0:
-        # The vector is already aligned with the Z-axis
-        return np.eye(3)
-
-    axis = axis / axis_norm  # Normalize the axis
-
-    # Compute the angle of rotation (dot product)
-    angle = np.arccos(np.dot(v, z_axis))
-
-    # Compute the skew-symmetric cross-product matrix for the axis
-    K = np.array([
-        [0, -axis[2], axis[1]],
-        [axis[2], 0, -axis[0]],
-        [-axis[1], axis[0], 0]
+    # LMS to XYZ conversion matrix
+    lms_to_xyz = np.array([
+        [0.4002, 0.7075, -0.0808],
+        [-0.2263, 1.1653, 0.0457],
+        [0.0000, 0.0000, 0.9182]
     ])
 
-    # Use the Rodrigues' rotation formula
-    R = np.eye(3) + np.sin(angle) * K + (1 - np.cos(angle)) * np.dot(K, K)
+    # XYZ to linear sRGB conversion matrix
+    xyz_to_srgb = np.array([
+        [3.2406, -1.5372, -0.4986],
+        [-0.9689,  1.8758,  0.0415],
+        [0.0557, -0.2040,  1.0570]
+    ])
 
-    return R
+    # Apply LMS to XYZ conversion
+    xyz = np.dot(lms, lms_to_xyz.T)
 
+    # Apply XYZ to linear sRGB conversion
+    srgb_linear = np.dot(xyz, xyz_to_srgb.T)
 
-def GetTransformChromToQDir(transform: ColorSpaceTransform):
-    """
-    Get the transformation matrix from chromaticity to the metameric direction.
-    """
-    shh = HueToDisplay.GetMetamericAxisInVSH(transform)[0, 1:]  # remove luminance
-    return __rotateToZAxis(shh)
+    # Perform gamma correction to get sRGB
+    def gamma_correction(channel):
+        return np.where(channel <= 0.0031308,
+                        12.92 * channel,
+                        1.055 * np.power(channel, 1 / 2.4) - 0.055)
+
+    # srgb = gamma_correction(srgb_linear)
+
+    # Clamp values to [0, 1] range
+    # srgb = np.clip(srgb, 0, 1)
+
+    return srgb_linear
 
 
 def GenerateCubeMapTextures(luminance: float, saturation: float, color_space_transform: ColorSpaceTransform,
@@ -195,16 +75,18 @@ def GenerateCubeMapTextures(luminance: float, saturation: float, color_space_tra
     flattened_u, flattened_v = cube_u.flatten(), cube_v.flatten()
 
     # change the associated xyzs -> to a new direction, but the same color values
-    qDirMat = GetTransformChromToQDir(color_space_transform)
+    qDirMat = HueToDisplay.GetTransformChromToQDir(color_space_transform)
     invQDirMat = np.linalg.inv(qDirMat)
 
     # Create the RGB/OCV GenerateCubeMapTextures
     for i in range(6):
         img_rgb = Image.new('RGB', (image_size, image_size))  # sample color per pixel to avoid empty spots
         img_ocv = Image.new('RGB', (image_size, image_size))
+        img_srgb = Image.new('RGB', (image_size, image_size))
 
         draw_rgb = ImageDraw.Draw(img_rgb)
         draw_ocv = ImageDraw.Draw(img_ocv)
+        draw_srgb = ImageDraw.Draw(img_srgb)
 
         # convert the xyz coordinates of the cube map back into the original hering space -- this defines the
         # cubemap directions exactly !
@@ -226,9 +108,13 @@ def GenerateCubeMapTextures(luminance: float, saturation: float, color_space_tra
             draw_rgb.point((u * image_size, v * image_size), fill=rgb_color)
             ocv_color = (int(color.OCV[0] * 255), int(color.OCV[1] * 255), int(color.OCV[2] * 255))
             draw_ocv.point((u * image_size, v * image_size), fill=ocv_color)
+
+            # srgb_color = (int(color.sRGB[0] * 255), int(color.sRGB[1] * 255), int(color.sRGB[2] * 255))
+
         # Save the images
         img_rgb.save(f'{filename_RGB}_{str(i)}.png')
         img_ocv.save(f'{filename_OCV}_{str(i)}.png')
+        # img_srgb.save(f'{filename_}_{str(i)}.png')
 
 
 def ConcatenateCubeMap(basename: str, output_filename: str):
@@ -272,3 +158,50 @@ def ConcatenateCubeMap(basename: str, output_filename: str):
     # Save the concatenated image
     cubemap_image.save(output_filename)
     print(f"Saved concatenated cubemap to {output_filename}")
+
+
+def CreateCircleGrid(grid: npt.NDArray, padding: int, radius: int, output_base: str):
+    """
+    Creates two images from grids of colors, where each grid cell is represented by a circle.
+
+    Args:
+        grid (np.ndarray): First grid of colors with shape (s, s, 2, dim).
+        padding (int): Padding around the grid in pixels.
+        radius (int): Radius of each circle in pixels.
+        output_base (str): Base filename for the output images, consisting of RGB OCV pairs.
+    """
+    def __createPairImages(metamer_idx):
+        s = grid.shape[0]  # Grid size (s x s)
+
+        # Image size calculation
+        cell_size = 2 * radius  # Each cell is defined by the diameter of the circle
+        grid_size = s * cell_size + (s + 1) * padding
+        image_size = (grid_size, grid_size)
+
+        # Create blank image
+        img_RGB = Image.new("RGB", image_size, "black")
+        img_OCV = Image.new("RGB", image_size, "black")
+
+        draw_RGB = ImageDraw.Draw(img_RGB)
+        draw_OCV = ImageDraw.Draw(img_OCV)
+
+        # Loop over the grid
+        for i in range(s):
+            for j in range(s):
+                # Compute circle center
+                cx = padding + j * (cell_size + padding) + radius
+                cy = padding + i * (cell_size + padding) + radius
+
+                # Convert color to tuple and scale (assuming colors are normalized [0, 1])
+                color = tuple((grid[i, j, metamer_idx, :3] * 255).astype(int))  # Use the first color in the pair
+                draw_RGB.ellipse([cx - radius, cy - radius, cx + radius, cy + radius], fill=color, outline="black")
+
+                color = tuple((grid[i, j, metamer_idx, 3:] * 255).astype(int))  # Use the first color in the pair
+                draw_OCV.ellipse([cx - radius, cy - radius, cx + radius, cy + radius], fill=color, outline="black")
+
+            # Save image
+        img_RGB.save(output_base + f'_{metamer_idx}_RGB_.png')
+        img_OCV.save(output_base + f'_{metamer_idx}_OCV_.png')
+
+    __createPairImages(0)
+    __createPairImages(1)
