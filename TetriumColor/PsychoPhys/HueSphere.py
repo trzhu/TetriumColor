@@ -68,8 +68,26 @@ def LMStoSRGB(lms: np.ndarray) -> np.ndarray:
     return srgb
 
 
-def GetHueSphereGeometryWithLineTexture(num_points: int, luminance: float, saturation: float, color_space_transform: ColorSpaceTransform,
-                                        rgb_texture_filename: str, ocv_texture_filename: str, obj_filename: str) -> None:
+def GetSphereGeometry(luminance, saturation, num_points: int = 1000, filename: str = 'sphere.obj'):
+    """
+    GetSphereGeometry generates a sphere geometry with fibonacci sampling.
+
+    Args:
+        num_points (int): number of points to sample for the sphere
+        filename (str): filename for the OBJ file
+    """
+    # Generate sphere vertices
+    vshh = HueToDisplay.SampleHueManifold(luminance, saturation, 4, num_points)
+    hering = HueToDisplay.ConvertVSHToHering(vshh)
+    vertices, triangles, normals, _ = Geometry.GenerateGeometryFromVertices(hering[:, 1:])
+    uv_coords = Geometry.CartesianToUV(vertices)
+
+    # Export geometry to OBJ file
+    ExportGeometryToObjFile(vertices, triangles, normals, uv_coords, filename)
+
+
+def GetFibonacciSampledHueTexture(num_points: int, luminance: float, saturation: float, color_space_transform: ColorSpaceTransform,
+                                  rgb_texture_filename: str, ocv_texture_filename: str) -> None:
     """GetHueSphereGeometryWithLineTexture generates a hue sphere geometry with fibonacci sampling and line texture
 
     Args:
@@ -79,108 +97,43 @@ def GetHueSphereGeometryWithLineTexture(num_points: int, luminance: float, satur
         color_space_transform (ColorSpaceTransform): color space transform object
         rgb_texture_filename (str): filename for the RGB texture
         ocv_texture_filename (str): filename for the OCV texture
-        obj_filename (str): filename for the OBJ file
     """
-    # ------ GEOMETRY CREATION
-    vshh = HueToDisplay.SampleHueManifold(luminance, saturation, 4, num_points)
-    # hering_pts = HueToDisplay.ConvertVSHToHering(vshh)
-
-    remapped_vshh = HueToDisplay.RemapGamutPoints(vshh, color_space_transform,
-                                                  HueToDisplay.GenerateGamutLUT(vshh, color_space_transform))
-    chromaticity_space = HueToDisplay.ConvertVSHToHering(remapped_vshh)[:, 1:]
-    tetra_colors: List[TetraColor] = HueToDisplay.ConvertVSHtoTetraColor(remapped_vshh, color_space_transform)
-
-    vertices, triangles, normals, indices = GenerateGeometryFromVertices(chromaticity_space)
-    tetra_colors = [tetra_colors[i] for i in indices]
-
-    uv_coords = np.array([[i / len(vertices), i / len(vertices)] for i in range(len(vertices))])
-    ExportGeometryToObjFile(vertices, triangles, normals, uv_coords, obj_filename)
-
     # ------- TEXTURE CREATION
     # Split color tuples into RGB and OCV components
-    rgb_colors, ocv_colors = [], []
-    for color in tetra_colors:
-        rgb_colors.append(color.RGB)
-        ocv_colors.append(color.OCV)
-    rgb_colors = np.array(rgb_colors)
-    ocv_colors = np.array(ocv_colors)
+    # Make Texture First, to fill the entire texture
+    image_size = np.sqrt(num_points)
+    image_size = int(2 ** np.ceil(np.log2(image_size)))
+    uv_coords = np.stack(np.meshgrid(np.linspace(0, 1, image_size, endpoint=False),
+                         np.linspace(0, 1, image_size, endpoint=False)), -1).reshape(-1, 2)
 
-    # Save RGB texture as an image
-    rgb_texture = (rgb_colors * 255).astype(np.uint8)
-    rgb_texture_image = Image.fromarray(rgb_texture.reshape(1, -1, 3))
-    rgb_texture_image.save(rgb_texture_filename)
+    # Get corresponding color from the point
+    cartesian = Geometry.UVToCartesian(uv_coords, saturation)
+    # Add a new column to the cartesian array
+    lum_column = np.ones((cartesian.shape[0], 1)) * luminance
+    hering = np.hstack((lum_column, cartesian))
 
-    # Save OCV texture as an image
-    ocv_texture = (ocv_colors * 255).astype(np.uint8)
-    ocv_texture_image = Image.fromarray(ocv_texture.reshape(1, -1, 3))
-    ocv_texture_image.save(ocv_texture_filename)
+    vshh = HueToDisplay.ConvertHeringToVSH(hering)
+    remapped_vshh = HueToDisplay.RemapGamutPoints(vshh, color_space_transform,
+                                                  HueToDisplay.GenerateGamutLUT(vshh, color_space_transform))
+    tetra_colors: List[TetraColor] = HueToDisplay.ConvertVSHtoTetraColor(remapped_vshh, color_space_transform)
 
+    # sample color per pixel to avoid empty spots
+    image_rgb = Image.new('RGB', (image_size, image_size))
+    image_ocv = Image.new('RGB', (image_size, image_size))
 
-def GetHueSphereGeometryWithCubeMapTexture(luminance: float, saturation: float, color_space_transform: ColorSpaceTransform,
-                                           image_size: int, filename_RGB: str, filename_OCV: str, filename_OBJ: str) -> None:
-    """GetHueSphereGeometryWithCubeMapTexture generates a hue sphere geometry with cube map textures.
+    draw_rgb = ImageDraw.Draw(image_rgb)
+    draw_ocv = ImageDraw.Draw(image_ocv)
 
-    Args:
-        luminance (float): luminance value 
-        saturation (float): saturation value
-        color_space_transform (ColorSpaceTransform): color space transform object
-        image_size (int): size of the image
-        filename_RGB (str): filename for the RGB cube map texture
-        filename_OCV (str): filename for the OCV cube map texture
-        filename_OBJ (str): filename for the OBJ file
-    """
-    # ----- TEXTURE CREATION
-    # Grid of UV coordinate that are the size of image_size
-    all_us = (np.arange(image_size) + 0.5) / image_size
-    all_vs = (np.arange(image_size) + 0.5) / image_size
-    cube_u, cube_v = np.meshgrid(all_us, all_vs)
-    flattened_u, flattened_v = cube_u.flatten(), cube_v.flatten()
-
-    # change the associated xyzs -> to a new direction, but the same color values
-    qDirMat = HueToDisplay.GetTransformChromToQDir(color_space_transform)
-    invQDirMat = np.linalg.inv(qDirMat)
-
-    # Create the RGB/OCV GenerateCubeMapTextures
-    img_rgb = Image.new('RGB', (6 * image_size, image_size))  # sample color per pixel to avoid empty spots
-    img_ocv = Image.new('RGB', (6 * image_size, image_size))
-
-    draw_rgb = ImageDraw.Draw(img_rgb)
-    draw_ocv = ImageDraw.Draw(img_ocv)
-
-    vertices = np.zeros((6, image_size * image_size, 3))
-    uv_coords = np.zeros((6, image_size * image_size, 2))
-    for i, cube_idx in enumerate([1, 4, 0, 5, 2, 3]):  # range(6):
-        # convert the xyz coordinates of the cube map back into the original hering space -- this defines the
-        # cubemap directions exactly !
-        xyz = ConvertCubeUVToXYZ(cube_idx, cube_u, cube_v, saturation).reshape(-1, 3)
-        xyz = np.dot(invQDirMat, xyz.T).T
-        vertices[cube_idx] = xyz
-        lum_vector = luminance * np.ones(image_size * image_size)
-
-        vxyz = np.hstack((lum_vector[np.newaxis, :].T, xyz))
-        vshh = HueToDisplay.ConvertHeringToVSH(vxyz)
-
-        map_angle_sat = HueToDisplay.GenerateGamutLUT(vshh, color_space_transform)
-        remapped_vshh = HueToDisplay.RemapGamutPoints(vshh, color_space_transform, map_angle_sat)
-        corresponding_tetracolors = HueToDisplay.ConvertVSHtoTetraColor(remapped_vshh, color_space_transform)
-        for j in range(len(flattened_u)):
-            u, v = flattened_u[j], flattened_v[j]
-            color: TetraColor = corresponding_tetracolors[j]
-            # swap to row major order by flipping them
-            uv_coords[cube_idx, j] = ((i + v) / 6, u)
-            rgb_color = (int(color.RGB[0] * 255), int(color.RGB[1] * 255), int(color.RGB[2] * 255))
-            draw_rgb.point(((i * image_size) + v * image_size, u * image_size), fill=rgb_color)
-            ocv_color = (int(color.OCV[0] * 255), int(color.OCV[1] * 255), int(color.OCV[2] * 255))
-            draw_ocv.point(((i * image_size) + v * image_size,  u * image_size), fill=ocv_color)
-
-    # Save the images
-    img_rgb.save(filename_RGB)
-    img_ocv.save(filename_OCV)
-
-    # ----- GEOMETRY CREATION
-    vertices, triangles, normals, indices = GenerateGeometryFromVertices(vertices.reshape(-1, 3))
-    uv_coords = uv_coords.reshape(-1, 2)[indices]
-    ExportGeometryToObjFile(vertices, triangles, normals, uv_coords, filename_OBJ)
+    for color, (u, v) in zip(tetra_colors, uv_coords):
+        image_location = (int(v * image_size), int(u * image_size))
+        print(image_location)
+        rgb_color = (int(color.RGB[0] * 255), int(color.RGB[1] * 255), int(color.RGB[2] * 255))
+        draw_rgb.point(image_location, fill=rgb_color)
+        ocv_color = (int(color.OCV[0] * 255), int(color.OCV[1] * 255), int(color.OCV[2] * 255))
+        draw_ocv.point(image_location, fill=ocv_color)
+    # Save textures as an image
+    image_rgb.save(rgb_texture_filename)
+    image_ocv.save(ocv_texture_filename)
 
 
 def GenerateCubeMapTextures(luminance: float, saturation: float, color_space_transform: ColorSpaceTransform,

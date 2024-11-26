@@ -157,6 +157,56 @@ def ConvertCubeUVToXYZ(index, u, v, normalize=None) -> npt.NDArray:
     return np.array([x, y, z]).T
 
 
+def CartesianToUV(vertices):
+    """
+    Compute UV mapping for vertices on a sphere.
+
+    Args:
+        vertices (ndarray): Nx3 array of vertex positions in Cartesian coordinates.
+
+    Returns:
+        ndarray: Nx2 array of UV coordinates (u, v) for each vertex.
+    """
+    # Normalize vertices to ensure they're on the unit sphere
+    normalized = vertices / np.linalg.norm(vertices, axis=1, keepdims=True)
+    x, y, z = normalized[:, 0], normalized[:, 1], normalized[:, 2]
+
+    # Compute spherical coordinates
+    theta = np.arctan2(z, x)  # Longitude: angle in the x-z plane
+    phi = np.arcsin(y)        # Latitude: angle from the y-axis
+
+    # Normalize to [0, 1]
+    u = (theta + np.pi) / (2 * np.pi)  # Map theta from [-π, π] to [0, 1]
+    v = (phi + np.pi / 2) / np.pi      # Map phi from [-π/2, π/2] to [0, 1]
+
+    return np.column_stack((u, v))
+
+
+def UVToCartesian(uv_coords, radius=1.0):
+    """
+    Convert UV coordinates back to Cartesian coordinates on a sphere.
+
+    Args:
+        uv_coords (ndarray): Nx2 array of UV coordinates (u, v).
+        radius (float, optional): Radius of the sphere. Defaults to 1.0.
+
+    Returns:
+        ndarray: Nx3 array of Cartesian coordinates (x, y, z) on the sphere.
+    """
+    u, v = uv_coords[:, 0], uv_coords[:, 1]
+
+    # Convert UV to spherical coordinates
+    theta = u * 2 * np.pi - np.pi  # Map u from [0, 1] to [-π, π]
+    phi = v * np.pi - np.pi / 2    # Map v from [0, 1] to [-π/2, π/2]
+
+    # Convert spherical to Cartesian coordinates with radius
+    x = radius * np.cos(phi) * np.cos(theta)
+    y = radius * np.sin(phi)
+    z = radius * np.cos(phi) * np.sin(theta)
+
+    return np.column_stack((x, y, z))
+
+
 def GenerateGeometryFromVertices(vertices: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray]:
     """
     Generate CCW-oriented triangles for a convex hull of the given vertices.
@@ -171,7 +221,8 @@ def GenerateGeometryFromVertices(vertices: npt.NDArray) -> tuple[npt.NDArray, np
             - Indices of the vertices used in the convex hull.
     """
     hull = ConvexHull(vertices)
-    vertices = vertices[hull.vertices]  # Extract only vertices on the convex hull
+    indices = hull.vertices
+    vertices = vertices[indices]  # Extract only vertices on the convex hull
     hull = ConvexHull(vertices)  # Recompute the hull on the reduced vertex set
 
     # Ensure triangles have CCW orientation
@@ -197,7 +248,7 @@ def GenerateGeometryFromVertices(vertices: npt.NDArray) -> tuple[npt.NDArray, np
     # Compute normals
     mesh.compute_vertex_normals()
 
-    return vertices, simplices, mesh.vertex_normals, hull.vertices
+    return vertices, simplices, mesh.vertex_normals, indices
 
 
 def ExportGeometryToObjFile(vertices, triangles, normals, uv_coords, obj_filename):

@@ -1,6 +1,6 @@
 import os
 
-from TetriumColor.PsychoPhys.HueSphere import GetHueSphereGeometryWithLineTexture, GetHueSphereGeometryWithCubeMapTexture
+from TetriumColor.PsychoPhys.HueSphere import GetSphereGeometry, GetFibonacciSampledHueTexture
 from TetriumColor.Utils.IO import LoadColorSpaceTransform
 
 
@@ -14,12 +14,10 @@ def getTransformDirs(display_primaries: str):
 
 dirs = getTransformDirs('RGBO')
 color_space_transform = LoadColorSpaceTransform(dirs[0])
-GetHueSphereGeometryWithLineTexture(1200, 0.6, 0.25, color_space_transform,
-                                    './tmp/geometry/textures/RGB.png',
-                                    './tmp/geometry/textures/OCV.png',
-                                    './tmp/geometry/fibonacci_sampled.obj')
+luminance: float = 0.7
+saturation: float = 0.3
+num_points: int = 15000
 
-GetHueSphereGeometryWithCubeMapTexture(0.6, 0.3, color_space_transform, 64,
-                                       './tmp/geometry/textures/cube_map_RGB.png',
-                                       './tmp/geometry/textures/cube_map_OCV.png',
-                                       './tmp/geometry/cubemap_sampled.obj')
+GetSphereGeometry(luminance, saturation, num_points, './tmp/geometry/sphere.obj')
+GetFibonacciSampledHueTexture(num_points, luminance, saturation, color_space_transform,
+                              './tmp/geometry/textures/RGB.png', './tmp/geometry/textures/OCV.png')
