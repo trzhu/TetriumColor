@@ -1,6 +1,9 @@
+import open3d as o3d
 import numpy as np
 import numpy.typing as npt
 import math
+
+from scipy.spatial import ConvexHull
 
 
 def SampleAnglesEqually(samples, dim) -> npt.NDArray:
@@ -152,3 +155,80 @@ def ConvertCubeUVToXYZ(index, u, v, normalize=None) -> npt.NDArray:
         z = (z / norm) * normalize
 
     return np.array([x, y, z]).T
+
+
+def GenerateGeometryFromVertices(vertices: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray]:
+    """
+    Generate CCW-oriented triangles for a convex hull of the given vertices.
+
+    Args:
+        vertices (NDArray): An array of vertices with shape (N, 3).
+
+    Returns:
+        tuple[NDArray, NDArray, NDArray]: 
+            - Vertices used for the convex hull.
+            - CCW-oriented triangle indices (simplices).
+            - Indices of the vertices used in the convex hull.
+    """
+    hull = ConvexHull(vertices)
+    vertices = vertices[hull.vertices]  # Extract only vertices on the convex hull
+    hull = ConvexHull(vertices)  # Recompute the hull on the reduced vertex set
+
+    # Ensure triangles have CCW orientation
+    simplices = hull.simplices
+    for i, simplex in enumerate(simplices):
+        # Compute two edges of the triangle
+        edge1 = vertices[simplex[1]] - vertices[simplex[0]]
+        edge2 = vertices[simplex[2]] - vertices[simplex[0]]
+        # Compute the normal using the cross product
+        normal = np.cross(edge1, edge2)
+        # Check if the normal is inward-facing (dot product with centroid vector)
+        centroid = vertices[simplex].mean(axis=0)
+        outward = np.dot(normal, centroid) > 0
+        if not outward:
+            # Swap two vertices to flip the triangle
+            simplices[i] = [simplex[0], simplex[2], simplex[1]]
+
+    # Create Open3D TriangleMesh
+    mesh = o3d.geometry.TriangleMesh()
+    mesh.vertices = o3d.utility.Vector3dVector(vertices)
+    mesh.triangles = o3d.utility.Vector3iVector(simplices)
+
+    # Compute normals
+    mesh.compute_vertex_normals()
+
+    return vertices, simplices, mesh.vertex_normals, hull.vertices
+
+
+def ExportGeometryToObjFile(vertices, triangles, normals, uv_coords, obj_filename):
+    """
+    Save a geometry to an .obj file with vertex normals, texture coordinates,
+    and separate textures for RGB and OCV.
+
+    Args:
+        vertices (list): List of 3D vertices (Nx3 array).
+        triangles (list): List of triangle indices (Mx3 array).
+        color_tuples (list): List of 6D color tuples [(R, G, B, O, C, V)].
+        obj_filename (str): Path to save the .obj file.
+        rgb_texture_filename (str): Path to save the RGB texture image.
+        ocv_texture_filename (str): Path to save the OCV texture image.
+    """
+    # Generate UV coordinates (for simplicity, map vertex indices to a linear grid)
+    # Write .obj file
+    with open(obj_filename, "w") as obj_file:
+        # Write vertices
+        for v in vertices:
+            obj_file.write(f"v {v[0]:.3f} {v[1]:.3f} {v[2]:.3f}\n")
+
+        # Write texture coordinates
+        for uv in uv_coords:
+            obj_file.write(f"vt {uv[0]} {uv[1]}\n")
+
+        # Write normals
+        for n in np.asarray(normals):
+            obj_file.write(f"vn {n[0]: .3f} {n[1]:.3f} {n[2]:.3f}\n")
+
+        # Write faces
+        for t in triangles:
+            # obj_file.write(f"f {t[0] + 1} {t[1] + 1} {t[2] + 1}\n")
+            obj_file.write(f"f {t[0]+1}/{t[0]+1}/{t[0]+1} {t[1]+1}/{t[1]+1}/{t[1]+1} {t[2]+1}/{t[2]+1}/{t[2]+1}\n")

@@ -1,4 +1,5 @@
 import os
+import numpy as np
 
 from typing import List
 
@@ -18,6 +19,8 @@ def getTransformDirs(display_primaries: str):
 dirs = getTransformDirs('RGBO')
 color_space_transform: ColorSpaceTransform = LoadColorSpaceTransform(dirs[0])
 
-GenerateCubeMapTextures(0.7, 0.3, color_space_transform, 128, './tmp/test_RGB_cube_map', './tmp/test_OCV_cube_map')
+GenerateCubeMapTextures(0.7, 0.3, color_space_transform, 128, './tmp/test_RGB_cube_map',
+                        './tmp/test_OCV_cube_map', './tmp/test_sRGB_cube_map')
 ConcatenateCubeMap('./tmp/test_RGB_cube_map', './tmp/test_RGB_cube_map.png')
 ConcatenateCubeMap('./tmp/test_OCV_cube_map', './tmp/test_OCV_cube_map.png')
+# ConcatenateCubeMap('./tmp/test_sRGB_cube_map', './tmp/test_sRGB_cube_map.png')

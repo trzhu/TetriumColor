@@ -224,6 +224,8 @@ def SampleHueManifold(luminance: float, saturation: float, dim: int, num_points:
     Args:
         luminance (float): The luminance value to generate the sphere at
         saturation (float): The saturation value to generate the sphere at
+    Returns: 
+        npt.NDArray: The sphere of values in vshh space
     """
     all_angles = Geometry.SampleAnglesEqually(num_points, dim-1)
     all_vshh = np.zeros((len(all_angles), dim))
