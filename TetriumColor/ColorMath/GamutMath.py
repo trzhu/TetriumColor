@@ -12,54 +12,7 @@ from TetriumColor.ColorMath.SubSpaceIntersection import FindMaximalSaturation, F
 import TetriumColor.ColorMath.Geometry as Geometry
 import TetriumColor.ColorMath.Conversion as Conversion
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, PlateColor, TetraColor
-
-
-def __convertPolarToCartesian(SH: npt.NDArray) -> npt.NDArray:
-    """
-    Convert Polar to Cartesian Coordinates
-    Args:
-        SH (npt.ArrayLike, N x 2): The SH coordinates that we want to transform. Saturation and Hue are transformed
-    """
-    S, H = SH[:, 0], SH[:, 1]
-    return np.array([S * np.cos(H), S * np.sin(H)]).T
-
-
-def __convertCartesianToPolar(CC: npt.NDArray) -> npt.NDArray:
-    """
-    Convert Cartesian to Polar Coordinates (SH)
-    Args:
-        Cartesian (npt.ArrayLike, N x 2): The Cartesian coordinates that we want to transform
-    """
-    x, y = CC[:, 0], CC[:, 1]
-    rTheta = np.array([np.sqrt(x**2 + y**2), np.arctan2(y, x)]).T
-    rTheta[:, 1] = np.where(rTheta[:, 1] < -1e-9, rTheta[:, 1] + 2 * np.pi, rTheta[:, 1])  # Ensure θ is in [0, 2π]
-    return rTheta
-
-
-def __convertSphericalToCartesian(rPhiTheta: npt.NDArray) -> npt.NDArray:
-    """
-    Convert Spherical Coordinates (VSHH) to Cartesian Coordinates
-    Args:
-        thetaPhiRValue (npt.ArrayLike, N x 4): The Theta, Phi, Radius and Value ordered in a columnar fashion
-    """
-    r, phi, theta = rPhiTheta[:, 0], rPhiTheta[:, 1], rPhiTheta[:, 2]
-    return np.array([r * np.sin(phi) * np.cos(theta), r * np.sin(phi) * np.sin(theta), r * np.cos(phi)]).T
-
-
-def __convertCartesianToSpherical(cartesian: npt.NDArray) -> npt.NDArray:
-    """
-    Convert Cartesian Coordinates to Spherical Coordinates
-    Args:
-        Cartesian (npt.ArrayLike, N x 4): The Cartesian coordinates that we want to transform
-
-    Returns:
-        npt.ArrayLike: The Spherical Coordinates in the form of R Theta Phi as Nx3 Matrix
-    """
-    x, y, z = cartesian[:, 0], cartesian[:, 1], cartesian[:, 2]
-    r = np.sqrt(x**2 + y**2 + z**2)
-    phi = np.arccos(z / r)
-    theta = np.arctan2(y, x)
-    return np.array([r, theta, phi]).T
+from TetriumColor.Visualization.cubeMapViz import SetUp3DPlot
 
 
 def ConvertVSHToHering(vsh: npt.NDArray) -> npt.NDArray:
@@ -69,9 +22,9 @@ def ConvertVSHToHering(vsh: npt.NDArray) -> npt.NDArray:
         HSV (npt.ArrayLike, Nxdim): The HSV coordinates that we want to transform
     """
     if vsh.shape[1] == 4:
-        return np.hstack([vsh[:, [0]], __convertSphericalToCartesian(vsh[:, 1:])])
+        return np.hstack([vsh[:, [0]], Geometry.ConvertSphericalToCartesian(vsh[:, 1:])])
     elif vsh.shape[1] == 3:
-        return np.hstack([vsh[:, [0]], __convertPolarToCartesian(vsh[:, 1:])])
+        return np.hstack([vsh[:, [0]], Geometry.ConvertPolarToCartesian(vsh[:, 1:])])
     else:
         raise NotImplementedError(
             "Not implemented for dimensions other than 3 or 4")
@@ -84,9 +37,9 @@ def ConvertHeringToVSH(hering: npt.NDArray) -> npt.NDArray:
         Hering (npt.ArrayLike, Nxdim): The Max Basis coordinates that we want to transform
     """
     if hering.shape[1] == 4:
-        return np.hstack([hering[:, [0]], __convertCartesianToSpherical(hering[:, 1:])])
+        return np.hstack([hering[:, [0]], Geometry.ConvertCartesianToSpherical(hering[:, 1:])])
     elif hering.shape[1] == 3:
-        return np.hstack([hering[:, [0]], __convertCartesianToPolar(hering[:, 1:])])
+        return np.hstack([hering[:, [0]], Geometry.ConvertCartesianToPolar(hering[:, 1:])])
     else:
         raise NotImplementedError("Not implemented for dimensions other than 3 or 4")
 
@@ -340,6 +293,7 @@ def GetMaximalMetamerPointsOnGrid(luminance: float, saturation: float, cube_idx:
     """
     xyz_in_chrom, _, _ = GetGridPoints(saturation, cube_idx, grid_size, color_space_transform)
     lum_vector = luminance * np.ones(grid_size * grid_size, dtype=float)
+
     vxyz = np.hstack((lum_vector[np.newaxis, :].T, xyz_in_chrom))
     disp_points = (color_space_transform.hering_to_disp@vxyz.T).T
 
@@ -349,13 +303,31 @@ def GetMaximalMetamerPointsOnGrid(luminance: float, saturation: float, cube_idx:
     metamer_dir_in_disp = GetMetamericAxisInDispSpace(color_space_transform)
 
     disp_to_cone = np.linalg.inv(color_space_transform.cone_to_disp)
+    disp_to_hering = np.linalg.inv(color_space_transform.hering_to_disp)
 
     metamers_in_disp = np.zeros((vxyz.shape[0], 2, color_space_transform.dim))
+    cone_responses = []
+    hering_responses = []
     for i in range(metamers_in_disp.shape[0]):
         # points in contention in disp space, bounded by unit cube scaled by vectors, direction is the metameric axis
         metamers_in_disp[i] = FindMaximumIn1DimDirection(
             disp_points[i], metamer_dir_in_disp, np.eye(color_space_transform.dim))
+
+        hering_responses += [(disp_to_hering@metamers_in_disp[i].T).T]
         cone_responses = (disp_to_cone@metamers_in_disp[i].T).T
-        print(np.round(np.abs(cone_responses[1] - cone_responses[0]), 4))
-        print(metamers_in_disp[i])
-    return Conversion.Map4DTo6D(metamers_in_disp.reshape(-1, 4), color_space_transform).reshape(grid_size, grid_size, 2, 6)
+        # print(np.round(np.abs(cone_responses[1] - cone_responses[0]), 4))
+        # print(metamers_in_disp[i])
+    np.printoptions(precision=5, suppress=True)
+    hering_responses = np.array(hering_responses).reshape(-1, 4)[:, 1:]
+    output = Conversion.Map4DTo6D(metamers_in_disp.reshape(-1, 4), color_space_transform)
+    display = np.rint(output[:, :4] * 255 / color_space_transform.white_weights).astype(np.uint8) / 255
+
+    cone_responses = (disp_to_cone@display.T).T.reshape(-1, 2, 4)
+    without_discretization = (disp_to_cone@(output[:, :4] / color_space_transform.white_weights).T).T.reshape(-1, 2, 4)
+
+    diff = np.abs(cone_responses[:, 0] - cone_responses[:, 1])
+    diff_without_discretization = np.abs(without_discretization[:, 0] - without_discretization[:, 1])
+
+    print(np.array_str(diff, suppress_small=True, precision=5))
+    print(np.round(diff_without_discretization, 5))
+    return output.reshape(grid_size, grid_size, 2, 6)

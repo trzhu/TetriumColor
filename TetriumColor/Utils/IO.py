@@ -15,5 +15,6 @@ def LoadColorSpaceTransform(directory: str) -> ColorSpaceTransform:
     axis = np.load(directory + "/Axis.npy")[0]
     display_basis = np.load(directory + "/DisplayBasis.npy").tolist()
     white_weights = np.load(directory + "/WhiteWeights.npy")
+    # white_weights = np.ones(white_weights.shape)
     dim = cone_to_disp.shape[0]
     return ColorSpaceTransform(dim, cone_to_disp, maxbasis_to_disp, hering_to_disp, axis, display_basis, white_weights)
