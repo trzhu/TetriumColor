@@ -8,6 +8,6 @@ if len(sys.argv) > 1:
     directory = sys.argv[1]
 else:
     current_date = datetime.now().strftime("%Y-%m-%d")
-    directory = f"../measurements/{current_date}/primaries"
+    directory = f"../../measurements/{current_date}/primaries"
 os.makedirs(directory, exist_ok=True)
 MeasurePrimaries(directory)

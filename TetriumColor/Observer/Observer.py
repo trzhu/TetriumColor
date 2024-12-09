@@ -243,7 +243,7 @@ class Cone(Spectra):
         attrs["data"] = od_data
         return self.__class__(**attrs)
 
-    def with_preceptoral(self, od=0.35, lens=1, macular=1):
+    def with_preceptoral(self, od: float = 0.35, lens: float = 1, macular: float = 1):
         # There are other lens and macular pigment data sources,
         # which can be found in the cones/ subfolder.
         if not self.quantal:
@@ -257,7 +257,7 @@ class Cone(Spectra):
         return (~(C_r / denom)).as_energy()
 
     @staticmethod
-    def cone(peak, template="govardovskii", od=0.35, lens=1, macular=1, wavelengths=None):
+    def cone(peak, template="govardovskii", od: float = 0.35, lens: float = 1.0, macular: float = 1.0, wavelengths=None):
         # TODO: support L, M, S, Q peak, besides numerical
         # TODO: want to add eccentricity and/or macular, lens control
         if not isinstance(peak, (int, float)):
@@ -266,7 +266,7 @@ class Cone(Spectra):
             wavelengths = np.arange(400, 701, 1)
         if template not in Cone.templates:
             raise ValueError(f"Choose a template from {Cone.templates.keys()}")
-        return Cone.templates[template](wavelengths, peak).with_preceptoral(od=od)
+        return Cone.templates[template](wavelengths, peak).with_preceptoral(od=od, macular=macular, lens=lens)
 
     @staticmethod
     def l_cone(wavelengths=None, template=None):

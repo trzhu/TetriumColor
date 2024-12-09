@@ -12,9 +12,11 @@ from .PR650 import PR650
 from scipy.optimize import curve_fit
 
 
-def RemoveBlackLevelFromPrimaries(primaries: List[Spectra], summed_spectra: Spectra) -> List[Spectra]:
-    summed_primaries = np.sum([primary.data for primary in primaries], axis=0)
-    black_level = Spectra(data=(summed_primaries.data - summed_spectra.data)/-(len(primaries)-1),
+def RemoveBlackLevelFromPrimaries(primaries: List[Spectra], summed_spectra: Spectra, subset=[0, 1, 2, 3]) -> List[Spectra]:
+    subset_primaries = [primaries[i] for i in subset]
+    summed_primaries = Spectra(data=np.sum(
+        [primary.data for primary in subset_primaries], axis=0), wavelengths=primaries[0].wavelengths)
+    black_level = Spectra(data=(summed_primaries.data - summed_spectra.data)/-(len(subset_primaries)-1),
                           wavelengths=summed_primaries.wavelengths)
 
     black_level_adjusted_spectras = [Spectra(data=s.data - black_level.data,
@@ -25,7 +27,7 @@ def RemoveBlackLevelFromPrimaries(primaries: List[Spectra], summed_spectra: Spec
 def SaveRGBOtoSixChannel(spectras: List[Spectra], save_filename: str):
     reformatted_spectras = np.array([spectras[0].wavelengths] + [spectras[i].data
                                                                  for i in range(len(spectras))]).T  # wavelengths + 4 spectra
-    modified_spectras = np.insert(arr=reformatted_spectras, obj=[4, 4], values=0, axis=1)
+    modified_spectras = np.insert(arr=reformatted_spectras, obj=[5, 5], values=0, axis=1)
     np.savetxt(save_filename, modified_spectras, delimiter=',', header='Wavelength,R,G,B,O,C,V')
 
 
@@ -39,13 +41,15 @@ def MeasurePrimaries(save_directory: str):
     pr650 = PR650(mac_port_name)
 
     # Create the app and manually measure all of the primaries
-    app = MeasureDisplay(pr650, save_directory=save_directory, debug=True)
+    app = MeasureDisplay(pr650, save_directory=save_directory)
     app.run()
 
-    wavelengths = np.arange(380, 781, 4)
-    primaries = convert_refs_to_spectras(np.array(app.spectras), wavelengths)
+    spectras = np.load("../../measurements/2024-12-06/primaries/spectras.npy")
 
-    black_adjusted_primaries = RemoveBlackLevelFromPrimaries(primaries[:4], primaries[4])
+    wavelengths = np.arange(380, 781, 4)
+    primaries = convert_refs_to_spectras(spectras[:, 1, :], wavelengths)
+
+    black_adjusted_primaries = RemoveBlackLevelFromPrimaries(primaries[:4], primaries[4], subset=[0, 1, 2])
     SaveRGBOtoSixChannel(black_adjusted_primaries, os.path.join(save_directory, 'all_primaries.csv'))
 
     with open(os.path.join(save_directory, 'black_adjusted_primaries.pkl'), 'wb') as f:
@@ -167,3 +171,44 @@ def PerturbPrimaries(primaries: List[Spectra], wavelength_pertubation: int = 1, 
         shifted_right.append(Spectra(data=primary.data, wavelengths=primary.wavelengths - wavelength_pertubation))
 
     return [perturbed_up_list, perturbed_down_list, shifted_left, shifted_right]
+
+
+def PerturbSinglePrimary(primary_idx: int, primaries: List[Spectra], wavelength_pertubation: int = 1, intensity_pertubation: float = 0.05) -> List[List[Spectra]]:
+    """Perturb the primaries to find better models of the display primaries
+
+    Args:
+        primaries (List[Spectra]): measured primaries
+
+    Returns:
+        List[List[Spectra]]: list of color space transforms for each observer
+    """
+    pertubations = []
+    primary = primaries[primary_idx]
+    pertubations.append(Spectra(data=np.clip(primary.data + (primary.data * intensity_pertubation),
+                                             0, None), wavelengths=primary.wavelengths))
+    pertubations.append(Spectra(data=np.clip(primary.data - (primary.data * intensity_pertubation),
+                                             0, None), wavelengths=primary.wavelengths))
+    pertubations.append(Spectra(data=primary.data, wavelengths=primary.wavelengths + wavelength_pertubation))
+    pertubations.append(Spectra(data=primary.data, wavelengths=primary.wavelengths - wavelength_pertubation))
+
+    final_primaries = []
+    for perturbation in pertubations:
+        final_primaries += [[perturbation if i == primary_idx else p for i, p in enumerate(primaries)]]
+    return final_primaries
+
+
+def PerturbWavelengthPrimaries(primary, wavelength_pertubation_range: List[int] = [1, 2, 3, 4, 5]) -> List[Spectra]:
+    """Perturb the primaries to find better models of the display primaries
+
+    Args:
+        primaries (List[Spectra]): measured primaries
+
+    Returns:
+        List[List[Spectra]]: list of color space transforms for each observer
+    """
+
+    shifted_left = []
+    for wavelength_pertubation in wavelength_pertubation_range:
+        shifted_left.append(Spectra(data=primary.data, wavelengths=primary.wavelengths + wavelength_pertubation))
+
+    return shifted_left

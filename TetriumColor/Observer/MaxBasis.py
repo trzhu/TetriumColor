@@ -108,7 +108,7 @@ class MaxBasis:
             Xidx, Yidx, Widx = np.meshgrid(X, Y, W, indexing='ij')
 
             Zidx = np.zeros_like(Xidx, dtype=float)
-            for i in tqdm(range(len(X))):
+            for i in tqdm(range(len(X)), disable=not self.verbose):
                 for j in range(len(Y)):
                     for k in range(len(W)):
                         if i <= j and j <= k:

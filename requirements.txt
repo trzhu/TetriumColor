@@ -17,3 +17,5 @@ tqdm==4.67.0
 wheel==0.44.0
 screeninfo==0.8.1
 colour-science==0.4.6
+open3d==0.18.0
+pyserial==3.5

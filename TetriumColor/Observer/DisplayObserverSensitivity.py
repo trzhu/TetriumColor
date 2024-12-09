@@ -4,6 +4,7 @@ If we fix the delivery, how much can we change the observer model before we see 
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+import tqdm
 
 import numpy.typing as npt
 from typing import List
@@ -12,7 +13,11 @@ from . import Observer, Cone, Spectra, MaxBasis
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform
 
 
-def GetCustomTetraObserver(wavelengths: npt.NDArray, od: float = 0.5, m_cone_peak: float = 530, l_cone_peak: float = 560, template="neitz"):
+def GetCustomTetraObserver(wavelengths: npt.NDArray, od: float = 0.5,
+                           m_cone_peak: float = 530, l_cone_peak: float = 560,
+                           macular: float = 1,
+                           lens: float = 1,
+                           template="neitz"):
     """Given specific parameters, return an observer model with Q cone peaked at 547
 
     Args:
@@ -25,29 +30,52 @@ def GetCustomTetraObserver(wavelengths: npt.NDArray, od: float = 0.5, m_cone_pea
     Returns:
         _type_: Observer of specified paramters and 4 cone types 
     """
-    l_cone = Cone.cone(m_cone_peak, wavelengths=wavelengths, template=template, od=od)
-    q_cone = Cone.cone(547, wavelengths=wavelengths, template=template, od=od)
-    m_cone = Cone.cone(l_cone_peak, wavelengths=wavelengths, template=template, od=od)
+    l_cone = Cone.cone(m_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
+    q_cone = Cone.cone(547, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
+    m_cone = Cone.cone(l_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
+    s_cone = Cone.cone(419, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
+    # s_cone = Cone.s_cone(wavelengths=wavelengths)
+    return Observer([s_cone, m_cone, q_cone, l_cone], verbose=False)
+
+
+def GetStockmanObserver(wavelengths: npt.NDArray):
+    """Get the standard stockman & sharpe 2 degrees observer model
+
+    Args:
+        wavelengths (_type_): Array of wavelengths
+
+    Returns:
+        _type_: Stockman Observer Model
+    """
+    l_cone = Cone.l_cone(wavelengths=wavelengths)
+    q_cone = Cone.q_cone(wavelengths=wavelengths)
+    m_cone = Cone.m_cone(wavelengths=wavelengths)
     s_cone = Cone.s_cone(wavelengths=wavelengths)
     return Observer([s_cone, m_cone, q_cone, l_cone], verbose=False)
 
 
 def GetAllObservers(
-        ods=[0.3, 0.4, 0.5, 0.6],
+        ods=[0.4, 0.5, 0.6],
         peaks=((530, 559), (530, 555), (533, 559), (533, 555)),
-        macular_pigment_density=[0.5, 1.0],
-        lens_density=[0.0, 0.3],
+        macular_pigment_density=[0.5, 1.0, 2.0],  # 1.0 is standard, 4.0 is 1.2/0.35, which is the max peak
+        lens_density=[0.75, 1, 1.25],  # vary 25% in young observers
         template='neitz',
         wavelengths=None):
-    # skip macular and lens density for now?
     if wavelengths is None:
         wavelengths = np.arange(380, 781, 1)
 
     all_observers = []
+    i = 0
     for od in ods:
         for m_cone_peak, l_cone_peak in peaks:
-            all_observers.append(GetCustomTetraObserver(wavelengths, od=od,
-                                 m_cone_peak=m_cone_peak, l_cone_peak=l_cone_peak, template=template))
+            for macular in macular_pigment_density:
+                for lens in lens_density:
+                    with open("observer_parameters.txt", "a") as file:
+                        file.write(
+                            f"idx:{i} OD: {od}, M-Cone Peak: {m_cone_peak}, L-Cone Peak: {l_cone_peak}, Macular: {macular}, Lens: {lens}\n")
+                    all_observers.append(GetCustomTetraObserver(wavelengths, od=od,
+                                                                m_cone_peak=m_cone_peak, l_cone_peak=l_cone_peak, macular=macular, lens=lens, template=template))
+                    i += 1
     return all_observers
 
 
@@ -78,9 +106,9 @@ def GetColorSpaceTransforms(observers: List[Observer], display_primaries: List[L
     # TODO: cache users
     transforms = []
 
-    for observer in observers:
+    for observer in tqdm.tqdm(observers):
         per_observer = []
-        max_basis = MaxBasis(observer)
+        max_basis = MaxBasis(observer, verbose=False)
         for primaries in display_primaries:
             disp = GetDisplayToCone(observer, primaries)
 

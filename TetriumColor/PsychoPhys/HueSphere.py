@@ -245,8 +245,8 @@ def CreateCircleGrid(grid: npt.NDArray, padding: int, radius: int, output_base: 
                 draw_OCV.ellipse([cx - radius, cy - radius, cx + radius, cy + radius], fill=color, outline="black")
 
             # Save image
-        img_RGB.save(output_base + f'_{metamer_idx}_RGB_.png')
-        img_OCV.save(output_base + f'_{metamer_idx}_OCV_.png')
+        img_RGB.save(output_base + f'_{metamer_idx}_RGB.png')
+        img_OCV.save(output_base + f'_{metamer_idx}_OCV.png')
 
     __createPairImages(0)
     __createPairImages(1)
@@ -320,3 +320,16 @@ def CreatePseudoIsochromaticGrid(grid, output_dir: str, output_base: str, seed=4
     img_ocv = CreatePaddedGrid([os.path.join(subdirname, f"{output_base}_{i}_{j}_OCV.png") for i in range(grid.shape[0])
                                 for j in range(grid.shape[1])])
     img_ocv.save(f"./{output_dir}/{output_base}_OCV.png")
+
+
+def CreatePseudoIsochromaticImages(colors, output_dir: str, output_base: str, seed=42):
+    subdirname = f"./{output_dir}/sub_images"
+    os.makedirs(subdirname, exist_ok=True)
+    plate: IshiharaPlate = IshiharaPlate(seed=seed)
+    for i in range(len(colors)):
+        metamer1 = TetraColor(colors[i, 0, :3], colors[i, 0, 3:])
+        metamer2 = TetraColor(colors[i, 1, :3], colors[i, 1, 3:])
+        plate_color = PlateColor(metamer1, metamer2)
+        plate.GeneratePlate(seed, -1, plate_color)
+        plate.ExportPlate(os.path.join(subdirname, f"{output_base}_{i:03}_RGB.png"),
+                          os.path.join(subdirname, f"{output_base}_{i:03}_OCV.png"))
