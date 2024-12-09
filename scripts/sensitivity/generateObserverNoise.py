@@ -17,7 +17,7 @@ from TetriumColor.PsychoPhys.HueSphere import CreatePseudoIsochromaticImages, Cr
 
 # Load Observer and Measured Primaries
 wavelengths = np.arange(380, 781, 1)
-observers: List[Observer] = [GetStockmanObserver(wavelengths)] + GetAllObservers()
+observers: List[Observer] = GetAllObservers()
 primaries: List[Spectra] = LoadPrimaries("../../measurements/2024-12-06/primaries")
 gaussian_smooth_primaries: List[Spectra] = GaussianSmoothPrimaries(primaries)
 SaveRGBOtoSixChannel(gaussian_smooth_primaries, '../../measurements/2024-12-06/gaussian_smooth_primaries.csv')
@@ -46,15 +46,15 @@ for primary in gaussian_smooth_primaries:
 plt.show()
 
 # Perturb Observer with Fixed Primaries to see if the issues come from the observer side
-# color_space_transforms: List[List[ColorSpaceTransform]] = GetColorSpaceTransforms(
-#     observers, all_primaries, scaling_factor=1000)
+color_space_transforms: List[List[ColorSpaceTransform]] = GetColorSpaceTransforms(
+    observers, all_primaries, scaling_factor=1000)
 
 # with open('./outputs/all_observers_color_space_transforms.pkl', 'wb') as f:
 #     pickle.dump(color_space_transforms, f)
 
-# Load the color space transforms from the pickle file
-with open('./outputs/all_observers_color_space_transforms.pkl', 'rb') as f:
-    color_space_transforms = pickle.load(f)
+# # Load the color space transforms from the pickle file
+# with open('./outputs/all_observers_color_space_transforms.pkl', 'rb') as f:
+#     color_space_transforms = pickle.load(f)
 
 primary_types = ['Measured', 'Gaussian']  # , 'Perterbed_Up', 'Perterbed_Down', 'Perterbed_Left', 'Perterbed_Right']
 # Display the center points of the metamer grids for each of the observers -- see how close we are

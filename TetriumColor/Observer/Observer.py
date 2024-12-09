@@ -205,10 +205,16 @@ class Cone(Spectra):
                  wavelengths: Optional[npt.NDArray] = None, data: Optional[npt.NDArray] = None,
                  quantal=False, **kwargs):
         self.quantal = quantal
+        self.lens = None
+        self.macular = None
+        self.od = None
+        self.peak = None
         if isinstance(array, Spectra):
             super().__init__(**array.__dict__, **kwargs)
+            self.peak = int(array.wavelengths[np.argmax(array.data)].item())
         else:
             super().__init__(array=array, wavelengths=wavelengths, data=data, **kwargs)
+            self.peak = int(self.wavelengths[np.argmax(self.data)].item())
 
     def observe(self, spectra: Spectra, illuminant: Spectra):
         return np.divide(np.dot(self.data, spectra.data), np.dot(self.data, illuminant.data))
@@ -248,6 +254,10 @@ class Cone(Spectra):
         # which can be found in the cones/ subfolder.
         if not self.quantal:
             return self.as_quantal().with_preceptoral(od, lens, macular)
+        self.od = od
+        self.lens = lens
+        self.macular = macular
+
         lens_spectra = lens * \
             Cone.lens_absorption.interpolate_values(self.wavelengths)
         macular_spectra = macular * \
@@ -258,7 +268,6 @@ class Cone(Spectra):
 
     @staticmethod
     def cone(peak, template="govardovskii", od: float = 0.35, lens: float = 1.0, macular: float = 1.0, wavelengths=None):
-        # TODO: support L, M, S, Q peak, besides numerical
         # TODO: want to add eccentricity and/or macular, lens control
         if not isinstance(peak, (int, float)):
             raise ValueError("Currently only numerical peaks are supported.")
@@ -298,14 +307,14 @@ class Cone(Spectra):
 
 
 class Observer:
-    def __init__(self, sensors: List[Spectra], illuminant: Optional[Spectra] = None, verbose: bool = False):
+    def __init__(self, sensors: List[Cone], illuminant: Optional[Spectra] = None, verbose: bool = False):
         self.dimension = len(sensors)
         self.sensors = sensors
 
         total_wavelengths = np.unique(np.concatenate(
             [sensor.wavelengths for sensor in sensors]))
         self.wavelengths = total_wavelengths
-
+        self.sensors = sensors
         self.sensor_matrix = self.get_sensor_matrix(total_wavelengths)
 
         if illuminant is not None:
@@ -320,6 +329,16 @@ class Observer:
 
         self.verbose = verbose
 
+    def __eq__(self, other):
+        if not isinstance(other, Observer):
+            return False
+        return (tuple([[s.peak, s.od, s.lens, s.macular] for s in self.sensors]) ==
+                tuple([[s.peak, s.od, s.lens, s.macular] for s in other.sensors])) and \
+            (self.wavelengths == other.wavelengths).all() and self.dimension == other.dimension
+
+    def __hash__(self):
+        return hash((tuple(tuple([s.peak, s.od, s.lens, s.macular]) for s in self.sensors), tuple(self.wavelengths), self.dimension))
+
     def get_multispectral(self) -> MultiSpectralDistributions:
         if self.dimension > 3:
             subset = [0, 1, 3]
@@ -331,20 +350,20 @@ class Observer:
             d[int(m[0])] = tuple(m[1:].tolist())
         return MultiSpectralDistributions(d)
 
-    @staticmethod
+    @ staticmethod
     def dichromat(wavelengths=None, illuminant=None):
         s_cone = Cone.s_cone(wavelengths)
         m_cone = Cone.m_cone(wavelengths)
         return Observer([s_cone, m_cone], illuminant=illuminant)
 
-    @staticmethod
+    @ staticmethod
     def trichromat(wavelengths=None, illuminant=None):
         l_cone = Cone.l_cone(wavelengths)
         m_cone = Cone.m_cone(wavelengths)
         s_cone = Cone.s_cone(wavelengths)
         return Observer([s_cone, m_cone, l_cone], illuminant=illuminant)
 
-    @staticmethod
+    @ staticmethod
     def tetrachromat(wavelengths=None, illuminant=None, verbose=False):
         # This is a "maximally well spaced" tetrachromat
         # Cone.cone(555, wavelengths=wavelengths, template="neitz", od=0.35)
@@ -357,7 +376,7 @@ class Observer:
         s_cone = Cone.s_cone(wavelengths)
         return Observer([s_cone, m_cone, q_cone, l_cone], illuminant=illuminant, verbose=verbose)
 
-    @staticmethod
+    @ staticmethod
     def neitz_tetrachromat(wavelengths=None, illuminant=None, verbose=False):
         # This is a "maximally well spaced" tetrachromat
         l_cone = Cone.cone(559, wavelengths=wavelengths,
@@ -369,7 +388,7 @@ class Observer:
         s_cone = Cone.s_cone(wavelengths=wavelengths)
         return Observer([s_cone, m_cone, q_cone, l_cone], illuminant=illuminant, verbose=verbose)
 
-    @staticmethod
+    @ staticmethod
     def govardovskii_tetrachromat(wavelengths=None, illuminant=None, verbose=False):
         # This is a "maximally well spaced" tetrachromat
         l_cone = Cone.cone(559, wavelengths=wavelengths,
@@ -381,13 +400,13 @@ class Observer:
         s_cone = Cone.s_cone(wavelengths=wavelengths)
         return Observer([s_cone, m_cone, q_cone, l_cone], illuminant=illuminant, verbose=verbose)
 
-    @staticmethod
+    @ staticmethod
     def gaussian_tetrachromat(wavelengths: npt.NDArray, illuminant=None, verbose=False):
 
         def gaussian(wavelengths, peak, width=0.1):
             x = wavelengths
             y = np.exp(-0.5 * ((x - peak) /
-                       (width * (wavelengths[-1] - wavelengths[0])))**2)
+                               (width * (wavelengths[-1] - wavelengths[0])))**2)
             return y
         l_cone = Cone(np.concatenate([wavelengths[:, np.newaxis], gaussian(
             wavelengths, 559, width=0.15)[:, np.newaxis]], axis=1))
@@ -400,25 +419,25 @@ class Observer:
 
         return Observer([s_cone, m_cone, q_cone, l_cone], illuminant=illuminant, verbose=verbose)
 
-    @staticmethod
+    @ staticmethod
     def protanope(wavelengths=None, illuminant=None):
         m_cone = Cone.m_cone(wavelengths)
         s_cone = Cone.s_cone(wavelengths)
         return Observer([s_cone, m_cone], illuminant=illuminant)
 
-    @staticmethod
+    @ staticmethod
     def deuteranope(wavelengths=None, illuminant=None):
         l_cone = Cone.l_cone(wavelengths)
         s_cone = Cone.s_cone(wavelengths)
         return Observer([s_cone, l_cone], illuminant=illuminant)
 
-    @staticmethod
+    @ staticmethod
     def tritanope(wavelengths=None, illuminant=None):
         m_cone = Cone.m_cone(wavelengths)
         l_cone = Cone.l_cone(wavelengths)
         return Observer([m_cone, l_cone], illuminant=illuminant)
 
-    @staticmethod
+    @ staticmethod
     def bird(name, wavelengths=None, illuminant=None, verbose=False):
         """
         bird: bird types are ['UVS-Average-Bird.csv', 'UVS-bluetit.csv', 'UVS-Starling.csv', 'VS-Average-Bird.csv', 'VS-Peafowl.csv']
@@ -472,7 +491,7 @@ class Observer:
         return ((sensor_matrix * self.illuminant.data).T / whitepoint).T
 
     def observe(self, data: Union[npt.NDArray, Spectra]) -> npt.NDArray:
-        """Given a spectra or reflectance, observe the color 
+        """Given a spectra or reflectance, observe the color
 
         Args:
             data (Union[npt.NDArray, Spectra]): Either a spectra or reflectance to observe
@@ -613,7 +632,7 @@ def getSampledHyperCube(step_size, dimension, outer_range=[[0, 1], [0, 1], [0, 1
     Get a hypercube sample of the space
     """
     g = np.meshgrid(*[np.arange(outer_range[i][0], outer_range[i]
-                    [1] + 0.0000001, step_size) for i in range(dimension)])
+                                [1] + 0.0000001, step_size) for i in range(dimension)])
     return np.array(list(zip(*(x.flat for x in g))))
 
 

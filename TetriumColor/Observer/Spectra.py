@@ -170,7 +170,7 @@ class Spectra:
             ax.scatter(self.wavelengths, self.data/factor, label=name, color=color, s=10)
             ax.plot(self.wavelengths, self.data/factor, label=name, color=color, alpha=alpha)
 
-    def interpolate_values(self, wavelengths: Union[npt.NDArray, None]) -> 'Spectra':
+    def interpolate_values(self, wavelengths: Union[npt.NDArray, None]):
         """Interpolate the spectra to the given wavelengths.
 
         Args:

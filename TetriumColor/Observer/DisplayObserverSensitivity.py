@@ -9,7 +9,7 @@ import tqdm
 import numpy.typing as npt
 from typing import List
 
-from . import Observer, Cone, Spectra, MaxBasis
+from . import Observer, Cone, Spectra, MaxBasis, MaxBasisFactory
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform
 
 
@@ -70,9 +70,9 @@ def GetAllObservers(
         for m_cone_peak, l_cone_peak in peaks:
             for macular in macular_pigment_density:
                 for lens in lens_density:
-                    with open("observer_parameters.txt", "a") as file:
-                        file.write(
-                            f"idx:{i} OD: {od}, M-Cone Peak: {m_cone_peak}, L-Cone Peak: {l_cone_peak}, Macular: {macular}, Lens: {lens}\n")
+                    # with open("observer_parameters.txt", "a") as file:
+                    #     file.write(
+                    #         f"idx:{i} OD: {od}, M-Cone Peak: {m_cone_peak}, L-Cone Peak: {l_cone_peak}, Macular: {macular}, Lens: {lens}\n")
                     all_observers.append(GetCustomTetraObserver(wavelengths, od=od,
                                                                 m_cone_peak=m_cone_peak, l_cone_peak=l_cone_peak, macular=macular, lens=lens, template=template))
                     i += 1
@@ -108,7 +108,8 @@ def GetColorSpaceTransforms(observers: List[Observer], display_primaries: List[L
 
     for observer in tqdm.tqdm(observers):
         per_observer = []
-        max_basis = MaxBasis(observer, verbose=False)
+        max_basis = MaxBasisFactory.get_object(observer, verbose=False)
+
         for primaries in display_primaries:
             disp = GetDisplayToCone(observer, primaries)
 
@@ -188,8 +189,6 @@ def getDisplayedSpectraFromWeights(weights: npt.NDArray, primaries: List[Spectra
     weighted_spectra = np.sum([w * p.data for w, p in zip(weights, primaries)], axis=0)
     return Spectra(data=weighted_spectra, wavelengths=primaries[0].wavelengths)
 
-
-# TODO: perturb in the wavelength dimension
 
 def observerDisplaySensitivity(observer: Observer, weights: npt.NDArray, primaries: List[Spectra], perturbations: float = 1e-5):
 

@@ -1,8 +1,11 @@
+from importlib import resources
 from itertools import combinations
 from functools import reduce
 from tqdm import tqdm
 
 import numpy as np
+import os
+import pickle
 
 from . import Observer, getHeringMatrix
 from . import Spectra, Illuminant
@@ -193,3 +196,49 @@ class MaxBasis:
             points = np.array([self.maximal_matrix @ ref.data for ref in refs])
         rgbs = np.array([s.to_rgb(illuminant=Illuminant.get("E")) for s in refs])
         return refs, points, rgbs, lines
+
+    def __hash__(self) -> int:
+        return hash(self.observer)
+
+    def __eq__(self, value: object) -> bool:
+        if isinstance(value, MaxBasis):
+            return hash(self.observer) == hash(value.observer)
+        return False
+
+
+class MaxBasisFactory:
+    _cache_file = "max-basis-cache.pkl"
+
+    @staticmethod
+    def load_cache():
+        # Load the cache from file if it exists
+        with resources.path("TetriumColor.Assets.Cache", MaxBasisFactory._cache_file) as path:
+            if os.path.exists(path):
+                with open(path, "rb") as f:
+                    return pickle.load(f)
+        return {}
+
+    @staticmethod
+    def save_cache(cache):
+        # Save the cache to disk
+        with resources.path("TetriumColor.Assets.Cache", MaxBasisFactory._cache_file) as path:
+            with open(path, "wb") as f:
+                pickle.dump(cache, f)
+
+    @staticmethod
+    def get_object(*args, **kwargs):
+        # Load existing cache or initialize it
+        cache = MaxBasisFactory.load_cache()
+        # Use the __hash__ of the first argument as the cache key
+        key = hash(args[0]) if args else None
+        if key is None:
+            raise ValueError("The first argument must be hashable to act as a key.")
+
+        # Check if object exists in the cache
+        if key not in cache:
+            # If not, create and cache it
+            cache[key] = MaxBasis(*args, **kwargs)
+            MaxBasisFactory.save_cache(cache)
+
+        # Return the cached object
+        return cache[key]
