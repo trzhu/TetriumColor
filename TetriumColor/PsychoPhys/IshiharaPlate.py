@@ -73,6 +73,8 @@ class IshiharaPlate:
                 plate_color.background)
 
         if hidden_number:
+            if hidden_number < 0:  # pick random if negative.
+                hidden_number = np.random.choice(IshiharaPlate._secrets)
             self.__setSecretImage(hidden_number)
 
         # Plate doesn't exist; set seed and colors and generate whole plate.
@@ -159,7 +161,7 @@ class IshiharaPlate:
 
         if self.gradient:
             # TODO: is this necessary for gradient? it's cursed to be both inside and outside
-            inside = np.int32((self.secret[:, :, 3] == 255)) - outside 
+            inside = np.int32((self.secret[:, :, 3] == 255)) - outside
 
         inside_props = []
         outside_props = []
@@ -193,7 +195,7 @@ class IshiharaPlate:
 
                 inside_props.append(in_p)
                 outside_props.append(out_p)
-            else: # non-gradient sampling -- only sample center of circles
+            else:  # non-gradient sampling -- only sample center of circles
                 x = np.clip(x, 0, self.image_size - 1)
                 y = np.clip(y, 0, self.image_size - 1)
                 is_outside: int = 1 if outside[y, x] else 0

@@ -5,6 +5,76 @@ import math
 
 from scipy.spatial import ConvexHull
 
+from TetriumColor.Visualization.cubeMapViz import SetUp3DPlot
+
+
+def ConvertPolarToCartesian(SH: npt.NDArray) -> npt.NDArray:
+    """
+    Convert Polar to Cartesian Coordinates
+    Args:
+        SH (npt.ArrayLike, N x 2): The SH coordinates that we want to transform. Saturation and Hue are transformed
+    """
+    S, H = SH[:, 0], SH[:, 1]
+    return np.array([S * np.cos(H), S * np.sin(H)]).T
+
+
+def ConvertCartesianToPolar(CC: npt.NDArray) -> npt.NDArray:
+    """
+    Convert Cartesian to Polar Coordinates (SH)
+    Args:
+        Cartesian (npt.ArrayLike, N x 2): The Cartesian coordinates that we want to transform
+    """
+    x, y = CC[:, 0], CC[:, 1]
+    rTheta = np.array([np.sqrt(x**2 + y**2), np.arctan2(y, x)]).T
+    rTheta[:, 1] = np.where(rTheta[:, 1] < -1e-9, rTheta[:, 1] + 2 * np.pi, rTheta[:, 1])  # Ensure θ is in [0, 2π]
+    return rTheta
+
+
+def ConvertSphericalToCartesian(rThetaPhi) -> npt.NDArray:
+    """
+    Convert spherical coordinates (r, theta, phi) to Cartesian coordinates (x, y, z).
+
+    Parameters:
+    - r: Radial distance (array or scalar).
+    - theta: Azimuthal angle in radians (array or scalar).
+    - phi: Polar angle in radians (array or scalar).
+
+    Returns:
+    - A numpy array of shape (n, 3), where each row is [x, y, z].
+    """
+    r, theta, phi = rThetaPhi[:, 0], rThetaPhi[:, 1], rThetaPhi[:, 2]
+
+    # Cartesian coordinates
+    x = r * np.sin(phi) * np.cos(theta)
+    y = r * np.sin(phi) * np.sin(theta)
+    z = r * np.cos(phi)
+
+    return np.vstack((x, y, z)).T
+
+
+def ConvertCartesianToSpherical(xyz) -> npt.NDArray:
+    """
+    Convert Cartesian coordinates (x, y, z) to spherical coordinates (r, theta, phi).
+
+    Parameters:
+    - x, y, z: Arrays or scalars representing Cartesian coordinates.
+
+    Returns:
+    - A numpy array of shape (n, 3), where each row is [r, theta, phi].
+    """
+    x, y, z = xyz[:, 0], xyz[:, 1], xyz[:, 2]
+
+    # Radial distance
+    r = np.sqrt(x**2 + y**2 + z**2)
+
+    # Azimuthal angle (theta)
+    theta = np.arctan2(y, x)
+
+    # Polar angle (phi)
+    phi = np.arccos(np.clip(z / r, -1.0, 1.0))  # Clip for numerical stability
+
+    return np.vstack((r, theta, phi)).T
+
 
 def SampleAnglesEqually(samples, dim) -> npt.NDArray:
     """
@@ -13,7 +83,9 @@ def SampleAnglesEqually(samples, dim) -> npt.NDArray:
     if dim == 2:
         return SampleCircle(samples)
     elif dim == 3:
-        return SampleFibonacciSphere(samples)
+        xyz = SampleFibonacciSphereCartesian(samples)
+        spherical = ConvertCartesianToSpherical(xyz)
+        return spherical[:, 1:]
     else:
         raise NotImplementedError("Only 2D and 3D Spheres are supported")
 
@@ -22,7 +94,8 @@ def SampleCircle(samples=1000) -> npt.NDArray:
     return np.array([[2 * math.pi * (i / float(samples)) for i in range(samples)]]).T
 
 
-def SampleFibonacciSphere(samples=1000) -> npt.NDArray:
+def SampleFibonacciSphereCartesian(samples=1000):
+
     points = []
     phi = math.pi * (math.sqrt(5.) - 1.)  # golden angle in radians
 
@@ -35,11 +108,7 @@ def SampleFibonacciSphere(samples=1000) -> npt.NDArray:
         x = math.cos(theta) * radius
         z = math.sin(theta) * radius
 
-        # stupid but i do not care right now
-        r = np.sqrt(x**2 + y**2 + z**2)
-        phi = np.arccos(z / r)
-        theta = np.arctan2(y, x)
-        points.append((theta, phi))
+        points.append((x, y, z))
 
     return np.array(points)
 
@@ -251,7 +320,7 @@ def GenerateGeometryFromVertices(vertices: npt.NDArray) -> tuple[npt.NDArray, np
     return vertices, simplices, mesh.vertex_normals, indices
 
 
-def ExportGeometryToObjFile(vertices, triangles, normals, uv_coords, obj_filename):
+def ExportGeometryToObjFile(vertices, triangles, normals, uv_coords, colors, obj_filename):
     """
     Save a geometry to an .obj file with vertex normals, texture coordinates,
     and separate textures for RGB and OCV.
@@ -268,8 +337,10 @@ def ExportGeometryToObjFile(vertices, triangles, normals, uv_coords, obj_filenam
     # Write .obj file
     with open(obj_filename, "w") as obj_file:
         # Write vertices
-        for v in vertices:
-            obj_file.write(f"v {v[0]:.3f} {v[1]:.3f} {v[2]:.3f}\n")
+        for v, color in zip(vertices, colors):
+            # color = [int(c.RGB[i] * 255) for i in range(3)]
+            obj_file.write(
+                f"v {v[0]:.3f} {v[1]:.3f} {v[2]:.3f} {color[0]} {color[1]} {color[2]}\n")
 
         # Write texture coordinates
         for uv in uv_coords:

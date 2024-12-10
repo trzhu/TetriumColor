@@ -1,74 +1,23 @@
+import math
+from PIL import Image
 import numpy as np
 from typing import List
 import numpy.typing as npt
 import os
 
+import matplotlib.pyplot as plt
 from scipy.spatial import ConvexHull
 
 from PIL import Image, ImageDraw
 from TetriumColor.ColorMath import Geometry
-from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, TetraColor
-import TetriumColor.ColorMath.HueToDisplay as HueToDisplay
+from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, PlateColor, TetraColor
+import TetriumColor.ColorMath.GamutMath as GamutMath
 from TetriumColor.ColorMath.Geometry import ConvertCubeUVToXYZ, ExportGeometryToObjFile, GenerateGeometryFromVertices
+from TetriumColor.PsychoPhys.IshiharaPlate import IshiharaPlate
+from TetriumColor.Visualization.cubeMapViz import SetUp3DPlot
 
 
-# FIXME: This function is garbage, please fix it!!!!
-def LMStoSRGB(lms: np.ndarray) -> np.ndarray:
-    """
-    Converts LMS values to sRGB values.
-
-    Args:
-        lms (np.ndarray): Array of LMS values, shape (N, 3) or (3,).
-
-    Returns:
-        np.ndarray: Array of sRGB values, shape (N, 3) or (3,).
-    """
-    # TODO: Fix this, it sucks and isn't correct.
-    # LMS to XYZ conversion matrix
-    lms_to_xyz = np.array([
-        [0.4002, 0.7075, -0.0808],
-        [-0.2263, 1.1653, 0.0457],
-        [0.0000, 0.0000, 0.9182]
-    ])
-
-    xyz_d65 = np.array([0.9505, 1.0000, 1.0890])
-    lms_d65 = np.array([1.0, 1.0, 1.0])
-
-    # Scaling factors to align [1, 1, 1]_LMS with xyz_d65
-    scaling_factors = xyz_d65 / np.dot(lms_to_xyz, lms_d65)
-
-    # Scale the matrix
-    lms_to_xyz = lms_to_xyz * scaling_factors[:, np.newaxis]
-
-    # XYZ to linear sRGB conversion matrix
-    xyz_to_srgb = np.array([
-        [3.2406, -1.5372, -0.4986],
-        [-0.9689,  1.8758,  0.0415],
-        [0.0557, -0.2040,  1.0570]
-    ])
-
-    # Apply LMS to XYZ conversion
-    xyz = np.dot(lms, lms_to_xyz.T)
-
-    # Apply XYZ to linear sRGB conversion
-    srgb_linear = np.dot(xyz, xyz_to_srgb.T)
-
-    # Perform gamma correction to get sRGB
-    def gamma_correction(channel):
-        return np.where(channel <= 0.0031308,
-                        12.92 * channel,
-                        1.055 * np.power(channel, 1 / 2.4) - 0.055)
-
-    # print(srgb_linear)
-    # srgb = gamma_correction(np.clip(srgb_linear, 0, 1))
-
-    # Clamp values to [0, 1] range
-    srgb = np.clip(srgb_linear, 0, 1)
-
-    return srgb
-
-
-def GetSphereGeometry(luminance, saturation, num_points: int = 1000, filename: str = 'sphere.obj'):
+def GetSphereGeometry(luminance, saturation, num_points: int, filename: str, color_space_transform):
     """
     GetSphereGeometry generates a sphere geometry with fibonacci sampling.
 
@@ -77,17 +26,24 @@ def GetSphereGeometry(luminance, saturation, num_points: int = 1000, filename: s
         filename (str): filename for the OBJ file
     """
     # Generate sphere vertices
-    vshh = HueToDisplay.SampleHueManifold(luminance, saturation, 4, num_points)
-    hering = HueToDisplay.ConvertVSHToHering(vshh)
+    vshh = GamutMath.SampleHueManifold(luminance, saturation, 4, num_points)
+    hering = GamutMath.ConvertVSHToHering(vshh)
     vertices, triangles, normals, _ = Geometry.GenerateGeometryFromVertices(hering[:, 1:])
     uv_coords = Geometry.CartesianToUV(vertices)
+    print(len(uv_coords))
+    remapped_vshh = GamutMath.RemapGamutPoints(vshh, color_space_transform,
+                                               GamutMath.GenerateGamutLUT(vshh, color_space_transform))
+    tetra_colors: List[TetraColor] = GamutMath.ConvertVSHtoTetraColor(remapped_vshh, color_space_transform)
 
+    rgb_colors = np.array([color.RGB for color in tetra_colors])
     # Export geometry to OBJ file
-    ExportGeometryToObjFile(vertices, triangles, normals, uv_coords, filename)
+    ExportGeometryToObjFile(vertices, triangles, normals, uv_coords, rgb_colors, filename)
+
+    return vertices, triangles, normals, uv_coords, rgb_colors
 
 
 def GetFibonacciSampledHueTexture(num_points: int, luminance: float, saturation: float, color_space_transform: ColorSpaceTransform,
-                                  rgb_texture_filename: str, ocv_texture_filename: str) -> None:
+                                  rgb_texture_filename: str, ocv_texture_filename: str):
     """GetHueSphereGeometryWithLineTexture generates a hue sphere geometry with fibonacci sampling and line texture
 
     Args:
@@ -112,10 +68,16 @@ def GetFibonacciSampledHueTexture(num_points: int, luminance: float, saturation:
     lum_column = np.ones((cartesian.shape[0], 1)) * luminance
     hering = np.hstack((lum_column, cartesian))
 
-    vshh = HueToDisplay.ConvertHeringToVSH(hering)
-    remapped_vshh = HueToDisplay.RemapGamutPoints(vshh, color_space_transform,
-                                                  HueToDisplay.GenerateGamutLUT(vshh, color_space_transform))
-    tetra_colors: List[TetraColor] = HueToDisplay.ConvertVSHtoTetraColor(remapped_vshh, color_space_transform)
+    vshh = GamutMath.ConvertHeringToVSH(hering)
+    remapped_vshh = GamutMath.RemapGamutPoints(vshh, color_space_transform,
+                                               GamutMath.GenerateGamutLUT(vshh, color_space_transform))
+
+    tetra_colors: List[TetraColor] = GamutMath.ConvertVSHtoTetraColor(remapped_vshh, color_space_transform)
+    rgb_colors = np.array([color.RGB for color in tetra_colors])
+
+    vertices, triangles, normals, indices = Geometry.GenerateGeometryFromVertices(hering[:, 1:])
+    ExportGeometryToObjFile(vertices, triangles, normals,
+                            uv_coords[indices], rgb_colors, './tmp/geometry/sphere_debugging.obj')
 
     # sample color per pixel to avoid empty spots
     image_rgb = Image.new('RGB', (image_size, image_size))
@@ -126,7 +88,6 @@ def GetFibonacciSampledHueTexture(num_points: int, luminance: float, saturation:
 
     for color, (u, v) in zip(tetra_colors, uv_coords):
         image_location = (int(v * image_size), int(u * image_size))
-        print(image_location)
         rgb_color = (int(color.RGB[0] * 255), int(color.RGB[1] * 255), int(color.RGB[2] * 255))
         draw_rgb.point(image_location, fill=rgb_color)
         ocv_color = (int(color.OCV[0] * 255), int(color.OCV[1] * 255), int(color.OCV[2] * 255))
@@ -134,10 +95,11 @@ def GetFibonacciSampledHueTexture(num_points: int, luminance: float, saturation:
     # Save textures as an image
     image_rgb.save(rgb_texture_filename)
     image_ocv.save(ocv_texture_filename)
+    return uv_coords, tetra_colors, cartesian
 
 
 def GenerateCubeMapTextures(luminance: float, saturation: float, color_space_transform: ColorSpaceTransform,
-                            image_size: int, filename_RGB: str, filename_OCV: str, filename_sRGB: str):
+                            image_size: int, filename_RGB: str, filename_OCV: str):
     """GenerateCubeMapTextures generates the cube map textures for a given luminance and saturation.
 
     Args:
@@ -156,34 +118,36 @@ def GenerateCubeMapTextures(luminance: float, saturation: float, color_space_tra
     flattened_u, flattened_v = cube_u.flatten(), cube_v.flatten()
 
     # change the associated xyzs -> to a new direction, but the same color values
-    qDirMat = HueToDisplay.GetTransformChromToQDir(color_space_transform)
+    qDirMat = GamutMath.GetTransformChromToQDir(color_space_transform)
     invQDirMat = np.linalg.inv(qDirMat)
 
     # Create the RGB/OCV GenerateCubeMapTextures
     for i in range(6):
         img_rgb = Image.new('RGB', (image_size, image_size))  # sample color per pixel to avoid empty spots
         img_ocv = Image.new('RGB', (image_size, image_size))
-        img_srgb = Image.new('RGB', (image_size, image_size))
 
         draw_rgb = ImageDraw.Draw(img_rgb)
         draw_ocv = ImageDraw.Draw(img_ocv)
-        draw_srgb = ImageDraw.Draw(img_srgb)
+        # ax = SetUp3DPlot()
 
         # convert the xyz coordinates of the cube map back into the original hering space -- this defines the
         # cubemap directions exactly !
         xyz = ConvertCubeUVToXYZ(i, cube_u, cube_v, saturation).reshape(-1, 3)
+        # ax.scatter(xyz[:, 0], xyz[:, 1], xyz[:, 2], c='b', marker='o', label='Vertices')
+
         xyz = np.dot(invQDirMat, xyz.T).T
         lum_vector = luminance * np.ones(image_size * image_size)
 
         vxyz = np.hstack((lum_vector[np.newaxis, :].T, xyz))
-        vshh = HueToDisplay.ConvertHeringToVSH(vxyz)
+        vshh = GamutMath.ConvertHeringToVSH(vxyz)
 
-        map_angle_sat = HueToDisplay.GenerateGamutLUT(vshh, color_space_transform)
-        remapped_vshh = HueToDisplay.RemapGamutPoints(vshh, color_space_transform, map_angle_sat)
-        corresponding_tetracolors = HueToDisplay.ConvertVSHtoTetraColor(remapped_vshh, color_space_transform)
-        hering_to_cone = np.linalg.inv(color_space_transform.cone_to_disp)@color_space_transform.hering_to_disp
-        lms = (hering_to_cone@HueToDisplay.ConvertVSHToHering(remapped_vshh).T).T[:, [3, 1, 0]]
-        corresponding_srgbs = LMStoSRGB(lms)
+        vxyz_back = GamutMath.ConvertVSHToHering(vshh)
+        # ax.scatter(vxyz_back[:, 1], vxyz_back[:, 2], vxyz_back[:, 3], c='r', marker='^', label='Tetra Cartesian')
+        # plt.show()
+
+        map_angle_sat = GamutMath.GenerateGamutLUT(vshh, color_space_transform)
+        remapped_vshh = GamutMath.RemapGamutPoints(vshh, color_space_transform, map_angle_sat)
+        corresponding_tetracolors = GamutMath.ConvertVSHtoTetraColor(remapped_vshh, color_space_transform)
 
         for j in range(len(flattened_u)):
             u, v = flattened_v[j], flattened_u[j]  # swap axis for PIL
@@ -193,14 +157,9 @@ def GenerateCubeMapTextures(luminance: float, saturation: float, color_space_tra
             ocv_color = (int(color.OCV[0] * 255), int(color.OCV[1] * 255), int(color.OCV[2] * 255))
             draw_ocv.point((u * image_size, v * image_size), fill=ocv_color)
 
-            srgb = corresponding_srgbs[j]
-            srgb_color = (int(srgb[0] * 255), int(srgb[1] * 255), int(srgb[2] * 255))
-            draw_srgb.point((u * image_size, v * image_size), fill=srgb_color)
-
         # Save the images
         img_rgb.save(f'{filename_RGB}_{str(i)}.png')
         img_ocv.save(f'{filename_OCV}_{str(i)}.png')
-        img_srgb.save(f'{filename_sRGB}_{str(i)}.png')
 
 
 def ConcatenateCubeMap(basename: str, output_filename: str):
@@ -286,8 +245,91 @@ def CreateCircleGrid(grid: npt.NDArray, padding: int, radius: int, output_base: 
                 draw_OCV.ellipse([cx - radius, cy - radius, cx + radius, cy + radius], fill=color, outline="black")
 
             # Save image
-        img_RGB.save(output_base + f'_{metamer_idx}_RGB_.png')
-        img_OCV.save(output_base + f'_{metamer_idx}_OCV_.png')
+        img_RGB.save(output_base + f'_{metamer_idx}_RGB.png')
+        img_OCV.save(output_base + f'_{metamer_idx}_OCV.png')
 
     __createPairImages(0)
     __createPairImages(1)
+
+
+def CreatePaddedGrid(image_files, grid_size=None, padding=10, bg_color=(0, 0, 0)):
+    """
+    Create a padded grid of images from a list of image files.
+
+    Args:
+        image_files (list of str): List of image file paths.
+        grid_size (tuple, optional): Tuple (rows, cols) specifying grid dimensions.
+                                     If None, grid is square.
+        padding (int, optional): Padding between images in pixels. Defaults to 10.
+        bg_color (tuple, optional): Background color for the grid (R, G, B). Defaults to white.
+
+    Returns:
+        Image: The grid as a Pillow Image object.
+    """
+    # Load all images
+    images = [Image.open(file) for file in image_files]
+
+    # Ensure all images are the same size
+    max_width = max(img.width for img in images)
+    max_height = max(img.height for img in images)
+    resized_images = [img.resize((max_width, max_height)) for img in images]
+
+    # Determine grid size if not provided
+    num_images = len(images)
+    if grid_size is None:
+        cols = math.ceil(math.sqrt(num_images))
+        rows = math.ceil(num_images / cols)
+    else:
+        rows, cols = grid_size
+
+    # Calculate final grid dimensions
+    grid_width = cols * max_width + (cols - 1) * padding
+    grid_height = rows * max_height + (rows - 1) * padding
+
+    # Create a blank canvas for the grid
+    grid_image = Image.new("RGB", (grid_width, grid_height), bg_color)
+
+    # Paste images onto the grid
+    for idx, img in enumerate(resized_images):
+        row = idx // cols
+        col = idx % cols
+        x = col * (max_width + padding)
+        y = row * (max_height + padding)
+        grid_image.paste(img, (x, y))
+
+    return grid_image
+
+
+def CreatePseudoIsochromaticGrid(grid, output_dir: str, output_base: str, seed=42):
+    subdirname = f"./{output_dir}/sub_images"
+    os.makedirs(subdirname, exist_ok=True)
+    plate: IshiharaPlate = IshiharaPlate(seed=seed)
+    for i in range(grid.shape[0]):
+        for j in range(grid.shape[1]):
+            metamer1 = TetraColor(grid[i, j, 0, :3], grid[i, j, 0, 3:])
+            metamer2 = TetraColor(grid[i, j, 1, :3], grid[i, j, 1, 3:])
+            plate_color = PlateColor(metamer1, metamer2)
+            plate.GeneratePlate(seed, -1, plate_color)
+            plate.ExportPlate(os.path.join(subdirname, f"{output_base}_{i}_{j}_RGB.png"),
+                              os.path.join(subdirname, f"{output_base}_{i}_{j}_OCV.png"))
+
+    img_rgb = CreatePaddedGrid([os.path.join(subdirname, f"{output_base}_{i}_{j}_RGB.png") for i in range(grid.shape[0])
+                                for j in range(grid.shape[1])])
+    img_rgb.save(f"./{output_dir}/{output_base}_RGB.png")
+
+    img_ocv = CreatePaddedGrid([os.path.join(subdirname, f"{output_base}_{i}_{j}_OCV.png") for i in range(grid.shape[0])
+                                for j in range(grid.shape[1])])
+    img_ocv.save(f"./{output_dir}/{output_base}_OCV.png")
+
+
+def CreatePseudoIsochromaticImages(colors, output_dir: str, output_base: str, seed=42):
+    subdirname = f"./{output_dir}/sub_images"
+    os.makedirs(subdirname, exist_ok=True)
+    plate: IshiharaPlate = IshiharaPlate(seed=seed)
+    for i in range(len(colors)):
+        metamer1 = TetraColor(colors[i, 0, :3], colors[i, 0, 3:])
+        metamer2 = TetraColor(colors[i, 1, :3], colors[i, 1, 3:])
+        plate_color = PlateColor(metamer1, metamer2)
+        plate.GeneratePlate(seed, -1, plate_color)
+        plate.ExportPlate(os.path.join(subdirname, f"{output_base}_{i:03}_RGB.png"),
+                          os.path.join(subdirname, f"{output_base}_{i:03}_OCV.png"))

@@ -1,6 +1,8 @@
 # repository 
 tmp
 .vscode
+*outputs/
+measurements/
 
 # Mac
 *.DS_Store
