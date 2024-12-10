@@ -6,6 +6,7 @@ setup(
     description="A Python library to work in concert with Tetrium",
     author="Jessica Lee",
     packages=find_packages(),
+    include_package_data=True,
     install_requires=[
         "colour-science>=0.1.5",
         "matplotlib>=3.9.3",
