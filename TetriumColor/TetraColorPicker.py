@@ -8,9 +8,7 @@ import pickle
 import os
 
 from TetriumColor.PsychoPhys.Quest import Quest
-from TetriumColor.Utils.IO import LoadColorSpaceTransform
-import TetriumColor.ColorMath.Metamers as Metamers
-import TetriumColor.ColorMath.HueToDisplay as HueToDisplay
+import TetriumColor.ColorMath.GamutMath as GamutMath
 
 
 # TODO: Implement the following classes
@@ -67,22 +65,6 @@ class ScreeningTestColorGenerator(ColorGenerator):
         self.current_idx = 0
 
         self.metamer_list: List[PlateColor] = []
-        self.__loadMetamerList(transform_dirs, pre_generated_filenames)
-
-    def __loadMetamerList(self, transform_dirs: List[str], pre_generated_filenames: List[str]):
-        for transform_dir, pre_generated_filename in zip(transform_dirs, pre_generated_filenames):
-            color_space_transform = LoadColorSpaceTransform(transform_dir)
-
-            if pre_generated_filename is not None and os.path.exists(pre_generated_filename):
-                with open(pre_generated_filename, 'rb') as pickle_file:
-                    self.metamer_list += pickle.load(pickle_file)
-            else:
-                metamer_list = Metamers.GetKMetamers(
-                    color_space_transform, self.num_tests)
-                if pre_generated_filename is not None:
-                    with open(pre_generated_filename, 'wb') as pickle_file:
-                        pickle.dump(metamer_list, pickle_file)
-                self.metamer_list += metamer_list
 
     def NewColor(self) -> PlateColor:
         plate_color = self.metamer_list[self.current_idx]
