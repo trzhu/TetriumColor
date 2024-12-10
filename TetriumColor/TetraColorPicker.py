@@ -9,8 +9,7 @@ import os
 
 from TetriumColor.PsychoPhys.Quest import Quest
 from TetriumColor.Utils.IO import LoadColorSpaceTransform
-import TetriumColor.ColorMath.Metamers as Metamers
-import TetriumColor.ColorMath.HueToDisplay as HueToDisplay
+import TetriumColor.ColorMath.GamutMath as GamutMath
 
 
 # TODO: Implement the following classes
@@ -106,19 +105,19 @@ class TargetedTestColorGenerator(ColorGenerator):
         # get parameters for a single direction (kind of terrible, might need to refactor)
         max_L: float = (np.linalg.inv(self.color_space_transform.hering_to_disp) @
                         np.ones(self.color_space_transform.cone_to_disp.shape[0]))[0]
-        metameric_vshh: npt.NDArray = HueToDisplay.GetMetamericAxisInVSH(self.color_space_transform)
+        metameric_vshh: npt.NDArray = GamutMath.GetMetamericAxisInVSH(self.color_space_transform)
         self.angles: npt.NDArray = metameric_vshh[0, 2:]
-        lum_cusp, sat_cusp = HueToDisplay.FindMaxSaturationForVSH(
+        lum_cusp, sat_cusp = GamutMath.FindMaxSaturationForVSH(
             metameric_vshh, self.color_space_transform)
         self.luminance: float = luminance
-        self.max_sat_at_luminance: float = HueToDisplay.SolveForBoundary(luminance, max_L, lum_cusp, sat_cusp)
+        self.max_sat_at_luminance: float = GamutMath.SolveForBoundary(luminance, max_L, lum_cusp, sat_cusp)
 
         self.saturations: npt.NDArray = np.linspace(0, self.max_sat_at_luminance, num_saturation_levels + 1)
         self.saturations = self.saturations[::-1]
 
     def NewColor(self) -> PlateColor:
         vsh = np.concatenate([[self.luminance, self.saturations[self.current_idx]], self.angles])
-        color: PlateColor = HueToDisplay.ConvertVSHToPlateColor(vsh, self.luminance, self.color_space_transform)
+        color: PlateColor = GamutMath.ConvertVSHToPlateColor(vsh, self.luminance, self.color_space_transform)
         print(color)
         self.current_idx += 1
         return color
@@ -136,10 +135,10 @@ class InDepthTestColorGenerator(ColorGenerator):
         self.num_directions: int = num_directions
         self.luminance: float = luminance
         self.saturation: float = saturation
-        self.hue_space: npt.NDArray = HueToDisplay.SampleHueManifold(
+        self.hue_space: npt.NDArray = GamutMath.SampleHueManifold(
             luminance, saturation, self.color_space_transform.dim, num_directions)
-        map_angle_to_cusp = HueToDisplay.GenerateGamutLUT(self.hue_space, self.color_space_transform)
-        self.map_angle_to_lum_plane = HueToDisplay.GetEquiluminantPlane(
+        map_angle_to_cusp = GamutMath.GenerateGamutLUT(self.hue_space, self.color_space_transform)
+        self.map_angle_to_lum_plane = GamutMath.GetEquiluminantPlane(
             luminance, self.color_space_transform, map_angle_to_cusp)
 
         self.current_direction = 0
@@ -150,7 +149,7 @@ class InDepthTestColorGenerator(ColorGenerator):
         hue = tuple(self.hue_space[self.current_direction][2:])
         lum, sat = self.map_angle_to_lum_plane[hue]
         current_sat_level = self.current_saturation_per_direction[self.current_direction]/self.num_saturation_levels
-        color = HueToDisplay.ConvertVSHToPlateColor(
+        color = GamutMath.ConvertVSHToPlateColor(
             np.array([lum, sat*current_sat_level, *hue]), self.luminance, self.color_space_transform)
         self.current_saturation_per_direction[self.current_direction] -= 1
         self.current_direction = (self.current_direction + 1) % self.num_directions
