@@ -65,7 +65,7 @@ def MeasureMetamers(metamer_display_weights: npt.NDArray, save_directory: str, p
     pr650 = PR650(mac_port_name)
 
     # Create the app and manually measure all of the primaries
-    app = MeasureDisplay(pr650, save_directory='tmp', debug=True)
+    app = MeasureDisplay(pr650, save_directory='tmp')
     app.run()
 
     wavelengths = np.arange(380, 781, 4)

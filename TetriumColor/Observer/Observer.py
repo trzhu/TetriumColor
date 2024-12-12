@@ -644,7 +644,7 @@ def transformToChromaticity(matrix) -> npt.NDArray:
     """
     Transform Coordinates (n_rows x dim) into Hering Chromaticity Coordinates
     """
-    HMatrix = getHeringMatrix(matrix.shape[1])
+    HMatrix = GetHeringMatrix(matrix.shape[1])
     return (HMatrix@matrix.T).T[:, 1:]
 
 
@@ -655,7 +655,7 @@ def transformToDisplayChromaticity(matrix, T, idxs=None) -> npt.NDArray:
     return (T@(matrix / np.sum(matrix, axis=0)))[idxs]
 
 
-def getHeringMatrix(dim) -> npt.NDArray:
+def GetHeringMatrix(dim) -> npt.NDArray:
     """
     Get Hering Matrix for a given dimension
     """

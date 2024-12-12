@@ -7,7 +7,7 @@ import numpy as np
 import os
 import pickle
 
-from . import Observer, getHeringMatrix
+from . import Observer, GetHeringMatrix
 from . import Spectra, Illuminant
 
 
@@ -24,7 +24,7 @@ class MaxBasis:
         self.step_size = self.observer.wavelengths[1] - self.observer.wavelengths[0]
         self.dim_sample_const = self.dim4SampleConst if self.dimension == 4 else self.dim3SampleConst
 
-        self.HMatrix = getHeringMatrix(observer.dimension)
+        self.HMatrix = GetHeringMatrix(observer.dimension)
 
         self.__getMaximalBasis()
 
