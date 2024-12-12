@@ -55,7 +55,7 @@ def GetStockmanObserver(wavelengths: npt.NDArray):
 
 
 def GetAllObservers(
-        ods=[0.4, 0.5, 0.6],
+        ods=[0.5, 0.6],
         peaks=((530, 559), (530, 555), (533, 559), (533, 555)),
         macular_pigment_density=[0.5, 1.0, 2.0],  # 1.0 is standard, 4.0 is 1.2/0.35, which is the max peak
         lens_density=[0.75, 1, 1.25],  # vary 25% in young observers

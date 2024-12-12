@@ -2,8 +2,8 @@ import numpy as np
 import packcircles
 from importlib import resources
 
-from typing import List
-from numpy.typing import ArrayLike
+from typing import Callable, List
+import numpy.typing as npt
 
 from PIL import Image, ImageDraw
 from TetriumColor.Utils.CustomTypes import PlateColor, TetraColor
@@ -50,7 +50,7 @@ class IshiharaPlate:
         else:
             raise ValueError(f"Invalid Hidden Number {secret}")
 
-    def GeneratePlate(self, seed: int = None, hidden_number: int = None, plate_color: PlateColor = None):
+    def GeneratePlate(self, seed: int | None = None, hidden_number: int | None = None, plate_color: PlateColor | None = None, noise_generator: Callable[[], npt.NDArray] | None = None):
         """
         Generate the Ishihara Plate with specified inside/outside colors and secret.
         A new seed can be specified to generate a different plate pattern.
@@ -65,7 +65,7 @@ class IshiharaPlate:
         def helper_generate():
             self.__generateGeometry()
             self.__computeInsideOutside()
-            self.__drawPlate()
+            self.__drawPlate(noise_generator)
 
         if plate_color:
             self.inside_color = self.__standardizeColor(plate_color.shape)
@@ -94,13 +94,13 @@ class IshiharaPlate:
         if hidden_number:
             self.__computeInsideOutside()
             self.__resetImages()
-            self.__drawPlate()
+            self.__drawPlate(noise_generator)
             return
 
         # Need to re-color, but don't need to re-generate geometry or hidden number.
         if plate_color:
             self.__resetImages()
-            self.__drawPlate()
+            self.__drawPlate(noise_generator)
             return
 
     def ExportPlate(self, filename_RGB: str, filename_OCV: str):
@@ -207,7 +207,7 @@ class IshiharaPlate:
         self.inside_props = inside_props
         self.outside_props = outside_props
 
-    def __drawPlate(self):
+    def __drawPlate(self, noise_generator: Callable[[], npt.NDArray] | None = None):
         """
         Using generated geometry data and computed inside/outside proportions,
         draw the plate.
@@ -217,16 +217,23 @@ class IshiharaPlate:
 
         for i, [x, y, r] in enumerate(self.circles):
             in_p, out_p = self.inside_props[i], self.outside_props[i]
-
-            circle_color = in_p * self.inside_color + out_p * self.outside_color
-            # noise apply to the six channel, scale the entire vector
-            lum_noise = np.random.normal(0, self.lum_noise)
             # only apply to vector that are on
-            new_color = np.clip(
-                circle_color + (lum_noise * (circle_color > 0)), 0, 1)
+            if noise_generator:
+                new_color = np.clip(noise_generator(), 0, 1)
+                if in_p:
+                    new_color = new_color[0]
+                else:
+                    new_color = new_color[1]
+            else:
+                circle_color = in_p * self.inside_color + out_p * self.outside_color
+                # noise apply to the six channel, scale the entire vector
+                lum_noise = np.random.normal(0, self.lum_noise)
+                # only apply to vector that are on
+                new_color = np.clip(
+                    circle_color + (lum_noise * (circle_color > 0)), 0, 1)
             self.__drawEllipse([x-r, y-r, x+r, y+r], new_color)
 
-    def __drawEllipse(self, bounding_box: List, fill: ArrayLike):
+    def __drawEllipse(self, bounding_box: List, fill: npt.ArrayLike):
         """
         Wrapper function for PIL ImageDraw. Draws to each of the
         R, G1, G2, and B channels; each channel is represented as

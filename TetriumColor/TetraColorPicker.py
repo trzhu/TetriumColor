@@ -1,38 +1,72 @@
 from abc import ABC, abstractmethod
-from typing import List
+from re import I
+from typing import List, Callable
 
 from matplotlib import colors
+from numpy.random import sample
 from TetriumColor.Utils.CustomTypes import *
 import numpy as np
-import pickle
-import os
 
 from TetriumColor.PsychoPhys.Quest import Quest
-from TetriumColor.Utils.IO import LoadColorSpaceTransform
 import TetriumColor.ColorMath.GamutMath as GamutMath
+from TetriumColor.ColorMath.Conversion import ConvertPlateColorsToDisplayColors, ConvertMetamersToPlateColors, Map4DTo6D, Map6DTo4D
+from TetriumColor.Utils.CustomTypes import PlateColor, TetraColor, ColorSpaceTransform
 
 
-# TODO: Implement the following classes
 class BackgroundNoiseGenerator:
-    def __init__(self):
-        pass
+    def __init__(self, color_space_transforms: List[ColorSpaceTransform]):
+        self.disp_to_cones = [np.linalg.inv(cst.cone_to_disp) for cst in color_space_transforms]
+        self.color_space_transforms = color_space_transforms
 
-    def NoiseGenerator(self) -> PlateColor:
-        pass
+    def GenerateNoiseFunction(self, plate_color: PlateColor | npt.NDArray) -> Callable[[], npt.NDArray]:
+        # convert format to array
+        if isinstance(plate_color, PlateColor):
+            disp_plate_colors = [ConvertPlateColorsToDisplayColors(
+                [plate_color], self.color_space_transforms[i])[0] for i in range(len(self.color_space_transforms))]
+        else:
+            disp_plate_colors = [Map6DTo4D(plate_color, self.color_space_transforms[i])
+                                 for i in range(len(self.color_space_transforms))]
+
+        # HARDCODED FOR NOW
+        shape_cones = np.zeros((len(disp_plate_colors), 4))
+        background_cones = np.zeros((len(disp_plate_colors), 4))
+        for i, (disp_plate_color, disp_to_cone) in enumerate(zip(disp_plate_colors, self.disp_to_cones)):
+            shape_cones[i] = (disp_plate_color[0] @ disp_to_cone.T)
+            background_cones[i] = (disp_plate_color[1] @ disp_to_cone.T)
+
+        shape_cones_mean = np.mean(shape_cones, axis=0)
+        background_cones_mean = np.mean(background_cones, axis=0)
+
+        # only apply noise to the non-metameric axis -- doesn't work,
+        # shape_cones_mean[self.color_space_transforms[0].metameric_axis] = 0
+        # background_cones_mean[self.color_space_transforms[0].metameric_axis] = 0
+
+        shape_cones_std = np.std(shape_cones, axis=0)
+        background_cones_std = np.std(background_cones, axis=0)
+        shape_cones_std[self.color_space_transforms[0].metameric_axis] = 0
+        background_cones_std[self.color_space_transforms[0].metameric_axis] = 0
+
+        def noise_generator():
+            sample_shape = np.random.normal(shape_cones_mean, shape_cones_std)
+            sample_background = np.random.normal(background_cones_mean, background_cones_std)
+            disp_noise = np.array([sample_shape, sample_background])@self.color_space_transforms[0].cone_to_disp.T
+            return Map4DTo6D(disp_noise, self.color_space_transforms[0])
+
+        return noise_generator
 
 
 class ColorGenerator(ABC):
 
-    @staticmethod
+    @ staticmethod
     def __generateQuestObject(t_guess, t_guess_sd) -> Quest:
         # TODO: For now don't mess with quest, just sample at an interval to get idea of parameters
         return Quest(t_guess, t_guess_sd, 0.8, beta=3.5, delta=0.01, gamma=0.05, grain=0.01, range=None)
 
-    @abstractmethod
+    @ abstractmethod
     def NewColor(self) -> PlateColor:
         pass
 
-    @abstractmethod
+    @ abstractmethod
     def GetColor(self, previous_result: ColorTestResult) -> PlateColor:
         pass
 

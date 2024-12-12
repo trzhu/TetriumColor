@@ -1,7 +1,7 @@
 import math
 from PIL import Image
 import numpy as np
-from typing import List
+from typing import Callable, List
 import numpy.typing as npt
 import os
 
@@ -10,6 +10,7 @@ from scipy.spatial import ConvexHull
 
 from PIL import Image, ImageDraw
 from TetriumColor.ColorMath import Geometry
+from TetriumColor.TetraColorPicker import BackgroundNoiseGenerator
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, PlateColor, TetraColor
 import TetriumColor.ColorMath.GamutMath as GamutMath
 from TetriumColor.ColorMath.Geometry import ConvertCubeUVToXYZ, ExportGeometryToObjFile, GenerateGeometryFromVertices
@@ -300,7 +301,7 @@ def CreatePaddedGrid(image_files, grid_size=None, padding=10, bg_color=(0, 0, 0)
     return grid_image
 
 
-def CreatePseudoIsochromaticGrid(grid, output_dir: str, output_base: str, seed=42):
+def CreatePseudoIsochromaticGrid(grid, output_dir: str, output_base: str, seed: int = 42, noise_generator: BackgroundNoiseGenerator | None = None):
     subdirname = f"./{output_dir}/sub_images"
     os.makedirs(subdirname, exist_ok=True)
     plate: IshiharaPlate = IshiharaPlate(seed=seed)
@@ -309,16 +310,19 @@ def CreatePseudoIsochromaticGrid(grid, output_dir: str, output_base: str, seed=4
             metamer1 = TetraColor(grid[i, j, 0, :3], grid[i, j, 0, 3:])
             metamer2 = TetraColor(grid[i, j, 1, :3], grid[i, j, 1, 3:])
             plate_color = PlateColor(metamer1, metamer2)
-            plate.GeneratePlate(seed, -1, plate_color)
+            noise_generator_fn = noise_generator.GenerateNoiseFunction(plate_color) if noise_generator else None
+            plate.GeneratePlate(seed, -1, plate_color, noise_generator_fn)
             plate.ExportPlate(os.path.join(subdirname, f"{output_base}_{i}_{j}_RGB.png"),
                               os.path.join(subdirname, f"{output_base}_{i}_{j}_OCV.png"))
 
     img_rgb = CreatePaddedGrid([os.path.join(subdirname, f"{output_base}_{i}_{j}_RGB.png") for i in range(grid.shape[0])
                                 for j in range(grid.shape[1])])
+    img_rgb = img_rgb.resize((1024, 1024), Image.Resampling.BOX)
     img_rgb.save(f"./{output_dir}/{output_base}_RGB.png")
 
     img_ocv = CreatePaddedGrid([os.path.join(subdirname, f"{output_base}_{i}_{j}_OCV.png") for i in range(grid.shape[0])
                                 for j in range(grid.shape[1])])
+    img_ocv = img_ocv.resize((1024, 1024), Image.Resampling.BOX)
     img_ocv.save(f"./{output_dir}/{output_base}_OCV.png")
 
 
