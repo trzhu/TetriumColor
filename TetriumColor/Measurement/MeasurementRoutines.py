@@ -44,10 +44,8 @@ def MeasurePrimaries(save_directory: str):
     app = MeasureDisplay(pr650, save_directory=save_directory)
     app.run()
 
-    spectras = np.load("../../measurements/2024-12-06/primaries/spectras.npy")
-
     wavelengths = np.arange(380, 781, 4)
-    primaries = convert_refs_to_spectras(spectras[:, 1, :], wavelengths)
+    primaries = convert_refs_to_spectras(np.array(app.spectras)[:, 1, :], wavelengths)
 
     black_adjusted_primaries = RemoveBlackLevelFromPrimaries(primaries[:4], primaries[4], subset=[0, 1, 2])
     SaveRGBOtoSixChannel(black_adjusted_primaries, os.path.join(save_directory, 'all_primaries.csv'))
@@ -69,7 +67,7 @@ def MeasureMetamers(metamer_display_weights: npt.NDArray, save_directory: str, p
     app.run()
 
     wavelengths = np.arange(380, 781, 4)
-    metamers = convert_refs_to_spectras(np.array(app.spectras), wavelengths)
+    metamers = convert_refs_to_spectras(np.array(app.spectras)[:, 1, :], wavelengths)
 
     with open(os.path.join(save_directory, 'metamers.pkl'), 'wb') as f:
         pickle.dump(metamers, f)

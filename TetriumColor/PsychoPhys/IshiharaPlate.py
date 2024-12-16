@@ -7,6 +7,7 @@ import numpy.typing as npt
 
 from PIL import Image, ImageDraw
 from TetriumColor.Utils.CustomTypes import PlateColor, TetraColor
+from PIL import ImageFont
 
 
 class IshiharaPlate:
@@ -110,9 +111,20 @@ class IshiharaPlate:
         :param save_name: Name of directory to save plate to.
         :param ext: File extension to use, such as 'png' or 'tif'.
         """
-
         self.channels[0].save(filename_RGB)
         self.channels[1].save(filename_OCV)
+
+    def DrawCorner(self, label: str, color: npt.ArrayLike = np.array([255/2, 255/2, 255/2, 255/2, 0, 0]).astype(int)):
+        """
+        Draw a colored corner on the plate.
+
+        :param label: what you want displayed
+        :param color: RGBOCV tuple represented as float [0, 1].
+        """
+        font = ImageFont.load_default(size=150)
+
+        self.channel_draws[0].text((10, 10), label, fill=tuple(color[:3]), font=font)
+        self.channel_draws[1].text((10, 10), label, fill=tuple(color[3:]), font=font)
 
     def __standardizeColor(self, color: TetraColor):
         """

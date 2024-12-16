@@ -326,14 +326,25 @@ def CreatePseudoIsochromaticGrid(grid, output_dir: str, output_base: str, seed: 
     img_ocv.save(f"./{output_dir}/{output_base}_OCV.png")
 
 
-def CreatePseudoIsochromaticImages(colors, output_dir: str, output_base: str, seed=42):
-    subdirname = f"./{output_dir}/sub_images"
+def CreatePseudoIsochromaticImages(colors, output_dir: str, output_base: str, names: List[str], seed=42, noise_generator: List[BackgroundNoiseGenerator] | None = None, sub_image_dir: str = "sub_images"):
+    """Generate images in an output dir
+
+    Args:
+        colors (_type_): _description_
+        output_dir (str): _description_
+        output_base (str): _description_
+        seed (int, optional): _description_. Defaults to 42.
+    """
+    subdirname = f"./{output_dir}/{sub_image_dir}"
     os.makedirs(subdirname, exist_ok=True)
     plate: IshiharaPlate = IshiharaPlate(seed=seed)
+    chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     for i in range(len(colors)):
         metamer1 = TetraColor(colors[i, 0, :3], colors[i, 0, 3:])
         metamer2 = TetraColor(colors[i, 1, :3], colors[i, 1, 3:])
         plate_color = PlateColor(metamer1, metamer2)
-        plate.GeneratePlate(seed, -1, plate_color)
-        plate.ExportPlate(os.path.join(subdirname, f"{output_base}_{i:03}_RGB.png"),
-                          os.path.join(subdirname, f"{output_base}_{i:03}_OCV.png"))
+        noise_generator_fn = noise_generator[i].GenerateNoiseFunction(plate_color) if noise_generator else None
+        plate.GeneratePlate(seed, -1, plate_color, noise_generator_fn)
+        plate.DrawCorner(chars[i])
+        plate.ExportPlate(os.path.join(subdirname, f"{output_base}_{names[i]}_RGB.png"),
+                          os.path.join(subdirname, f"{output_base}_{names[i]}_OCV.png"))

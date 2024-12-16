@@ -61,7 +61,7 @@ for i, primary_type in tqdm.tqdm(enumerate(primary_types)):
         print(disp_points)
         print(np.array(disp_points * 255).astype(np.uint8))
 
-        # center_points += [disp_points[2][2]]
+        center_points += [disp_points[2][2]]
         CreatePseudoIsochromaticGrid(disp_points, f"./all_observers/",
                                      f"observer_{observer_type}_{primary_type}_grid")
     # display_grid_points = np.array(center_points).reshape(-1, 2, 6)
