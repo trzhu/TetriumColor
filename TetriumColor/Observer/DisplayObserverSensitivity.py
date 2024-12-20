@@ -208,6 +208,29 @@ def GetColorSpaceTransforms(observers: List[Observer], display_primaries: List[L
     return transforms
 
 
+def GetMaxBasisToDisplayTransform(color_space_transform: ColorSpaceTransform) -> tuple[npt.NDArray, npt.NDArray]:
+    """Generate from a 4x4 matrix that converts from RYGB to display primaries, a two 4x3 matrices 
+    that represent the conversion from max basis to display primaries in order to interface with Tetrium Paint Program
+
+    Args:
+        color_space_transform (ColorSpaceTransform): the colorspace transform to use.
+
+    Returns:
+        tuple[npt.NDArray, npt.NDArray]: a tuple of 4x3 matrices that converts from max basis to display primaries
+    """
+    disp_weights = np.identity(4) * color_space_transform.white_weights
+    rygb_to_rgbo = disp_weights @ color_space_transform.maxbasis_to_disp
+
+    color_space_transform.white_weights
+    rygb_to_rgb = np.zeros((3, 4))
+    rygb_to_rgb = rygb_to_rgbo[:3]
+
+    rygb_to_ocv = np.zeros((3, 4))
+    rygb_to_ocv[0] = rygb_to_rgbo[3:]
+
+    return rygb_to_rgb.T, rygb_to_ocv.T
+
+
 def spectralDeliveryObserverSensitivity(observer: Observer, used_primaries: List[Spectra], measured_metamers: List[List[Spectra]], metamer_display_weights: npt.NDArray):
     """Given an array of used primaries, and multiple measured metamers, plot the predicted and measured metamersf
 
