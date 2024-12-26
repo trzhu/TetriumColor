@@ -1,10 +1,11 @@
 from typing import Callable
-from colour.recovery.jakob2019 import dimensionalise_coefficients
 from matplotlib.pyplot import arrow
 import numpy as np
 import numpy.typing as npt
 
 import tetrapolyscope as ps
+
+from TetriumColor.Utils.CustomTypes import DisplayBasisType
 
 from .Geometry import GeometryPrimitives
 from ..Observer import Observer, MaxBasisFactory, GetHeringMatrix
@@ -98,16 +99,58 @@ def RenderConeOBS(name: str, observer: Observer) -> None:
     Render3DMesh(f"{name}_mesh", chrom_points, rgbs)
 
 
-def RenderMaxBasisOBS(name: str, observer: Observer) -> None:
+def RenderTOBS(name: str, observer: Observer, T: npt.NDArray) -> None:
     chrom_points, rgbs = observer.get_optimal_colors()
     maxbasis = MaxBasisFactory.get_object(observer)
-    T = maxbasis.get_transformation_matrix()
     chrom_points = chrom_points@T.T
 
     if observer.dimension > 3:
         chrom_points = (GetHeringMatrix(observer.dimension)@chrom_points.T).T[:, 1:]
 
     Render3DMesh(f"{name}_mesh", chrom_points, rgbs)
+
+
+def RenderMaxBasisOBS(name: str, observer: Observer) -> None:
+    maxbasis = MaxBasisFactory.get_object(observer)
+    T = maxbasis.GetConeToMaxBasisTransform()
+    RenderTOBS(name, observer, T)
+
+
+def RenderHeringBasisOBS(name: str, observer: Observer) -> None:
+    maxbasis = MaxBasisFactory.get_object(observer)
+    T = maxbasis.GetConeToMaxBasisTransform()
+    T = GetHeringMatrix(observer.dimension)@T
+    RenderTOBS(name, observer, T)
+
+
+def RenderOBS(name: str, observer: Observer, display_basis: DisplayBasisType) -> None:
+    if display_basis == DisplayBasisType.Cone:
+        RenderConeOBS(name, observer)
+    elif display_basis == DisplayBasisType.MaxBasis:
+        RenderMaxBasisOBS(name, observer)
+    else:
+        RenderHeringBasisOBS(name, observer)
+
+
+def RenderMaxBasis(name: str, observer: Observer, display_basis: DisplayBasisType = DisplayBasisType.MaxBasis) -> None:
+    maxbasis = MaxBasisFactory.get_object(observer)
+    _, points, rgbs, lines = maxbasis.GetDiscreteRepresentation()
+    # go into hering if dim is > 3
+    if display_basis == DisplayBasisType.Hering:
+        points = points@GetHeringMatrix(observer.dimension).T
+    elif display_basis == DisplayBasisType.MaxBasis:
+        points = points
+    else:  # display_basis == DisplayBasisType.Cone
+        T = np.linalg.inv(maxbasis.GetConeToMaxBasisTransform())
+        points = points@T.T
+
+    if observer.dimension > 3 and display_basis != DisplayBasisType.Hering:
+        points = points@GetHeringMatrix(observer.dimension).T[:, 1:]
+    elif observer.dimension > 3 and display_basis == DisplayBasisType.Hering:
+        points = points[:, 1:]
+
+    mesh = GeometryPrimitives.CreateMaxBasis(points, rgbs, lines)
+    GeometryPrimitives.ConvertTriangleMeshToPolyscope(name, mesh)
 
 
 def RenderDisplayGamut(name: str, basis_vectors: npt.NDArray):
@@ -136,9 +179,9 @@ def RenderGridOfArrows(name: str):
     arrow_length = 1.0
     grid_range = np.linspace(-arrow_length/2, arrow_length/2, grid_size)
     arrow_mesh = []
+    objs = GeometryPrimitives()
     for x in grid_range:
         for y in grid_range:
-            arrow = GeometryPrimitives.CreateArrow(np.array([[x, y, -arrow_length/2], [x, y, arrow_length/2]]))
-            GeometryPrimitives.ConvertTriangleMeshToPolyscope(name, arrow)
-    arrow_mesh = GeometryPrimitives.CollapseMeshObjects(arrow_mesh)
+            objs.add_obj(GeometryPrimitives.CreateArrow(np.array([[x, y, -arrow_length/2], [x, y, arrow_length/2]])))
+    arrow_mesh = GeometryPrimitives.CollapseMeshObjects(objs.objects)
     GeometryPrimitives.ConvertTriangleMeshToPolyscope(name, arrow_mesh)

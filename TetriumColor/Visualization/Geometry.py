@@ -130,8 +130,8 @@ class GeometryPrimitives:
     def CreateMaxBasis(points: npt.NDArray, rgbs: npt.NDArray | List[List], lines: npt.NDArray | List[List | tuple], ball_radius: float = 0.025) -> o3d.geometry.TriangleMesh:
         objs = []
         for rgb, point in zip(rgbs, points):
-            objs += GeometryPrimitives.CreateSphere(
-                center=point, color=rgb, radius=ball_radius)
+            objs += [GeometryPrimitives.CreateSphere(
+                center=point, color=rgb, radius=ball_radius)]
         for line in lines:
             objs += [GeometryPrimitives.CreateCylinder(
                 endpoints=[points[line[0]], points[line[1]]], color=[0, 0, 0])]

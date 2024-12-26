@@ -21,7 +21,8 @@ def GetCustomTetraObserver(wavelengths: npt.NDArray,
                            l_cone_peak: float = 559,
                            macular: float = 1,
                            lens: float = 1,
-                           template="neitz"):
+                           template: str = "neitz",
+                           verbose: bool = False):
     """Given specific parameters, return an observer model with Q cone peaked at 547
 
     Args:
@@ -39,7 +40,7 @@ def GetCustomTetraObserver(wavelengths: npt.NDArray,
     m_cone = Cone.cone(l_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
     s_cone = Cone.cone(s_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
     # s_cone = Cone.s_cone(wavelengths=wavelengths)
-    return Observer([s_cone, m_cone, q_cone, l_cone], verbose=False)
+    return Observer([s_cone, m_cone, q_cone, l_cone], verbose=verbose)
 
 
 def GetStockmanObserver(wavelengths: npt.NDArray):
