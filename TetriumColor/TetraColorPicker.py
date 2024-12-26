@@ -13,10 +13,71 @@ from TetriumColor.ColorMath.Conversion import ConvertPlateColorsToDisplayColors,
 from TetriumColor.Utils.CustomTypes import PlateColor, TetraColor, ColorSpaceTransform
 
 
-class BackgroundNoiseGenerator:
-    def __init__(self, color_space_transforms: List[ColorSpaceTransform]):
+class NoiseGenerator(ABC):
+    @abstractmethod
+    def GenerateNoiseFunction(self, plate_color: PlateColor | npt.NDArray) -> Callable[[], npt.NDArray]:
+        pass
+
+
+class ConeLuminanceNoiseGenerator(NoiseGenerator):
+    def __init__(self, color_space_transform: ColorSpaceTransform, std: List[float] | float):
+        self.disp_to_cone = np.linalg.inv(color_space_transform.cone_to_disp)
+        self.color_space_transform = color_space_transform
+        if std is not list:
+            self.std = [std]*4
+        else:
+            self.std = std
+
+    def GenerateNoiseFunction(self, plate_color: PlateColor | npt.NDArray) -> Callable[[], npt.NDArray]:
+        # convert format to array
+        if isinstance(plate_color, PlateColor):
+            disp_plate_color = ConvertPlateColorsToDisplayColors([plate_color], self.color_space_transform)[0]
+        else:
+            disp_plate_color = Map6DTo4D(plate_color, self.color_space_transform)
+
+        shape_cone = (disp_plate_color[0] @ self.disp_to_cone.T)
+        background_cone = (disp_plate_color[1] @ self.disp_to_cone.T)
+
+        def noise_generator():
+            sample_shape = np.clip((shape_cone + np.random.normal(0, self.std)) @
+                                   self.color_space_transform.cone_to_disp.T, 0, 1)
+            sample_background = np.clip((background_cone + np.random.normal(0, self.std)) @
+                                        self.color_space_transform.cone_to_disp.T, 0, 1)
+            disp_noise = np.array([sample_shape, sample_background])
+            return Map4DTo6D(disp_noise, self.color_space_transform)
+        return noise_generator
+
+
+class LuminanceNoiseGenerator(NoiseGenerator):
+    def __init__(self, color_space_transform: ColorSpaceTransform, std: List[float] | float):
+        self.disp_to_cone = np.linalg.inv(color_space_transform.cone_to_disp)
+        self.color_space_transform = color_space_transform
+        if std is not list:
+            self.std = [std]*4
+        else:
+            self.std = std
+
+    def GenerateNoiseFunction(self, plate_color: PlateColor | npt.NDArray) -> Callable[[], npt.NDArray]:
+        # convert format to array
+        if isinstance(plate_color, PlateColor):
+            disp_plate_color = ConvertPlateColorsToDisplayColors([plate_color], self.color_space_transform)[0]
+        else:
+            disp_plate_color = Map6DTo4D(plate_color, self.color_space_transform)
+
+        def noise_generator():
+            sample_shape = np.clip(disp_plate_color[0] + np.random.normal(0, self.std), 0, 1)
+            sample_background = np.clip(disp_plate_color[1] + np.random.normal(0, self.std), 0, 1)
+            disp_noise = np.array([sample_shape, sample_background])
+            return Map4DTo6D(disp_noise, self.color_space_transform)
+
+        return noise_generator
+
+
+class BackgroundNoiseGenerator(NoiseGenerator):
+    def __init__(self, color_space_transforms: List[ColorSpaceTransform], factor: float = 1):
         self.disp_to_cones = [np.linalg.inv(cst.cone_to_disp) for cst in color_space_transforms]
         self.color_space_transforms = color_space_transforms
+        self.factor = factor
 
     def GenerateNoiseFunction(self, plate_color: PlateColor | npt.NDArray) -> Callable[[], npt.NDArray]:
         # convert format to array
@@ -41,8 +102,8 @@ class BackgroundNoiseGenerator:
         # shape_cones_mean[self.color_space_transforms[0].metameric_axis] = 0
         # background_cones_mean[self.color_space_transforms[0].metameric_axis] = 0
 
-        shape_cones_std = np.std(shape_cones, axis=0)
-        background_cones_std = np.std(background_cones, axis=0)
+        shape_cones_std = np.std(shape_cones, axis=0)/self.factor
+        background_cones_std = np.std(background_cones, axis=0)/self.factor
         shape_cones_std[self.color_space_transforms[0].metameric_axis] = 0
         background_cones_std[self.color_space_transforms[0].metameric_axis] = 0
 
