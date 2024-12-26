@@ -13,7 +13,13 @@ from TetriumColor.ColorMath.Conversion import ConvertPlateColorsToDisplayColors,
 from TetriumColor.Utils.CustomTypes import PlateColor, TetraColor, ColorSpaceTransform
 
 
-class ConeLuminanceNoiseGenerator:
+class NoiseGenerator(ABC):
+    @abstractmethod
+    def GenerateNoiseFunction(self, plate_color: PlateColor | npt.NDArray) -> Callable[[], npt.NDArray]:
+        pass
+
+
+class ConeLuminanceNoiseGenerator(NoiseGenerator):
     def __init__(self, color_space_transform: ColorSpaceTransform, std: List[float] | float):
         self.disp_to_cone = np.linalg.inv(color_space_transform.cone_to_disp)
         self.color_space_transform = color_space_transform
@@ -42,7 +48,7 @@ class ConeLuminanceNoiseGenerator:
         return noise_generator
 
 
-class LuminanceNoiseGenerator:
+class LuminanceNoiseGenerator(NoiseGenerator):
     def __init__(self, color_space_transform: ColorSpaceTransform, std: List[float] | float):
         self.disp_to_cone = np.linalg.inv(color_space_transform.cone_to_disp)
         self.color_space_transform = color_space_transform
@@ -67,7 +73,7 @@ class LuminanceNoiseGenerator:
         return noise_generator
 
 
-class BackgroundNoiseGenerator:
+class BackgroundNoiseGenerator(NoiseGenerator):
     def __init__(self, color_space_transforms: List[ColorSpaceTransform], factor: float = 1):
         self.disp_to_cones = [np.linalg.inv(cst.cone_to_disp) for cst in color_space_transforms]
         self.color_space_transforms = color_space_transforms

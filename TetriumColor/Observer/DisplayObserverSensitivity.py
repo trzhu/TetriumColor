@@ -13,8 +13,12 @@ from . import Observer, Cone, Spectra, MaxBasis, MaxBasisFactory
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform
 
 
-def GetCustomTetraObserver(wavelengths: npt.NDArray, od: float = 0.5,
-                           m_cone_peak: float = 530, l_cone_peak: float = 560,
+def GetCustomTetraObserver(wavelengths: npt.NDArray,
+                           od: float = 0.5,
+                           s_cone_peak: float = 419,
+                           m_cone_peak: float = 530,
+                           q_cone_peak: float = 547,
+                           l_cone_peak: float = 559,
                            macular: float = 1,
                            lens: float = 1,
                            template="neitz"):
@@ -31,9 +35,9 @@ def GetCustomTetraObserver(wavelengths: npt.NDArray, od: float = 0.5,
         _type_: Observer of specified paramters and 4 cone types
     """
     l_cone = Cone.cone(m_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
-    q_cone = Cone.cone(547, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
+    q_cone = Cone.cone(q_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
     m_cone = Cone.cone(l_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
-    s_cone = Cone.cone(419, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
+    s_cone = Cone.cone(s_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
     # s_cone = Cone.s_cone(wavelengths=wavelengths)
     return Observer([s_cone, m_cone, q_cone, l_cone], verbose=False)
 
@@ -52,6 +56,54 @@ def GetStockmanObserver(wavelengths: npt.NDArray):
     m_cone = Cone.m_cone(wavelengths=wavelengths)
     s_cone = Cone.s_cone(wavelengths=wavelengths)
     return Observer([s_cone, m_cone, q_cone, l_cone], verbose=False)
+
+
+def GetSubsetIdentifyingObservers(peaks=((530, 559), (530, 555), (533, 559), (533, 555),
+                                         (530, 551), (533, 551), (530, 552), (533, 552)),
+                                  od=0.5,
+                                  macular=[0.5, 1, ],
+                                  lens=1,
+                                  template='neitz',
+                                  wavelengths=None):
+    if wavelengths is None:
+        wavelengths = np.arange(380, 781, 1)
+
+    all_observers = []
+    i = 0
+    for m_cone_peak, l_cone_peak in peaks:
+        per_observer = []
+        avg_observer = GetCustomTetraObserver(wavelengths, od=0.5,
+                                              m_cone_peak=m_cone_peak, l_cone_peak=l_cone_peak,
+                                              macular=1, lens=1, template=template)
+        per_observer.append(avg_observer)
+        for od in [0.4, 0.5, 0.6]:
+            for macular in [0.5, 0.75, 1.0, 1.5, 2.0]:  # 1.0 is standard, 4.0 is 1.2/0.35, which is the max peak
+                for lens in [0.75, 1, 1.25]:  # vary 25% in young observers
+                    per_observer.append(GetCustomTetraObserver(wavelengths, od=od,
+                                                               m_cone_peak=m_cone_peak, l_cone_peak=l_cone_peak,
+                                                               macular=macular, lens=lens, template=template))
+                    i += 1
+        all_observers.append(per_observer)
+    return all_observers, peaks
+
+
+def GetPeakPrevalentObservers(peaks=((530, 559), (530, 555), (533, 559), (533, 555),
+                                     (530, 551), (533, 551), (530, 552), (533, 552)),
+                              od=0.5,
+                              macular=[1],
+                              lens=1,
+                              template='neitz',
+                              wavelengths=None):
+    if wavelengths is None:
+        wavelengths = np.arange(380, 781, 1)
+
+    all_observers = []
+    i = 0
+    for m_cone_peak, l_cone_peak in peaks:
+        all_observers.append(GetCustomTetraObserver(wavelengths, od=0.5,
+                                                    m_cone_peak=m_cone_peak, l_cone_peak=l_cone_peak,
+                                                    macular=1, lens=1, template=template))
+    return all_observers, peaks
 
 
 def GetPrevalentObservers(peaks=((530, 559), (530, 555), (533, 559), (533, 555),
@@ -121,7 +173,9 @@ def GetDisplayToCone(observer: Observer, led_spectrums: List[Spectra]):
     return primary_intensities
 
 
-def GetColorSpaceTransform(observer: Observer, display_primaries: List[Spectra], scaling_factor: float = 1000):
+def GetColorSpaceTransform(observer: Observer, display_primaries: List[Spectra],
+                           scaling_factor: float = 1000, metameric_axis: int = 2,
+                           subset_leds: List[int] = [0, 1, 2, 3]):
     """Given an observer and display primaries, return the ColorSpaceTransform
 
     Args:
@@ -154,13 +208,62 @@ def GetColorSpaceTransform(observer: Observer, display_primaries: List[Spectra],
         M_Cone_To_Primaries,
         np.linalg.inv(M_PrimariesToMaxBasis),
         np.linalg.inv(M_PrimariesToHering),
-        2,
-        [0, 1, 2, 3],
+        metameric_axis,
+        subset_leds,
         rescaled_white_weights
     )
 
 
-def GetColorSpaceTransforms(observers: List[Observer], display_primaries: List[List[Spectra]], scaling_factor: float = 10000) -> List[List[ColorSpaceTransform]]:
+def GetColorSpaceTransformsOverObservers(observers: List[Observer], primaries: List[Spectra],
+                                         scaling_factor: float = 10000, metameric_axis: int = 2,
+                                         subset_leds: List[int] = [0, 1, 2, 3]) -> List[ColorSpaceTransform]:
+    """Get Color Space Transforms for a List of Observers, with a Fixed Primary Set.
+
+    Args:
+        observers (List[Observer]): List of observers.
+        primaries (List[Spectra]): List of LED Spectra
+        scaling_factor (float, optional): Scale the LEDs arbitarily. Defaults to 10000.
+        metameric_axis (int, optional): Axis to be metameric over. Defaults to 2.
+        subset_leds (List[int], optional): leds to use in a subset of 6. Defaults to [0, 1, 2, 3].
+
+    Returns:
+        List[ColorSpaceTransform]: List of ColorSpaceTransforms
+    """
+    transforms = []
+    for observer in tqdm.tqdm(observers):
+        max_basis = MaxBasisFactory.get_object(observer, verbose=False)
+
+        disp = GetDisplayToCone(observer, primaries)
+
+        intensities = disp.T * scaling_factor
+        white_pt = observer.observe_normalized(np.ones_like(observer.wavelengths))
+        white_weights = np.linalg.inv(intensities)@white_pt
+        rescaled_white_weights = white_weights / np.max(white_weights)
+        new_intensities = intensities * (white_weights)
+
+        M_Cone_To_Primaries = np.linalg.inv(new_intensities)  # something is fucked
+        M_PrimariesToCone = np.linalg.inv(M_Cone_To_Primaries)
+        M_ConeToMaxBasis = max_basis.cone_to_maxbasis
+        M_MaxBasisToHering = max_basis.HMatrix
+
+        M_PrimariesToMaxBasis = M_ConeToMaxBasis@M_PrimariesToCone
+        M_PrimariesToHering = M_MaxBasisToHering@M_PrimariesToMaxBasis
+
+        transforms.append(ColorSpaceTransform(
+            observer.dimension,
+            M_Cone_To_Primaries,
+            np.linalg.inv(M_PrimariesToMaxBasis),
+            np.linalg.inv(M_PrimariesToHering),
+            metameric_axis,
+            subset_leds,
+            rescaled_white_weights
+        ))
+    return transforms
+
+
+def GetColorSpaceTransforms(observers: List[Observer], display_primaries: List[List[Spectra]],
+                            scaling_factor: float = 10000, metameric_axis: int = 2,
+                            subset_leds: List[int] = [0, 1, 2, 3]) -> List[List[ColorSpaceTransform]]:
     """Given a list of observers and display primary Spectra, return a List of associated ColorSpaceTransforms
 
     Args:
@@ -169,7 +272,7 @@ def GetColorSpaceTransforms(observers: List[Observer], display_primaries: List[L
         scaling_factor (float, optional): factor to scale the display primaries by -- they are pretty low by default. Defaults to 1000.
 
     Returns:
-        _type_: ColorSpaceTransforms for each observer
+        List[List[ColorSpaceTransform]]: List of Lists of ColorSpaceTransforms indexed first by observer, and then by primary
     """
     # TODO: cache users
     transforms = []
@@ -200,8 +303,8 @@ def GetColorSpaceTransforms(observers: List[Observer], display_primaries: List[L
                 M_Cone_To_Primaries,
                 np.linalg.inv(M_PrimariesToMaxBasis),
                 np.linalg.inv(M_PrimariesToHering),
-                2,
-                [0, 1, 2, 3],
+                metameric_axis,
+                subset_leds,
                 rescaled_white_weights
             )]
         transforms.append(per_observer)
@@ -209,7 +312,7 @@ def GetColorSpaceTransforms(observers: List[Observer], display_primaries: List[L
 
 
 def GetMaxBasisToDisplayTransform(color_space_transform: ColorSpaceTransform) -> tuple[npt.NDArray, npt.NDArray]:
-    """Generate from a 4x4 matrix that converts from RYGB to display primaries, a two 4x3 matrices 
+    """Generate from a 4x4 matrix that converts from RYGB to display primaries, a two 4x3 matrices
     that represent the conversion from max basis to display primaries in order to interface with Tetrium Paint Program
 
     Args:
@@ -219,7 +322,7 @@ def GetMaxBasisToDisplayTransform(color_space_transform: ColorSpaceTransform) ->
         tuple[npt.NDArray, npt.NDArray]: a tuple of 4x3 matrices that converts from max basis to display primaries
     """
     disp_weights = np.identity(4) * color_space_transform.white_weights
-    rygb_to_rgbo = disp_weights @ color_space_transform.maxbasis_to_disp
+    rygb_to_rgbo = disp_weights @ np.flip(color_space_transform.maxbasis_to_disp, axis=1)
 
     color_space_transform.white_weights
     rygb_to_rgb = np.zeros((3, 4))
