@@ -4,6 +4,8 @@ from typing import List, Union, Optional
 from scipy.spatial import ConvexHull
 from colour import XYZ_to_RGB, wavelength_to_XYZ, MSDS_CMFS, MultiSpectralDistributions
 
+import os
+import pickle
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
@@ -588,6 +590,7 @@ class Observer:
     def get_optimal_colors(self) -> Union[npt.NDArray, npt.NDArray]:
         if not hasattr(self, 'point_cloud'):
             self.__find_optimal_colors()
+        ObserverFactory.save_object(self)
         return self.point_cloud, self.rgbs
 
     def get_optimal_point_cloud(self) -> npt.NDArray:
@@ -620,6 +623,59 @@ class Observer:
     def get_trans_ref_from_idx(self, index: int) -> npt.NDArray:
         cuts, start = self.getFacetIdxFromIdx(index)
         return getReflectance(cuts, start, self.get_sensor_matrix(), self.dimension)
+
+    # @staticmethod
+    # def save_observer(observer: 'Observer', filename: str):
+    #     with open(filename, 'wb') as file:
+    #         pickle.dump(observer, file)
+
+    # @staticmethod
+    # def load_observer(filename: str) -> 'Observer':
+    #     with open(filename, 'rb') as file:
+    #         return pickle.load(file)
+
+
+class ObserverFactory:
+    _cache_file = "observer-cache.pkl"
+
+    @staticmethod
+    def load_cache():
+        # Load the cache from file if it exists
+        with resources.path("TetriumColor.Assets.Cache", ObserverFactory._cache_file) as path:
+            if os.path.exists(path):
+                with open(path, "rb") as f:
+                    return pickle.load(f)
+            return {}
+
+    @staticmethod
+    def save_cache(cache):
+        # Save the cache to disk
+        with resources.path("TetriumColor.Assets.Cache", ObserverFactory._cache_file) as path:
+            with open(path, "wb") as f:
+                pickle.dump(cache, f)
+
+    @staticmethod
+    def save_object(obj: Observer):
+        # Load existing cache or initialize it
+        cache = ObserverFactory.load_cache()
+        # Use the __hash__ of the object as the cache key
+        key = hash(obj)
+        # Save the object into the cache
+        cache[key] = obj
+        ObserverFactory.save_cache(cache)
+
+    @staticmethod
+    def get_object(obj: Observer):
+        # Load existing cache or initialize it
+        cache = ObserverFactory.load_cache()
+        # Use the __hash__ of the first argument as the cache key
+        key = hash(obj)
+        # Check if object exists in the cache
+        if key not in cache:
+            return obj
+
+        # Return the cached object
+        return cache[key]
 
 
 def getsRGBfromWavelength(wavelength):

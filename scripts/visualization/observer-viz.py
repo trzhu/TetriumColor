@@ -3,7 +3,7 @@ import numpy as np
 import tetrapolyscope as ps
 import time
 
-from TetriumColor.Observer import GetCustomTetraObserver
+from TetriumColor.Observer import GetCustomTetraObserver, ObserverFactory
 from TetriumColor import DisplayBasisType
 import TetriumColor.Visualization as viz
 
@@ -32,8 +32,11 @@ def main():
 
     # Observer attributes
     wavelengths = np.arange(380, 781, 10)
+
     observer = GetCustomTetraObserver(wavelengths, args.od, args.s_cone_peak, args.m_cone_peak, args.q_cone_peak,
                                       args.l_cone_peak, args.macula, args.lens, args.template)
+    # load cached observer stuff if it exists, terrible design but whatever
+    observer = ObserverFactory.get_object(observer)
 
     # Polyscope Animation Inits
     ps.init()
@@ -43,6 +46,7 @@ def main():
     rotation_axis = [0, 1, 0]
 
     # Create Geometry & Register with Polyscope, and define the animation
+
     viz.RenderOBS("tetra-custom-observer", observer, args.display_basis)
     ps.get_surface_mesh("tetra-custom-observer").set_transparency(0.5)
 
