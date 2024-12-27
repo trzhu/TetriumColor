@@ -12,11 +12,24 @@ from ..Observer import Observer, MaxBasisFactory, GetHeringMatrix
 from .Animation import AnimationUtils
 
 
-def OpenVideo(filename):
+def OpenVideo(filename: str):  # dunno how to type a fd
+    """Open a video file for writing.
+
+    Args:
+        filename (str): filename
+
+    Returns:
+        file descriptor: file descriptor for the video file
+    """
     return ps.open_video_file(filename, fps=30)
 
 
-def CloseVideo(fd):
+def CloseVideo(fd) -> None:
+    """Close the video file descriptor
+
+    Args:
+        fd (dunno): file descriptor
+    """
     ps.close_video_file(fd)
     return
 
@@ -39,16 +52,13 @@ def RenderVideo(fd, total_frames: int, target_fps: int = 30):
         ps.write_video_frame(fd, transparent_bg=False)
 
 
-def Render3DMesh(name: str, points: npt.ArrayLike, rgbs: npt.ArrayLike, mesh_alpha: float = 1) -> None:
+def Render3DMesh(name: str, points: npt.ArrayLike, rgbs: npt.ArrayLike) -> None:
     """Create a 3D mesh from a list of vertices (N x 3) and RGB colors (N x 3)
 
     Args:
         name (str): Name of the mesh
         points (npt.ArrayLike): N x 3 array of vertices
         rgbs (npt.ArrayLike): N x 3 array of RGB colors
-
-    Returns:
-        _type_: _description_
     """
     mesh = GeometryPrimitives.Create3DMesh(points, rgbs)
     GeometryPrimitives.ConvertTriangleMeshToPolyscope(name, mesh)
@@ -104,6 +114,12 @@ def Render3DLine(name: str, points: npt.NDArray, color: npt.ArrayLike, line_alph
 
 
 def RenderConeOBS(name: str, observer: Observer) -> None:
+    """Create an Object Color Solid in the Cone Basis in Polyscope
+
+    Args:
+        name (str): name of object to register with polyscope
+        observer (Observer): Observer object to render
+    """
     chrom_points, rgbs = observer.get_optimal_colors()
     if observer.dimension > 3:
         chrom_points = (GetHeringMatrix(observer.dimension)@chrom_points.T).T[:, 1:]
@@ -112,6 +128,13 @@ def RenderConeOBS(name: str, observer: Observer) -> None:
 
 
 def RenderOBSTransform(name: str, observer: Observer, T: npt.NDArray) -> None:
+    """Render an Object Color Solid by transforming points before. 
+
+    Args:
+        name (str): name of object to register with polyscope 
+        observer (Observer): Observer object to render
+        T (npt.NDArray): Transformation matrix to apply to the points
+    """
     chrom_points, rgbs = observer.get_optimal_colors()
     chrom_points = chrom_points@T.T
 
@@ -122,12 +145,24 @@ def RenderOBSTransform(name: str, observer: Observer, T: npt.NDArray) -> None:
 
 
 def RenderMaxBasisOBS(name: str, observer: Observer) -> None:
+    """Render Object Color Solid in Max Basis
+
+    Args:
+        name (str): name of object to register with polyscope
+        observer (Observer): Observer object to render
+    """
     maxbasis = MaxBasisFactory.get_object(observer)
     T = maxbasis.GetConeToMaxBasisTransform()
     RenderOBSTransform(name, observer, T)
 
 
 def RenderHeringBasisOBS(name: str, observer: Observer) -> None:
+    """Render Object Color Solid in Hering Basis
+
+    Args:
+        name (str): name of object to register with polyscope
+        observer (Observer): Observer object to render
+    """
     maxbasis = MaxBasisFactory.get_object(observer)
     T = maxbasis.GetConeToMaxBasisTransform()
     if observer.dimension > 3:  # will be transformed either way in next function call
@@ -138,6 +173,13 @@ def RenderHeringBasisOBS(name: str, observer: Observer) -> None:
 
 
 def RenderOBS(name: str, observer: Observer, display_basis: DisplayBasisType) -> None:
+    """Render Object Color Solid in Specified Basis
+
+    Args:
+        name (str): name of object to register with polyscope
+        observer (Observer): Observer object to render
+        display_basis (DisplayBasisType): Basis to render the object in
+    """
     if display_basis == DisplayBasisType.Cone:
         RenderConeOBS(name, observer)
     elif display_basis == DisplayBasisType.MaxBasis:
@@ -147,6 +189,13 @@ def RenderOBS(name: str, observer: Observer, display_basis: DisplayBasisType) ->
 
 
 def RenderMaxBasis(name: str, observer: Observer, display_basis: DisplayBasisType = DisplayBasisType.MaxBasis) -> None:
+    """Render Max Basis Objects of Points and Lines - A Luminance Projected Parallelotope. 
+
+    Args:
+        name (str): name of object to register with polyscope
+        observer (Observer): Observer object to render
+        display_basis (DisplayBasisType, optional): Display Basis to Render in. Defaults to DisplayBasisType.MaxBasis.
+    """
     maxbasis = MaxBasisFactory.get_object(observer)
     _, points, rgbs, lines = maxbasis.GetDiscreteRepresentation()
     # go into hering if dim is > 3
@@ -168,6 +217,12 @@ def RenderMaxBasis(name: str, observer: Observer, display_basis: DisplayBasisTyp
 
 
 def RenderDisplayGamut(name: str, basis_vectors: npt.NDArray):
+    """Render Display Gamut in Polyscope
+
+    Args:
+        name (str): Name of the gamut to be registered with polyscope
+        basis_vectors (npt.NDArray): basis vectors of the paralleletope gamut
+    """
     gamut_edges = GeometryPrimitives.CreateParallelotopeEdges(basis_vectors, color=[1, 1, 1])
     gamut = GeometryPrimitives.CreateParallelotopeMesh(basis_vectors, color=[1, 1, 1])
 
@@ -189,6 +244,11 @@ def RenderPointCloud(name: str, points: npt.NDArray, rgb: npt.NDArray | None = N
 
 
 def RenderGridOfArrows(name: str):
+    """Render a grid of arrows in Polyscope
+
+    Args:
+        name (str): Name to be registered with polyscope
+    """
     grid_size = 10
     arrow_length = 1.0
     grid_range = np.linspace(-arrow_length/2, arrow_length/2, grid_size)

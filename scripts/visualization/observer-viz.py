@@ -53,8 +53,8 @@ def main():
     viz.AnimationUtils.AddObject("tetra-max-basis", "surface_mesh", position, velocity, rotation_axis, rotation_speed)
 
     # Output Video to Screen or Save to File (based on options)
-    if args.output:
-        fd = viz.OpenVideo(args.output)
+    if args.output_filename:
+        fd = viz.OpenVideo(args.output_filename)
         viz.RenderVideo(fd, args.total_frames, args.fps)
         viz.CloseVideo(fd)
     else:

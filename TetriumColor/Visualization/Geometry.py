@@ -8,7 +8,7 @@ from itertools import combinations
 import tetrapolyscope as ps
 
 
-def GetCylinderTransform(endpoints):
+def GetCylinderTransform(endpoints: List | tuple | npt.NDArray) -> glm.mat4:
     a = endpoints[1]-endpoints[0]
     a = glm.vec3(a[0], a[1], a[2])
     b = glm.vec3(0, 0, 1)
@@ -33,20 +33,47 @@ def GetCylinderTransform(endpoints):
 class GeometryPrimitives:
 
     def __init__(self) -> None:
+        """Initializes the GeometryPrimitives class.
+        """
         self.objects = []
 
     def add_obj(self, obj: o3d.geometry.TriangleMesh) -> None:
+        """Add an object to an instance of the class.
+
+        Args:
+            obj (o3d.geometry.TriangleMesh): triangle mesh object to be added.
+        """
         self.objects.append(obj)
 
     @staticmethod
     def CollapseMeshObjects(objects: List[o3d.geometry.TriangleMesh]) -> o3d.geometry.TriangleMesh:
+        """Collapse all objects in list into a single mesh.
+
+        Args:
+            objects (List[o3d.geometry.TriangleMesh]): List of objects
+
+        Returns:
+            o3d.geometry.TriangleMesh: open3d triangle mesh object
+        """
         mesh = o3d.geometry.TriangleMesh()
         for obj in objects:
             mesh += obj
         return mesh
 
     @staticmethod
-    def CreateSphere(radius: float = 0.025, center: List | tuple | npt.NDArray = [0, 0, 0], resolution: float = 20, color: List | tuple | npt.NDArray = [0, 0, 0]) -> o3d.geometry.TriangleMesh:
+    def CreateSphere(radius: float = 0.025, center: List | tuple | npt.NDArray = [0, 0, 0],
+                     resolution: float = 20, color: List | tuple | npt.NDArray = [0, 0, 0]) -> o3d.geometry.TriangleMesh:
+        """Create a sphere mesh.
+
+        Args:
+            radius (float, optional): radius of sphere. Defaults to 0.025.
+            center (List | tuple | npt.NDArray, optional): position of center of sphere. Defaults to [0, 0, 0].
+            resolution (float, optional): resolution of the mesh. Defaults to 20.
+            color (List | tuple | npt.NDArray, optional): color of mesh. Defaults to [0, 0, 0].
+
+        Returns:
+            o3d.geometry.TriangleMesh: open3d triangle mesh of sphere
+        """
         mesh = o3d.geometry.TriangleMesh.create_sphere(
             radius=radius, resolution=resolution)
         mesh.translate(center)
@@ -56,7 +83,19 @@ class GeometryPrimitives:
         return mesh
 
     @staticmethod
-    def CreateCylinder(endpoints: List | tuple | npt.NDArray, radius: float = 0.025/2, resolution: float = 20, color: List | tuple | npt.NDArray = [0, 0, 0]) -> o3d.geometry.TriangleMesh:
+    def CreateCylinder(endpoints: List | tuple | npt.NDArray, radius: float = 0.025/2,
+                       resolution: float = 20, color: List | tuple | npt.NDArray = [0, 0, 0]) -> o3d.geometry.TriangleMesh:
+        """Cylinder Mesh
+
+        Args:
+            endpoints (List | tuple | npt.NDArray): endpoints of the cylinder
+            radius (float, optional): radius of the cylinder. Defaults to 0.025/2.
+            resolution (float, optional): resolution of mesh for cylinder. Defaults to 20.
+            color (List | tuple | npt.NDArray, optional): color of cylinder. Defaults to [0, 0, 0].
+
+        Returns:
+            o3d.geometry.TriangleMesh: open3d triangle mesh of cylinder
+        """
         # canonical cylinder is along z axis with height 1 and centered
         mesh = o3d.geometry.TriangleMesh.create_cylinder(
             radius=radius, height=1, resolution=resolution)
@@ -70,7 +109,15 @@ class GeometryPrimitives:
         return mesh
 
     @staticmethod
-    def calculate_zy_rotation_for_arrow(vec):
+    def calculate_zy_rotation_for_arrow(vec: npt.NDArray) -> tuple:
+        """Generate 3d rotation matrix for an z axis defined arrow given a vector
+
+        Args:
+            vec (npt.NDArray): vector defining the endpoints of transform
+
+        Returns:
+            tuple: rotation matrices for z and y axisR
+        """
         gamma = np.arctan2(vec[1], vec[0])
         Rz = np.array([
             [np.cos(gamma), -np.sin(gamma), 0],
@@ -89,7 +136,17 @@ class GeometryPrimitives:
         return Rz, Ry
 
     @staticmethod
-    def GetArrow(endpoint: List | tuple | npt.NDArray, origin: List | tuple | npt.NDArray = np.array([0, 0, 0]), scale: float = 1):
+    def _getArrow(endpoint: List | tuple | npt.NDArray, origin: List | tuple | npt.NDArray = np.array([0, 0, 0]), scale: float = 1):
+        """Get Arrow Mesh
+
+        Args:
+            endpoint (List | tuple | npt.NDArray): end point of arrow
+            origin (List | tuple | npt.NDArray, optional): origin of the arrow. Defaults to np.array([0, 0, 0]).
+            scale (float, optional): scale of arrow. Defaults to 1.
+
+        Returns:
+            _type_: Arrow Mesh in open3d format
+        """
         assert (not np.all(endpoint == origin))
         vec = np.array(endpoint) - np.array(origin)
         size = np.sqrt(np.sum(vec**2))
@@ -109,7 +166,19 @@ class GeometryPrimitives:
 
     @staticmethod
     def CreateArrow(endpoints: npt.NDArray, radius: float = 0.025/2, resolution: float = 20, scale: float = 1, color: List | tuple | npt.NDArray = np.array([0, 0, 0])) -> o3d.geometry.TriangleMesh:
-        mesh = GeometryPrimitives.GetArrow(
+        """Get Arrow Mesh
+
+        Args:
+            endpoints (npt.NDArray): endpoints of the mesh
+            radius (float, optional): radius of arrow. Defaults to 0.025/2.
+            resolution (float, optional): resolution of the mesh. Defaults to 20.
+            scale (float, optional): scale of the mesh. Defaults to 1.
+            color (List | tuple | npt.NDArray, optional): color of the mesh. Defaults to np.array([0, 0, 0]).
+
+        Returns:
+            o3d.geometry.TriangleMesh: open3d triangle mesh of arrow 
+        """
+        mesh = GeometryPrimitives._getArrow(
             endpoints[1], endpoints[0], scale=scale)
         mesh.compute_vertex_normals()
         mesh.vertex_colors = o3d.utility.Vector3dVector(
@@ -117,7 +186,20 @@ class GeometryPrimitives:
         return mesh
 
     @staticmethod
-    def CreateCoordinateBasis(basis: npt.NDArray, radius: float = 0.025/2, resolution: float = 20, scale: float = 1, color: List | tuple | npt.NDArray = [0, 0, 0]) -> o3d.geometry.TriangleMesh:
+    def CreateCoordinateBasis(basis: npt.NDArray, radius: float = 0.025/2, resolution: float = 20,
+                              scale: float = 1, color: List | tuple | npt.NDArray = [0, 0, 0]) -> o3d.geometry.TriangleMesh:
+        """Create a coordinate basis mesh
+
+        Args:
+            basis (npt.NDArray): basis vectors (can be n x 3)
+            radius (float, optional): radius of mesh. Defaults to 0.025/2.
+            resolution (float, optional): resolution of mesh. Defaults to 20.
+            scale (float, optional): scale of mesh. Defaults to 1.
+            color (List | tuple | npt.NDArray, optional): color of mesh. Defaults to [0, 0, 0].
+
+        Returns:
+            o3d.geometry.TriangleMesh: open3d triangle mesh of coordinate basis
+        """
         meshes = []
         for i, b in enumerate(basis):
             mesh = GeometryPrimitives.CreateArrow(
@@ -127,18 +209,43 @@ class GeometryPrimitives:
         return mesh
 
     @staticmethod
-    def CreateMaxBasis(points: npt.NDArray, rgbs: npt.NDArray | List[List], lines: npt.NDArray | List[List | tuple], ball_radius: float = 0.025) -> o3d.geometry.TriangleMesh:
+    def CreateMaxBasis(points: npt.NDArray, rgbs: npt.NDArray | List[List],
+                       lines: npt.NDArray | List[List | tuple], line_color: List[List] | npt.NDArray = [0, 0, 0],
+                       ball_radius: float = 0.025) -> o3d.geometry.TriangleMesh:
+        """Create a mesh of points and lines to represent the max basis
+
+        Args:
+            points (npt.NDArray): array of 3d points
+            rgbs (npt.NDArray | List[List]): array of rgb values associated with points
+            lines (npt.NDArray | List[List  |  tuple]): list of pairs of indices to draw lines with each other
+            line_color (List[List] | npt.NDArray, optional): color of lines. Defaults to [0, 0, 0].
+            ball_radius (float, optional): radisu of ball. Defaults to 0.025.
+
+        Returns:
+            o3d.geometry.TriangleMesh: open3d triangle mesh of max basis
+        """
         objs = []
         for rgb, point in zip(rgbs, points):
             objs += [GeometryPrimitives.CreateSphere(
                 center=point, color=rgb, radius=ball_radius)]
         for line in lines:
             objs += [GeometryPrimitives.CreateCylinder(
-                endpoints=[points[line[0]], points[line[1]]], color=[0, 0, 0])]
+                endpoints=[points[line[0]], points[line[1]]], color=line_color)]
         return GeometryPrimitives.CollapseMeshObjects(objs)
 
     @staticmethod
-    def CreateParallelotopeEdges(basis: npt.NDArray, color: List | tuple | npt.NDArray = [0, 0, 0], line_color: List | tuple | npt.NDArray = [0, 0, 0], line_alpha: float = 1) -> o3d.geometry.TriangleMesh:
+    def CreateParallelotopeEdges(basis: npt.NDArray, color: List | tuple | npt.NDArray = [0, 0, 0],
+                                 line_color: List | npt.NDArray = [0, 0, 0]) -> o3d.geometry.TriangleMesh:
+        """Paralleletope Edges
+
+        Args:
+            basis (npt.NDArray): basis vectors for the paralleletope (equal to dimension)
+            color (List | tuple | npt.NDArray, optional): color of points. Defaults to [0, 0, 0].
+            line_color (List | npt.NDArray, optional): color of lines. Defaults to [0, 0, 0].
+
+        Returns:
+            o3d.geometry.TriangleMesh: returns the open3d triangle mesh of the paralleletope edges
+        """
         dim = basis.shape[1]
         if dim < 3:
             raise ValueError("Basis must be at least 3D")
@@ -170,10 +277,19 @@ class GeometryPrimitives:
                               [(basis[i] + basis[j] + basis[k]).tolist() for i in range(4) for j in range(i+1, 4) for k in range(j+1, 4)] +
                               [(basis[0] + basis[1] + basis[2] + basis[3]).tolist()])
         rgbs = np.array([color]*len(points))
-        return GeometryPrimitives.CreateMaxBasis(points, rgbs, lines, ball_radius=0.025)
+        return GeometryPrimitives.CreateMaxBasis(points, rgbs, lines, line_color=line_color, ball_radius=0.025)
 
     @staticmethod
-    def CreateParallelotopeMesh(basis: npt.NDArray, color: List | tuple | npt.NDArray = [0, 0, 0], line_color: List | tuple | npt.NDArray = [0, 0, 0], line_alpha: float = 1) -> o3d.geometry.TriangleMesh:
+    def CreateParallelotopeMesh(basis: npt.NDArray, color: List | tuple | npt.NDArray = [0, 0, 0]) -> o3d.geometry.TriangleMesh:
+        """Create Mesh of Paralleletope
+
+        Args:
+            basis (npt.NDArray): basis vectors that define paralleletope (equal to dimension of space)
+            color (List | tuple | npt.NDArray, optional): color of mesh. Defaults to [0, 0, 0].
+
+        Returns:
+            o3d.geometry.TriangleMesh: open3d triangle mesh of paralleletope
+        """
         dim = basis.shape[1]
         if dim < 3:
             raise ValueError("Basis must be at least 3D")
@@ -195,7 +311,16 @@ class GeometryPrimitives:
         return GeometryPrimitives.Create3DMesh(points, rgbs)
 
     @staticmethod
-    def Create3DMesh(points, rgbs):
+    def Create3DMesh(points, rgbs) -> o3d.geometry.TriangleMesh:
+        """Create a 3D Mesh from a point cloud and associated rgbs.
+
+        Args:
+            points (_type_): points in 3D space
+            rgbs (_type_): associated rgbs
+
+        Returns:
+            o3d.geometry.TriangleMesh: Point cloud mesh
+        """
         pcl = o3d.geometry.PointCloud()
         pcl.points = o3d.utility.Vector3dVector(points)
         mesh, point_indices = pcl.compute_convex_hull()
@@ -206,6 +331,12 @@ class GeometryPrimitives:
 
     @staticmethod
     def ConvertTriangleMeshToPolyscope(name: str, mesh: o3d.geometry.TriangleMesh) -> None:
+        """Convert open3d triangle mesh to polyscope mesh
+
+        Args:
+            name (str): name of the mesh to be registered with polyscope
+            mesh (o3d.geometry.TriangleMesh): open3d geometry triangle mesh to be converted
+        """
         ps_mesh = ps.register_surface_mesh(f"{name}", np.asarray(mesh.vertices), np.asarray(
             mesh.triangles), material='wax', smooth_shade=True)
         ps_mesh.add_color_quantity(f"{name}_colors", np.asarray(
