@@ -9,6 +9,7 @@ from TetriumColor.Utils.CustomTypes import DisplayBasisType
 
 from .Geometry import GeometryPrimitives
 from ..Observer import Observer, MaxBasisFactory, GetHeringMatrix
+from .Animation import AnimationUtils
 
 
 def OpenVideo(filename):
@@ -20,10 +21,21 @@ def CloseVideo(fd):
     return
 
 
-def RenderVideo(updateAnimation: Callable[[float], None], fd, total_frames: int, target_fps: int = 30):
+def RenderVideo(fd, total_frames: int, target_fps: int = 30):
+    """
+    Renders a video by updating animations frame by frame.
+
+    :param fd: File descriptor or path to save the video.
+    :param total_frames: Total number of frames to render.
+    :param target_fps: Target frames per second for the video (default: 30).
+    """
     delta_time: float = 1 / target_fps
+
     for i in range(total_frames):
-        updateAnimation(delta_time)
+        # Update animations via AnimationUtils
+        AnimationUtils.UpdateObjects(delta_time)
+
+        # Render the current frame to the video
         ps.write_video_frame(fd, transparent_bg=False)
 
 
@@ -96,31 +108,33 @@ def RenderConeOBS(name: str, observer: Observer) -> None:
     if observer.dimension > 3:
         chrom_points = (GetHeringMatrix(observer.dimension)@chrom_points.T).T[:, 1:]
 
-    Render3DMesh(f"{name}_mesh", chrom_points, rgbs)
+    Render3DMesh(f"{name}", chrom_points, rgbs)
 
 
-def RenderTOBS(name: str, observer: Observer, T: npt.NDArray) -> None:
+def RenderOBSTransform(name: str, observer: Observer, T: npt.NDArray) -> None:
     chrom_points, rgbs = observer.get_optimal_colors()
-    maxbasis = MaxBasisFactory.get_object(observer)
     chrom_points = chrom_points@T.T
 
     if observer.dimension > 3:
         chrom_points = (GetHeringMatrix(observer.dimension)@chrom_points.T).T[:, 1:]
 
-    Render3DMesh(f"{name}_mesh", chrom_points, rgbs)
+    Render3DMesh(f"{name}", chrom_points, rgbs)
 
 
 def RenderMaxBasisOBS(name: str, observer: Observer) -> None:
     maxbasis = MaxBasisFactory.get_object(observer)
     T = maxbasis.GetConeToMaxBasisTransform()
-    RenderTOBS(name, observer, T)
+    RenderOBSTransform(name, observer, T)
 
 
 def RenderHeringBasisOBS(name: str, observer: Observer) -> None:
     maxbasis = MaxBasisFactory.get_object(observer)
     T = maxbasis.GetConeToMaxBasisTransform()
-    T = GetHeringMatrix(observer.dimension)@T
-    RenderTOBS(name, observer, T)
+    if observer.dimension > 3:  # will be transformed either way in next function call
+        T = np.identity(observer.dimension)
+    else:
+        T = GetHeringMatrix(observer.dimension)@T
+    RenderOBSTransform(name, observer, T)
 
 
 def RenderOBS(name: str, observer: Observer, display_basis: DisplayBasisType) -> None:
@@ -155,10 +169,10 @@ def RenderMaxBasis(name: str, observer: Observer, display_basis: DisplayBasisTyp
 
 def RenderDisplayGamut(name: str, basis_vectors: npt.NDArray):
     gamut_edges = GeometryPrimitives.CreateParallelotopeEdges(basis_vectors, color=[1, 1, 1])
-    GeometryPrimitives.ConvertTriangleMeshToPolyscope(name + "_edges", gamut_edges)
-
     gamut = GeometryPrimitives.CreateParallelotopeMesh(basis_vectors, color=[1, 1, 1])
-    GeometryPrimitives.ConvertTriangleMeshToPolyscope(name + "_mesh", gamut)
+
+    two_mesh = GeometryPrimitives.CollapseMeshObjects([gamut_edges, gamut])
+    GeometryPrimitives.ConvertTriangleMeshToPolyscope(name, two_mesh)
 
 
 def RenderPointCloud(name: str, points: npt.NDArray, rgb: npt.NDArray | None = None) -> None:
