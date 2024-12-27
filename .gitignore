@@ -3,6 +3,8 @@ tmp
 .vscode
 *outputs/
 measurements/
+*.mp4
+*.ini
 
 # Mac
 *.DS_Store

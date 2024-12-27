@@ -10,6 +10,15 @@ class ColorTestResult(Enum):
     Failure = 0
 
 
+class DisplayBasisType(Enum):
+    Cone = 0
+    MaxBasis = 1
+    Hering = 2
+
+    def __str__(self):
+        return self.name
+
+
 class TestType(Enum):
     """
     Three Different Types of Screening Tests Exist.

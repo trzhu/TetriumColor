@@ -6,6 +6,8 @@ from tqdm import tqdm
 import numpy as np
 import os
 import pickle
+import numpy.typing as npt
+from typing import List
 
 from . import Observer, GetHeringMatrix
 from . import Spectra, Illuminant
@@ -160,7 +162,15 @@ class MaxBasis:
         transitions.sort()
         return transitions
 
-    def GetDiscreteRepresentation(self, reverse=False):
+    def GetDiscreteRepresentation(self, reverse=False) -> tuple[List[Spectra], npt.NDArray, npt.NDArray, List[tuple[int, int]]]:
+        """Get discrete representation of max basis
+
+        Args:
+            reverse (bool, optional): Reverse the order of the reflectances to be from bgr to rgb. Defaults to False.
+
+        Returns:
+            tuple[List[Spectra], npt.NDArray, npt.NDArray, List[tuple[int, int]]]: reflectances, points, rgbs, and lines
+        """
         transitions = self.GetCutpointTransitions(self.cutpoints[:self.dimension-1])
         start_vals = [1 if i == 0 else 0 for i, x in enumerate(transitions)]
         allcombos = [[]]
