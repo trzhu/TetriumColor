@@ -12,7 +12,6 @@ from TetriumColor.ColorMath.SubSpaceIntersection import FindMaximalSaturation, F
 import TetriumColor.ColorMath.Geometry as Geometry
 import TetriumColor.ColorMath.Conversion as Conversion
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, PlateColor, TetraColor
-from TetriumColor.Visualization.cubeMapViz import SetUp3DPlot
 
 
 def ConvertVSHToHering(vsh: npt.NDArray) -> npt.NDArray:

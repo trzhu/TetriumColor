@@ -15,7 +15,6 @@ from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, PlateColor, Tetr
 import TetriumColor.ColorMath.GamutMath as GamutMath
 from TetriumColor.ColorMath.Geometry import ConvertCubeUVToXYZ, ExportGeometryToObjFile, GenerateGeometryFromVertices
 from TetriumColor.PsychoPhys.IshiharaPlate import IshiharaPlate
-from TetriumColor.Visualization.cubeMapViz import SetUp3DPlot
 
 
 def GetSphereGeometry(luminance, saturation, num_points: int, filename: str, color_space_transform):

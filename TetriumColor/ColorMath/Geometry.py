@@ -5,8 +5,6 @@ import math
 
 from scipy.spatial import ConvexHull
 
-from TetriumColor.Visualization.cubeMapViz import SetUp3DPlot
-
 
 def ConvertPolarToCartesian(SH: npt.NDArray) -> npt.NDArray:
     """
