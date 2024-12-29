@@ -99,7 +99,8 @@ def GetFibonacciSampledHueTexture(num_points: int, luminance: float, saturation:
 
 
 def GenerateCubeMapTextures(luminance: float, saturation: float, color_space_transform: ColorSpaceTransform,
-                            image_size: int, filename_RGB: str, filename_OCV: str, scrambleProb: float = 0):
+                            image_size: int, filename_RGB: str, filename_OCV: str, scrambleProb: float = 0,
+                            std_dev: float = 0.05):
     """GenerateCubeMapTextures generates the cube map textures for a given luminance and saturation.
 
     Args:
@@ -133,7 +134,7 @@ def GenerateCubeMapTextures(luminance: float, saturation: float, color_space_tra
         xyz = ConvertCubeUVToXYZ(i, cube_u, cube_v, saturation).reshape(-1, 3)
         xyz = np.dot(invMetamericDirMat, xyz.T).T
 
-        lum_vector = luminance * np.ones(image_size * image_size)
+        lum_vector = np.random.normal(luminance, std_dev, image_size * image_size)
         vxyz = np.hstack((lum_vector[np.newaxis, :].T, xyz))
         vshh = GamutMath.ConvertHeringToVSH(vxyz)
 
