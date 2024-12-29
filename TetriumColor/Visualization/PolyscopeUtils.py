@@ -5,7 +5,7 @@ import numpy.typing as npt
 
 import tetrapolyscope as ps
 
-from TetriumColor.Utils.CustomTypes import DisplayBasisType
+from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, DisplayBasisType
 
 from .Geometry import GeometryPrimitives
 from ..Observer import Observer, MaxBasisFactory, GetHeringMatrix
@@ -113,6 +113,30 @@ def Render3DLine(name: str, points: npt.NDArray, color: npt.ArrayLike, line_alph
         color, (len(points), 1)), defined_on='nodes', enabled=True)
 
 
+def RenderMetamericDirection(name: str, observer: Observer, display_basis: DisplayBasisType,
+                             metameric_axis: int, color: npt.ArrayLike, line_alpha: float = 1) -> None:
+
+    length = 1 * 0.05
+    basisLMSQ = np.zeros((1, observer.dimension))
+    basisLMSQ[:, metameric_axis] = 1
+    basisLMSQ = basisLMSQ * length
+    if display_basis == DisplayBasisType.Cone:
+        basisLMSQ = basisLMSQ
+    elif display_basis == DisplayBasisType.MaxBasis:
+        maxbasis = MaxBasisFactory.get_object(observer)
+        T = maxbasis.GetConeToMaxBasisTransform()
+        basisLMSQ = basisLMSQ@(T.T)
+    else:  # display_basis == DisplayBasisType.Hering
+        basisLMSQ = basisLMSQ@GetHeringMatrix(observer.dimension).T
+
+    if observer.dimension > 3 and display_basis != DisplayBasisType.Hering:
+        basisLMSQ = (basisLMSQ@GetHeringMatrix(observer.dimension).T)[:, 1:]
+    elif observer.dimension > 3 and display_basis == DisplayBasisType.Hering:
+        basisLMSQ = basisLMSQ[:, 1:]
+
+    Render3DLine(name, np.array([basisLMSQ[0] * -1, basisLMSQ[0]]), color, line_alpha)
+
+
 def RenderConeOBS(name: str, observer: Observer) -> None:
     """Create an Object Color Solid in the Cone Basis in Polyscope
 
@@ -128,10 +152,10 @@ def RenderConeOBS(name: str, observer: Observer) -> None:
 
 
 def RenderOBSTransform(name: str, observer: Observer, T: npt.NDArray) -> None:
-    """Render an Object Color Solid by transforming points before. 
+    """Render an Object Color Solid by transforming points before.
 
     Args:
-        name (str): name of object to register with polyscope 
+        name (str): name of object to register with polyscope
         observer (Observer): Observer object to render
         T (npt.NDArray): Transformation matrix to apply to the points
     """
@@ -189,7 +213,7 @@ def RenderOBS(name: str, observer: Observer, display_basis: DisplayBasisType) ->
 
 
 def RenderMaxBasis(name: str, observer: Observer, display_basis: DisplayBasisType = DisplayBasisType.MaxBasis) -> None:
-    """Render Max Basis Objects of Points and Lines - A Luminance Projected Parallelotope. 
+    """Render Max Basis Objects of Points and Lines - A Luminance Projected Parallelotope.
 
     Args:
         name (str): name of object to register with polyscope
@@ -228,6 +252,45 @@ def RenderDisplayGamut(name: str, basis_vectors: npt.NDArray):
 
     two_mesh = GeometryPrimitives.CollapseMeshObjects([gamut_edges, gamut])
     GeometryPrimitives.ConvertTriangleMeshToPolyscope(name, two_mesh)
+
+
+def __convertPointsToBasis(points: npt.NDArray, observer: Observer, display_basis: DisplayBasisType) -> npt.NDArray:
+    """Convert 4D points to the basis specified.
+
+    Args:
+        points (npt.NDArray): points Nx4
+        observer (Observer): observer object
+        display_basis (DisplayBasisType): basis to display points in. 
+
+    Returns:
+        npt.NDArray: _description_
+    """
+    if display_basis == DisplayBasisType.Cone:
+        points = points
+    elif display_basis == DisplayBasisType.MaxBasis:
+        maxbasis = MaxBasisFactory.get_object(observer)
+        T = maxbasis.GetConeToMaxBasisTransform()
+        points = points@T.T
+    if observer.dimension > 3:
+        return points@GetHeringMatrix(observer.dimension).T[:, 1:]
+    else:
+        return points
+
+
+def Render4DPointCloud(name: str, points: npt.NDArray, observer: Observer,
+                       display_basis: DisplayBasisType = DisplayBasisType.MaxBasis,
+                       rgb: npt.NDArray | None = None) -> None:
+    """Render a point cloud in Polyscope
+
+    Args:
+        name (str): Name of the point cloud
+        points (npt.Array): N x 4 array of vertices
+        rgb (npt.NDArray | None, optional): N x 3 array of RGB colors. Defaults to None.
+    """
+    points = __convertPointsToBasis(points, observer, display_basis)
+    pcl = ps.register_point_cloud(name, points)
+    if rgb is not None:
+        pcl.add_color_quantity(f"{name}_colors", rgb, enabled=True)
 
 
 def RenderPointCloud(name: str, points: npt.NDArray, rgb: npt.NDArray | None = None) -> None:

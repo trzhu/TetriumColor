@@ -18,7 +18,7 @@ gaussian_smooth_primaries: List[Spectra] = GaussianSmoothPrimaries(primaries)
 
 color_space_transform: ColorSpaceTransform = GetColorSpaceTransforms(
     [observer], [primaries], scaling_factor=10000)[0][0]
-GenerateCubeMapTextures(0.7, 0.3, color_space_transform, 128, './outputs/RGB_cube_map',
-                        './outputs/OCV_cube_map')
+GenerateCubeMapTextures(0.7, 0.3, color_space_transform, 32, './outputs/RGB_cube_map',
+                        './outputs/OCV_cube_map', scrambleProb=0.5)
 ConcatenateCubeMap('./outputs/RGB_cube_map', './outputs/cubemap_RGB.png')
 ConcatenateCubeMap('./outputs/OCV_cube_map', './outputs/cubemap_OCV.png')

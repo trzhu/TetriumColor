@@ -99,7 +99,7 @@ def GetFibonacciSampledHueTexture(num_points: int, luminance: float, saturation:
 
 
 def GenerateCubeMapTextures(luminance: float, saturation: float, color_space_transform: ColorSpaceTransform,
-                            image_size: int, filename_RGB: str, filename_OCV: str):
+                            image_size: int, filename_RGB: str, filename_OCV: str, scrambleProb: float = 0):
     """GenerateCubeMapTextures generates the cube map textures for a given luminance and saturation.
 
     Args:
@@ -118,9 +118,10 @@ def GenerateCubeMapTextures(luminance: float, saturation: float, color_space_tra
     flattened_u, flattened_v = cube_u.flatten(), cube_v.flatten()
 
     # change the associated xyzs -> to a new direction, but the same color values
-    qDirMat = GamutMath.GetTransformChromToQDir(color_space_transform)
-    invQDirMat = np.linalg.inv(qDirMat)
+    metamericDirMat = GamutMath.GetTransformChromToMetamericDir(color_space_transform)
+    invMetamericDirMat = np.linalg.inv(metamericDirMat)
 
+    tetracolors_per_face = []
     # Create the RGB/OCV GenerateCubeMapTextures
     for i in range(6):
         img_rgb = Image.new('RGB', (image_size, image_size))  # sample color per pixel to avoid empty spots
@@ -128,26 +129,41 @@ def GenerateCubeMapTextures(luminance: float, saturation: float, color_space_tra
 
         draw_rgb = ImageDraw.Draw(img_rgb)
         draw_ocv = ImageDraw.Draw(img_ocv)
-        # ax = SetUp3DPlot()
 
-        # convert the xyz coordinates of the cube map back into the original hering space -- this defines the
-        # cubemap directions exactly !
         xyz = ConvertCubeUVToXYZ(i, cube_u, cube_v, saturation).reshape(-1, 3)
-        # ax.scatter(xyz[:, 0], xyz[:, 1], xyz[:, 2], c='b', marker='o', label='Vertices')
+        xyz = np.dot(invMetamericDirMat, xyz.T).T
 
-        xyz = np.dot(invQDirMat, xyz.T).T
         lum_vector = luminance * np.ones(image_size * image_size)
-
         vxyz = np.hstack((lum_vector[np.newaxis, :].T, xyz))
         vshh = GamutMath.ConvertHeringToVSH(vxyz)
 
         vxyz_back = GamutMath.ConvertVSHToHering(vshh)
-        # ax.scatter(vxyz_back[:, 1], vxyz_back[:, 2], vxyz_back[:, 3], c='r', marker='^', label='Tetra Cartesian')
-        # plt.show()
 
         map_angle_sat = GamutMath.GenerateGamutLUT(vshh, color_space_transform)
         remapped_vshh = GamutMath.RemapGamutPoints(vshh, color_space_transform, map_angle_sat)
-        corresponding_tetracolors = GamutMath.ConvertVSHtoTetraColor(remapped_vshh, color_space_transform)
+        tetracolors_per_face += [GamutMath.ConvertVSHtoTetraColor(remapped_vshh, color_space_transform)]
+
+    if scrambleProb:
+        face1, face2 = 0, 1
+        random_indices = np.random.choice([0, 1], size=len(flattened_u), p=[1-scrambleProb, scrambleProb]).astype(int)
+        for i, swap in enumerate(random_indices):
+            if swap:
+                # need to get the u symmetric value from the other face
+                new_u = int(flattened_u[i] * image_size)
+                new_v = int((1 - flattened_v[i]) * image_size)
+                flattened_idx = int(new_v * image_size + new_u)
+
+                tmp = tetracolors_per_face[face1][i]
+                tetracolors_per_face[face1][i] = tetracolors_per_face[face2][flattened_idx]
+                tetracolors_per_face[face2][flattened_idx] = tmp
+
+    for i in range(6):
+        img_rgb = Image.new('RGB', (image_size, image_size))  # sample color per pixel to avoid empty spots
+        img_ocv = Image.new('RGB', (image_size, image_size))
+
+        draw_rgb = ImageDraw.Draw(img_rgb)
+        draw_ocv = ImageDraw.Draw(img_ocv)
+        corresponding_tetracolors = tetracolors_per_face[i]
 
         for j in range(len(flattened_u)):
             u, v = flattened_v[j], flattened_u[j]  # swap axis for PIL

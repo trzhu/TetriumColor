@@ -22,6 +22,12 @@ def ConvertColorsToPlateColors(colors: npt.NDArray, prev_gray_point: npt.NDArray
     return plate_colors
 
 
+def Convert6DArrayToPlateColors(colors: npt.NDArray) -> PlateColor:
+    metamer1 = TetraColor(colors[0, :3], colors[0, 3:])
+    metamer2 = TetraColor(colors[1, :3], colors[1, 3:])
+    return PlateColor(metamer1, metamer2)
+
+
 def ConvertPlateColorsToDisplayColors(plate_colors: List[PlateColor], transform: ColorSpaceTransform) -> npt.NDArray:
     """
     List of PlateColor, transform into Nx4 Array in Display Space Coordinates

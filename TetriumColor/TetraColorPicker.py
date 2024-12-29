@@ -107,6 +107,14 @@ class BackgroundNoiseGenerator(NoiseGenerator):
         shape_cones_std[self.color_space_transforms[0].metameric_axis] = 0
         background_cones_std[self.color_space_transforms[0].metameric_axis] = 0
 
+        np.set_printoptions(precision=3, suppress=True)
+        print("shape")
+        print(shape_cones_mean, shape_cones_std)
+        print("background")
+        print(background_cones_mean, background_cones_std)
+        print("diff")
+        print(shape_cones_mean - background_cones_mean)
+
         def noise_generator():
             sample_shape = np.random.normal(shape_cones_mean, shape_cones_std)
             sample_background = np.random.normal(background_cones_mean, background_cones_std)

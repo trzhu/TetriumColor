@@ -254,7 +254,7 @@ def GetMetamericAxisInVSH(color_space_transform: ColorSpaceTransform) -> npt.NDA
     return ConvertHeringToVSH(normalized_direction_in_hering[np.newaxis, :])
 
 
-def GetTransformChromToQDir(transform: ColorSpaceTransform):
+def GetTransformChromToMetamericDir(transform: ColorSpaceTransform):
     """
     Get the transformation matrix from chromaticity to the metameric direction.
     """
@@ -268,7 +268,7 @@ def GetGridPoints(dist_from_axis: float, cube_idx: int, grid_size: int, color_sp
     cube_u, cube_v = np.meshgrid(all_us, all_vs)
     flattened_u, flattened_v = cube_u.flatten(), cube_v.flatten()
 
-    qDirMat = GetTransformChromToQDir(color_space_transform)
+    qDirMat = GetTransformChromToMetamericDir(color_space_transform)
     invQDirMat = np.linalg.inv(qDirMat)
 
     xyz_in_cube = Geometry.ConvertCubeUVToXYZ(cube_idx, cube_u, cube_v, dist_from_axis).reshape(-1, 3)
@@ -277,8 +277,8 @@ def GetGridPoints(dist_from_axis: float, cube_idx: int, grid_size: int, color_sp
     return xyz_in_chrom, flattened_u, flattened_v
 
 
-def GetMaximalMetamerPointsOnGrid(luminance: float, saturation: float, cube_idx: int,
-                                  grid_size: int, color_space_transform: ColorSpaceTransform) -> npt.NDArray:
+def _getMaximalMetamerPointsOnGrid(luminance: float, saturation: float, cube_idx: int,
+                                   grid_size: int, color_space_transform: ColorSpaceTransform) -> tuple[npt.NDArray, npt.NDArray]:
     """ Get the metamer points for a given luminance and cube index
     Args:
         luminance (float): luminance value
@@ -316,7 +316,7 @@ def GetMaximalMetamerPointsOnGrid(luminance: float, saturation: float, cube_idx:
         cone_responses = (disp_to_cone@metamers_in_disp[i].T).T
         # print(np.round(np.abs(cone_responses[1] - cone_responses[0]), 4))
         # print(metamers_in_disp[i])
-    np.printoptions(precision=5, suppress=True)
+    np.set_printoptions(precision=5, suppress=True)
     hering_responses = np.array(hering_responses).reshape(-1, 4)[:, 1:]
     output = Conversion.Map4DTo6D(metamers_in_disp.reshape(-1, 4), color_space_transform)
     display = np.rint(output[:, :4] * 255 / color_space_transform.white_weights).astype(np.uint8) / 255
@@ -327,6 +327,22 @@ def GetMaximalMetamerPointsOnGrid(luminance: float, saturation: float, cube_idx:
     diff = np.abs(cone_responses[:, 0] - cone_responses[:, 1])
     diff_without_discretization = np.abs(without_discretization[:, 0] - without_discretization[:, 1])
 
-    print(np.array_str(diff, suppress_small=True, precision=5))
+    max_diff_index = np.argmax(diff, axis=0)[color_space_transform.metameric_axis]
+    print(f"Max difference index: {max_diff_index}, {diff[max_diff_index]}")
     print(np.round(diff_without_discretization, 5))
-    return output.reshape(grid_size, grid_size, 2, 6)
+
+    list_metamers = output.reshape(-1, 2, 6)
+    return list_metamers.reshape(grid_size, grid_size, 2, 6), list_metamers[max_diff_index]
+
+
+def GetMaximalMetamerPointsOnGrid(luminance: float, saturation: float, cube_idx: int,
+                                  grid_size: int, color_space_transform: ColorSpaceTransform) -> npt.NDArray:
+    outputs, indices = _getMaximalMetamerPointsOnGrid(luminance, saturation, cube_idx, grid_size, color_space_transform)
+    return outputs
+
+
+def GetMaxMetamerOverGridSample(luminance: float, saturation: float, cube_idx: int,
+                                grid_size: int, color_space_transform: ColorSpaceTransform) -> npt.NDArray:
+    _, max_metamer = _getMaximalMetamerPointsOnGrid(
+        luminance, saturation, cube_idx, grid_size, color_space_transform)
+    return max_metamer

@@ -7,7 +7,7 @@ from TetriumColor.TetraColorPicker import ColorGenerator
 from TetriumColor.PsychoPhys.IshiharaPlate import IshiharaPlate
 from TetriumColor.TetraColorPicker import BackgroundNoiseGenerator, LuminanceNoiseGenerator, NoiseGenerator
 from TetriumColor.Observer.DisplayObserverSensitivity import GetAllObservers, GetColorSpaceTransformsOverObservers, GetCustomTetraObserver
-from TetriumColor.ColorMath.GamutMath import GetMaximalMetamerPointsOnGrid
+from TetriumColor.ColorMath.GamutMath import GetMaximalMetamerPointsOnGrid, GetMaxMetamerOverGridSample
 import pickle
 
 
@@ -30,8 +30,7 @@ def GetConeIdentifyingTest(observer: Observer, primaries: List[Spectra], metamer
                            grid_size: int = 5, cube_idx: int = 4) -> tuple[npt.NDArray, NoiseGenerator]:
 
     cst = GetColorSpaceTransform(observer, primaries, metameric_axis=metameric_axis)
-    points_disp = GetMaximalMetamerPointsOnGrid(luminance, saturation, cube_idx, grid_size, cst)[
-        grid_indices[0]][grid_indices[1]]
+    points_disp = GetMaxMetamerOverGridSample(luminance, saturation, cube_idx, grid_size, cst)
 
     all_observers = GetAllObservers()
     color_space_transforms = GetColorSpaceTransformsOverObservers(
