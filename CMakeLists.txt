@@ -17,13 +17,13 @@ if (UNIX)
         set(PYTHON_LIBRARY $ENV{CONDA_PREFIX}/lib/libpython3.13.dylib)
     else()
         set(PYTHON_LIBRARY $ENV{CONDA_PREFIX}/lib/libpython3.13.so)
-    endif()1
+    endif()
 endif()
 
 # Specify the C++ standard
-set(CMAKE_CXX_STANDARD 17)1
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
-1
+
 # Add the source files
 set(SOURCES
     cpp/src/PseudoIsochromaticPlateGenerator.cpp
