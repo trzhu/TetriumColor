@@ -1,7 +1,7 @@
 #pragma once
 
-#include <Python.h>
 #include <string>
+#include "ColorTestResult.h"
 
 namespace TetriumColor
 {
@@ -24,15 +24,15 @@ class PseudoIsochromaticPlateGenerator
     );
 
     void GetPlate(
-        PyObject* previous_result,
+        ColorTestResult result,
         const std::string& filename_RGB,
         const std::string& filename_OCV,
         int hidden_number
     );
 
   private:
-    PyObject* pModule;
-    PyObject* pClass;
-    PyObject* pInstance;
+    void* pModule;
+    void* pClass;
+    void* pInstance;
 };
 } // namespace TetriumColor

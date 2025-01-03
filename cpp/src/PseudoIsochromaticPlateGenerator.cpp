@@ -26,14 +26,14 @@ PseudoIsochromaticPlateGenerator::PseudoIsochromaticPlateGenerator(
 
     // Import the Python module
     PyObject* pName = PyUnicode_DecodeFSDefault("TetriumColor.TetraPlate");
-    pModule = PyImport_Import(pName);
+    pModule = reinterpret_cast<PyObject*>(PyImport_Import(pName));
     Py_DECREF(pName);
 
     if (pModule != nullptr) {
         // Get the Python class
-        pClass = PyObject_GetAttrString(pModule, "PseudoIsochromaticPlateGenerator");
+        pClass = reinterpret_cast<PyObject*>(PyObject_GetAttrString(reinterpret_cast<PyObject*>(pModule), "PseudoIsochromaticPlateGenerator"));
 
-        if (pClass && PyCallable_Check(pClass)) {
+        if (pClass && PyCallable_Check(reinterpret_cast<PyObject*>(pClass)) == 1) {
             // Create an instance of the Python class
             PyObject* pArgs = PyTuple_Pack(
                 4,
@@ -42,7 +42,9 @@ PseudoIsochromaticPlateGenerator::PseudoIsochromaticPlateGenerator(
                 PyLong_FromLong(num_tests),
                 PyLong_FromLong(seed)
             );
-            pInstance = PyObject_CallObject(pClass, pArgs);
+            pInstance = reinterpret_cast<PyObject*>(PyObject_CallObject(
+                reinterpret_cast<PyObject*>(pClass)
+                , pArgs));
             Py_DECREF(pArgs);
         } else {
             PyErr_Print();
@@ -72,7 +74,7 @@ void PseudoIsochromaticPlateGenerator::NewPlate(
 {
     if (pInstance != nullptr) {
         PyObject* pValue = PyObject_CallMethod(
-            pInstance, "NewPlate", "ssi", filename_RGB.c_str(), filename_OCV.c_str(), hidden_number
+            reinterpret_cast<PyObject*>(pInstance), "NewPlate", "ssi", filename_RGB.c_str(), filename_OCV.c_str(), hidden_number
         );
         if (pValue != nullptr) {
             Py_DECREF(pValue);
@@ -86,18 +88,19 @@ void PseudoIsochromaticPlateGenerator::NewPlate(
 }
 
 void PseudoIsochromaticPlateGenerator::GetPlate(
-    PyObject* previous_result,
+    ColorTestResult result,
     const std::string& filename_RGB,
     const std::string& filename_OCV,
     int hidden_number
 )
 {
+    PyObject* pResult = PyLong_FromLong(static_cast<int>(result));
     if (pInstance != nullptr) {
         PyObject* pValue = PyObject_CallMethod(
-            pInstance,
+            reinterpret_cast<PyObject*>(pInstance),
             "GetPlate",
             "Ossi",
-            previous_result,
+            pResult,
             filename_RGB.c_str(),
             filename_OCV.c_str(),
             hidden_number
