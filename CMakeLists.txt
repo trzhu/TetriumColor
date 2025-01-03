@@ -8,6 +8,8 @@ if (NOT DEFINED ENV{CONDA_PREFIX})
     message(FATAL_ERROR "CONDA_PREFIX environment variable not set.\n Likely you have not activated the tetrium environment.")
 endif()
 
+message("Using conda environment at $ENV{CONDA_PREFIX}")
+
 # python
 set(PYTHON_EXECUTABLE $ENV{CONDA_PREFIX}/bin/python)
 set(PYTHON_INCLUDE_DIR $ENV{CONDA_PREFIX}/include/python3.13)
