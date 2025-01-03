@@ -13,16 +13,17 @@ from . import Observer, Cone, Spectra, MaxBasis, MaxBasisFactory
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform
 
 
-def GetCustomTetraObserver(wavelengths: npt.NDArray,
-                           od: float = 0.5,
-                           s_cone_peak: float = 419,
-                           m_cone_peak: float = 530,
-                           q_cone_peak: float = 547,
-                           l_cone_peak: float = 559,
-                           macular: float = 1,
-                           lens: float = 1,
-                           template: str = "neitz",
-                           verbose: bool = False):
+def GetCustomObserver(wavelengths: npt.NDArray,
+                      od: float = 0.5,
+                      dimension: int = 4,
+                      s_cone_peak: float = 419,
+                      m_cone_peak: float = 530,
+                      q_cone_peak: float = 547,
+                      l_cone_peak: float = 559,
+                      macular: float = 1,
+                      lens: float = 1,
+                      template: str = "neitz",
+                      verbose: bool = False):
     """Given specific parameters, return an observer model with Q cone peaked at 547
 
     Args:
@@ -35,12 +36,18 @@ def GetCustomTetraObserver(wavelengths: npt.NDArray,
     Returns:
         _type_: Observer of specified paramters and 4 cone types
     """
+
     l_cone = Cone.cone(m_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
     q_cone = Cone.cone(q_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
     m_cone = Cone.cone(l_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
     s_cone = Cone.cone(s_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
     # s_cone = Cone.s_cone(wavelengths=wavelengths)
-    return Observer([s_cone, m_cone, q_cone, l_cone], verbose=verbose)
+    if dimension == 3:
+        return Observer([s_cone, m_cone, l_cone], verbose=verbose)
+    elif dimension == 4:
+        return Observer([s_cone, m_cone, q_cone, l_cone], verbose=verbose)
+    else:
+        raise NotImplementedError
 
 
 def GetStockmanObserver(wavelengths: npt.NDArray):
@@ -73,16 +80,16 @@ def GetSubsetIdentifyingObservers(peaks=((530, 559), (530, 555), (533, 559), (53
     i = 0
     for m_cone_peak, l_cone_peak in peaks:
         per_observer = []
-        avg_observer = GetCustomTetraObserver(wavelengths, od=0.5,
-                                              m_cone_peak=m_cone_peak, l_cone_peak=l_cone_peak,
-                                              macular=1, lens=1, template=template)
+        avg_observer = GetCustomObserver(wavelengths, od=0.5,
+                                         m_cone_peak=m_cone_peak, l_cone_peak=l_cone_peak,
+                                         macular=1, lens=1, template=template)
         per_observer.append(avg_observer)
         for od in [0.4, 0.5, 0.6]:
             for macular in [0.5, 0.75, 1.0, 1.5, 2.0]:  # 1.0 is standard, 4.0 is 1.2/0.35, which is the max peak
                 for lens in [0.75, 1, 1.25]:  # vary 25% in young observers
-                    per_observer.append(GetCustomTetraObserver(wavelengths, od=od,
-                                                               m_cone_peak=m_cone_peak, l_cone_peak=l_cone_peak,
-                                                               macular=macular, lens=lens, template=template))
+                    per_observer.append(GetCustomObserver(wavelengths, od=od,
+                                                          m_cone_peak=m_cone_peak, l_cone_peak=l_cone_peak,
+                                                          macular=macular, lens=lens, template=template))
                     i += 1
         all_observers.append(per_observer)
     return all_observers, peaks
@@ -101,9 +108,9 @@ def GetPeakPrevalentObservers(peaks=((530, 559), (530, 555), (533, 559), (533, 5
     all_observers = []
     i = 0
     for m_cone_peak, l_cone_peak in peaks:
-        all_observers.append(GetCustomTetraObserver(wavelengths, od=0.5,
-                                                    m_cone_peak=m_cone_peak, l_cone_peak=l_cone_peak,
-                                                    macular=1, lens=1, template=template))
+        all_observers.append(GetCustomObserver(wavelengths, od=0.5,
+                                               m_cone_peak=m_cone_peak, l_cone_peak=l_cone_peak,
+                                               macular=1, lens=1, template=template))
     return all_observers, peaks
 
 
@@ -121,16 +128,16 @@ def GetPrevalentObservers(peaks=((530, 559), (530, 555), (533, 559), (533, 555),
     i = 0
     for m_cone_peak, l_cone_peak in peaks:
         per_observer = []
-        avg_observer = GetCustomTetraObserver(wavelengths, od=0.5,
-                                              m_cone_peak=m_cone_peak, l_cone_peak=l_cone_peak,
-                                              macular=1, lens=1, template=template)
+        avg_observer = GetCustomObserver(wavelengths, od=0.5,
+                                         m_cone_peak=m_cone_peak, l_cone_peak=l_cone_peak,
+                                         macular=1, lens=1, template=template)
         per_observer.append(avg_observer)
         for od in [0.4, 0.5, 0.6]:
             for macular in [0.5, 0.75, 1.0, 1.5, 2.0]:  # 1.0 is standard, 4.0 is 1.2/0.35, which is the max peak
                 for lens in [0.75, 1, 1.25]:  # vary 25% in young observers
-                    per_observer.append(GetCustomTetraObserver(wavelengths, od=od,
-                                                               m_cone_peak=m_cone_peak, l_cone_peak=l_cone_peak,
-                                                               macular=macular, lens=lens, template=template))
+                    per_observer.append(GetCustomObserver(wavelengths, od=od,
+                                                          m_cone_peak=m_cone_peak, l_cone_peak=l_cone_peak,
+                                                          macular=macular, lens=lens, template=template))
                     i += 1
         all_observers.append(per_observer)
     return all_observers, peaks
@@ -155,8 +162,8 @@ def GetAllObservers(
                     # with open("observer_parameters.txt", "a") as file:
                     #     file.write(
                     #         f"idx:{i} OD: {od}, M-Cone Peak: {m_cone_peak}, L-Cone Peak: {l_cone_peak}, Macular: {macular}, Lens: {lens}\n")
-                    all_observers.append(GetCustomTetraObserver(wavelengths, od=od,
-                                                                m_cone_peak=m_cone_peak, l_cone_peak=l_cone_peak, macular=macular, lens=lens, template=template))
+                    all_observers.append(GetCustomObserver(wavelengths, od=od,
+                                                           m_cone_peak=m_cone_peak, l_cone_peak=l_cone_peak, macular=macular, lens=lens, template=template))
                     i += 1
     return all_observers
 

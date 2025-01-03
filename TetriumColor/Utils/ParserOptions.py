@@ -17,8 +17,6 @@ def AddObserverArgs(parser):
                         help='Template for the cone fundamentals used')
     parser.add_argument("--verbose", type=bool, default=True, help="Verbose output")
 
-    return parser
-
 
 def AddVideoOutputArgs(parser):
     # Parser Args for Animation / Video Saving
@@ -26,5 +24,3 @@ def AddVideoOutputArgs(parser):
                         help="Output file name. If none is specified, the video will not be saved.")
     parser.add_argument("--fps", type=int, default=30, help="Frames per second for the video")
     parser.add_argument("--total_frames", type=int, default=200, help="Total number of frames to render")
-
-    return parser
