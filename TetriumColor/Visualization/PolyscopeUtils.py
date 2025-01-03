@@ -52,6 +52,22 @@ def RenderVideo(fd, total_frames: int, target_fps: int = 30):
         ps.write_video_frame(fd, transparent_bg=False)
 
 
+def GetHeringMatrixLumYDir(dim: int) -> npt.NDArray:
+    """Get the Hering Matrix with the Luminance Direction as the Y direction
+
+    Args:
+        dim (int): dimension of the matrix
+
+    Returns:
+        npt.NDArray: Hering Matrix with Luminance Direction as the Y direction
+    """
+    h_mat = GetHeringMatrix(dim)
+    lum_dir = np.copy(h_mat[0])
+    h_mat[0] = h_mat[1]
+    h_mat[1] = lum_dir
+    return h_mat
+
+
 def Render3DMesh(name: str, points: npt.ArrayLike, rgbs: npt.ArrayLike) -> None:
     """Create a 3D mesh from a list of vertices (N x 3) and RGB colors (N x 3)
 
@@ -85,11 +101,11 @@ def Render3DCone(name: str, points: npt.NDArray, color: npt.NDArray, mesh_alpha:
     arrow_mesh = []
     for i in range(len(points)):
         arrow_mesh += [GeometryPrimitives.CreateArrow(endpoints=np.array(
-            [[0, 0, 0], points[i]]), color=color)]
+            [[0, 0, 0], points[i]]), color=color, radius=0.025/20)]
     arrow_mesh = GeometryPrimitives.CollapseMeshObjects(arrow_mesh)
-    ps_arrows = ps.register_surface_mesh("cone_arrows", np.asarray(
+    ps_arrows = ps.register_surface_mesh(f"{name}_arrows", np.asarray(
         arrow_mesh.vertices), np.asarray(arrow_mesh.triangles), transparency=arrow_alpha, smooth_shade=True)
-    ps_arrows.add_color_quantity("cone_arrows_colors", np.asarray(
+    ps_arrows.add_color_quantity(f"{name}_arrows_colors", np.asarray(
         arrow_mesh.vertex_colors), defined_on='vertices', enabled=True)
 
     edges = np.array([[i, (i + 1) % len(points)] for i in range(len(points))])
@@ -304,6 +320,25 @@ def RenderPointCloud(name: str, points: npt.NDArray, rgb: npt.NDArray | None = N
     pcl = ps.register_point_cloud(name, points)
     if rgb is not None:
         pcl.add_color_quantity(f"{name}_colors", rgb, enabled=True)
+
+
+def RenderBasisArrows(name: str, basis: npt.NDArray, rgb: npt.NDArray | None = None) -> None:
+    """Render a set of basis vectors as arrows in Polyscope
+
+    Args:
+        name (str): Name of the basis
+        basis (npt.NDArray): N x 3 array of basis vectors
+        rgb (npt.NDArray | None, optional): N x 3 array of RGB colors. Defaults to None.
+    """
+    if rgb is None:
+        rgb = np.zeros((len(basis), 3))
+
+    arrow_mesh = []
+    for i in range(len(basis)):
+        arrow_mesh += [GeometryPrimitives.CreateArrow(endpoints=np.array(
+            [[0, 0, 0], basis[i]]), color=rgb[i], radius=0.025/20)]
+    arrow_mesh = GeometryPrimitives.CollapseMeshObjects(arrow_mesh)
+    GeometryPrimitives.ConvertTriangleMeshToPolyscope(name, arrow_mesh)
 
 
 def RenderGridOfArrows(name: str):

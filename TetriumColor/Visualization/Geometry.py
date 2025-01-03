@@ -136,13 +136,18 @@ class GeometryPrimitives:
         return Rz, Ry
 
     @staticmethod
-    def _getArrow(endpoint: List | tuple | npt.NDArray, origin: List | tuple | npt.NDArray = np.array([0, 0, 0]), scale: float = 1):
+    def _getArrow(endpoint: List | tuple | npt.NDArray, origin: List | tuple | npt.NDArray = np.array([0, 0, 0]),
+                  ratio_cone_cylinder: float = 0.15, radius: float = 1/60, ratio_cone_bottom_to_cylinder: float = 2,
+                  resolution: float = 20, scale: float = 1):
         """Get Arrow Mesh
 
         Args:
             endpoint (List | tuple | npt.NDArray): end point of arrow
             origin (List | tuple | npt.NDArray, optional): origin of the arrow. Defaults to np.array([0, 0, 0]).
             scale (float, optional): scale of arrow. Defaults to 1.
+            ratio_cone_cylinder (float, optional): ratio of cone to cylinder. Defaults to 0.15.
+            radius (float, optional): radius of arrow. Defaults to 60.
+            ratio_cone_bottom_to_cylinder (float, optional): ratio of cone bottom to cylinder. Defaults to 2.
 
         Returns:
             _type_: Arrow Mesh in open3d format
@@ -150,15 +155,13 @@ class GeometryPrimitives:
         assert (not np.all(endpoint == origin))
         vec = np.array(endpoint) - np.array(origin)
         size = np.sqrt(np.sum(vec**2))
-        ratio_cone_cylinder = 0.15
-        radius = 60
-        ratio_cone_bottom_to_cylinder = 2
 
         Rz, Ry = GeometryPrimitives.calculate_zy_rotation_for_arrow(vec)
-        mesh = o3d.geometry.TriangleMesh.create_arrow(cone_radius=1/radius * ratio_cone_bottom_to_cylinder * scale,
+        mesh = o3d.geometry.TriangleMesh.create_arrow(cone_radius=radius * ratio_cone_bottom_to_cylinder * scale,
                                                       cone_height=size * ratio_cone_cylinder * scale,
-                                                      cylinder_radius=1/radius * scale,
-                                                      cylinder_height=size * (1 - ratio_cone_cylinder * scale))
+                                                      cylinder_radius=radius * scale,
+                                                      cylinder_height=size * (1 - ratio_cone_cylinder * scale),
+                                                      resolution=resolution)
         mesh.rotate(Ry, center=np.array([0, 0, 0]))
         mesh.rotate(Rz, center=np.array([0, 0, 0]))
         mesh.translate(origin)
@@ -179,7 +182,7 @@ class GeometryPrimitives:
             o3d.geometry.TriangleMesh: open3d triangle mesh of arrow 
         """
         mesh = GeometryPrimitives._getArrow(
-            endpoints[1], endpoints[0], scale=scale)
+            endpoints[1], endpoints[0], scale=scale, radius=radius, resolution=resolution)
         mesh.compute_vertex_normals()
         mesh.vertex_colors = o3d.utility.Vector3dVector(
             np.array([color]*len(mesh.vertices)))
