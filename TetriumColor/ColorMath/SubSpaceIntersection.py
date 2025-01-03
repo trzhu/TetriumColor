@@ -1,7 +1,27 @@
 import numpy.typing as npt
 import numpy as np
+import matplotlib.pyplot as plt
+
 from scipy.optimize import linprog
 from scipy.spatial import ConvexHull
+
+
+def ScalarProjection(a: npt.NDArray, b: npt.NDArray) -> float | npt.NDArray:
+    """
+    Compute the scalar projection of vector a onto vector b.
+
+    Parameters:
+    - a: (N,) array, the vector to be projected
+    - b: (N,) array, the vector onto which a is projected
+
+    Returns:
+    - scalar_proj: float, the scalar projection of a onto b
+    """
+    b_norm = np.linalg.norm(b)
+    if b_norm == 0:
+        raise ValueError("The vector b must not be the zero vector.")
+    scalar_proj = np.dot(a, b) / b_norm
+    return scalar_proj
 
 
 def ProjectPointOntoPlane(p: npt.NDArray, q: npt.NDArray, n: npt.NDArray) -> npt.NDArray:
@@ -65,14 +85,47 @@ def ParallelepipedToInequalities(p0, V):
     return A, b
 
 
+def ZonotopeToInequalities(generators: npt.NDArray):
+    """
+    Convert generating vectors of a zonotope into a list of inequalities.
+
+    Parameters:
+        generators (np.ndarray): A 2D array of shape (n, d), where n is the number of generating vectors 
+                                 and d is the dimension of the space.
+
+    Returns:
+        A (np.ndarray): Coefficients of the inequalities, shape (m, d).
+        b (np.ndarray): Right-hand side of the inequalities, shape (m,).
+    """
+    n, d = generators.shape
+
+    # Compute all vertices of the zonotope as Minkowski sum of segments
+    vertices = []
+    for mask in range(1 << n):  # Generate all 2^n combinations of -1, 1 coefficients
+        coeffs = np.array([1 if (mask & (1 << i)) else 0 for i in range(n)])
+        vertex = np.dot(coeffs, generators)
+        vertices.append(vertex)
+
+    vertices = np.array(vertices)
+
+    # Compute the convex hull of the vertices
+    hull = ConvexHull(vertices)
+
+    # Extract inequalities (half-space representation) from the convex hull
+    A = hull.equations[:, :-1]  # Coefficients of inequalities
+    b = -hull.equations[:, -1]  # RHS of inequalities
+
+    return A, b
+
+
 def MaximizeDimensionOnSubspace(A, b, p0, V, k):
     """
     find the maximum value along the k-th dimension of a plane's parameter space
-    that intersects with an n-dimensional parallelepiped.
+    that intersects with an n-dimensional convex hull of inequalities.
 
     Parameters:
-    - A: (P x N) matrix of parallelepiped constraints (A @ x <= b)
-    - b: (P,) vector of parallelepiped bounds
+    - A: (P x N) matrix of constraints (A @ x <= b)
+    - b: (P,) vector of bounds
     - p0: (N,) vector, the origin of the subspace (plane)
     - V: (N x M) matrix of spanning vectors for the M-dimensional subspace
     - k: Index of the dimension in the subspace to maximize
@@ -103,7 +156,7 @@ def MaximizeDimensionOnSubspace(A, b, p0, V, k):
         raise ValueError("Optimization failed. No feasible solution found.")
 
 
-def FindMaximalSaturation(hue_direction: npt.NDArray, paralleletope_vecs: npt.NDArray) -> npt.NDArray:
+def FindMaximalSaturation(hue_direction: npt.NDArray, generating_vecs: npt.NDArray) -> npt.NDArray:
     """Find the Maximal Point that lies along a given hue direction in a paralleletope.
 
     Args:
@@ -113,10 +166,14 @@ def FindMaximalSaturation(hue_direction: npt.NDArray, paralleletope_vecs: npt.ND
     Returns:
         npt.NDArray: The maximal point in the paralleletope that lies along the hue direction
     """
-    N = paralleletope_vecs.shape[1]  # Dimension of parallelepiped
+    M = generating_vecs.shape[0]  # Number of vectors defining the parallelepiped
+    N = generating_vecs.shape[1]  # Dimension of parallelepiped
 
     p0 = np.zeros(N)  # Origin
-    A, b = ParallelepipedToInequalities(p0, paralleletope_vecs)
+    if M > N:
+        A, b = ZonotopeToInequalities(generating_vecs)
+    else:
+        A, b = ParallelepipedToInequalities(p0, generating_vecs)
 
     v1 = np.ones(N)/np.linalg.norm(np.ones(N))  # Luminance vector
     v2 = ProjectPointOntoPlane(hue_direction, p0, v1)  # Hue Vector
@@ -130,7 +187,7 @@ def FindMaximalSaturation(hue_direction: npt.NDArray, paralleletope_vecs: npt.ND
     return x_max
 
 
-def FindMaximumIn1DimDirection(point: npt.NDArray, metameric_direction: npt.NDArray, paralleletope_vecs: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray]:
+def FindMaximumIn1DimDirection(point: npt.NDArray, metameric_direction: npt.NDArray, generating_vecs: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray]:
     """Find maximal point that lies in one direction inside of a linear constraint set
 
     Args:
@@ -140,10 +197,14 @@ def FindMaximumIn1DimDirection(point: npt.NDArray, metameric_direction: npt.NDAr
     Returns:
         tuple[npt.NDArray, npt.NDArray]: Returns in both positive and negative directions the maximal point
     """
-    N = paralleletope_vecs.shape[1]  # Dimension of parallelepiped
+    M = generating_vecs.shape[0]  # Number of vectors defining the parallelepiped
+    N = generating_vecs.shape[1]  # Dimension of parallelepiped
 
     p0 = np.zeros(N)
-    A, b = ParallelepipedToInequalities(p0, paralleletope_vecs)
+    if M > N:
+        A, b = ZonotopeToInequalities(generating_vecs)
+    else:
+        A, b = ParallelepipedToInequalities(p0, generating_vecs)
     V = metameric_direction[np.newaxis, :].T
     # Maximize in the only dimension of the subspace
     k = 0
@@ -158,11 +219,77 @@ def FindMaximumIn1DimDirection(point: npt.NDArray, metameric_direction: npt.NDAr
     return x_max, x_min
 
 
-if __name__ == "__main__":
-    paralleletope_vecs = np.eye(3)
-    ans = FindMaximalSaturation(np.array([0.5, 1, 0]), paralleletope_vecs)
-    print(ans)
+def GeneratePointsOnSubspace(vectors, num_points=100, distance=1):
+    """
+    Generate points on the subspace spanned by the given vectors, equidistant from the origin.
 
-    paralleletope_vecs = np.eye(4)
-    ans = FindMaximalSaturation(np.array([1, 0.4, 0.1, 0.1]), paralleletope_vecs)
-    print(ans)
+    Parameters:
+    - vectors: A list of linearly independent vectors spanning the subspace.
+    - num_points: Number of points to generate.
+    - distance: Desired distance from the origin.
+
+    Returns:
+    - points: An array of points on the subspace.
+    """
+    k = len(vectors)
+    points = []
+
+    for _ in range(num_points):
+        # Random coefficients
+        coefficients = np.random.uniform(-1, 1, k)
+
+        # Compute the point on the subspace
+        point = np.sum([coefficients[i] * vectors[i] for i in range(k)], axis=0)
+
+        # Normalize the point to lie on the unit sphere
+        point_normalized = point / np.linalg.norm(point)
+
+        # Scale the point to the desired distance
+        point_scaled = distance * point_normalized
+        points.append(point_scaled)
+
+    return np.array(points)
+
+# Define maximization function
+
+
+def MaximizeAllDirectionsOnSubspace(A, b, V, center, num_directions=100):
+    directions = GeneratePointsOnSubspace(V.T, num_directions)
+    intersections = []
+
+    for direction in directions:
+        direction = direction[:, np.newaxis]  # Convert to column vector
+        k = 0
+        # positive direction optimization
+        max_t1, optimal_t = MaximizeDimensionOnSubspace(A, b, center, direction, k)
+        x_max = center + np.dot(direction, optimal_t)
+        intersections.append(x_max)
+    return np.array(intersections)
+
+
+if __name__ == "__main__":
+
+    # cube = np.eye(3)
+    cube = np.array([[0, 0, 0.5], [0.5, 0.5, 0], [0, 0.5, 0], [0.5, 0, 0.5]])
+    A, b = ZonotopeToInequalities(cube)
+    V = np.array([[1, 1, 1], [0, 1, 0]]).T
+
+    intersections = MaximizeAllDirectionsOnSubspace(A, b, V, np.ones(3) * 0.5, num_directions=1000)
+    distances = np.vstack([ScalarProjection(intersections, V.T[i]) for i in range(V.shape[1])])
+    # Make axes equidistant
+    plt.gca().set_aspect('equal', adjustable='box')
+    plt.scatter(distances[1], distances[0])
+    plt.show()
+
+    # Plot the 3D scatter plot
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+
+    intersections = np.array(intersections)
+    ax.scatter(intersections[:, 0], intersections[:, 1], intersections[:, 2], c='r', marker='o')
+
+    ax.set_xlabel('X Label')
+    ax.set_ylabel('Y Label')
+    ax.set_zlabel('Z Label')
+
+    plt.show()
