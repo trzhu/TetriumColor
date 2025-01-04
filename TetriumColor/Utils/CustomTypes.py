@@ -14,6 +14,7 @@ class DisplayBasisType(Enum):
     Cone = 0
     MaxBasis = 1
     Hering = 2
+    ConeHering = 3
 
     def __str__(self):
         return self.name

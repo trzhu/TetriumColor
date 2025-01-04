@@ -270,7 +270,7 @@ def RenderDisplayGamut(name: str, basis_vectors: npt.NDArray):
     GeometryPrimitives.ConvertTriangleMeshToPolyscope(name, two_mesh)
 
 
-def __convertPointsToBasis(points: npt.NDArray, observer: Observer, display_basis: DisplayBasisType) -> npt.NDArray:
+def ConvertPointsToBasis(points: npt.NDArray, observer: Observer, display_basis: DisplayBasisType) -> npt.NDArray:
     """Convert 4D points to the basis specified.
 
     Args:
@@ -287,6 +287,17 @@ def __convertPointsToBasis(points: npt.NDArray, observer: Observer, display_basi
         maxbasis = MaxBasisFactory.get_object(observer)
         T = maxbasis.GetConeToMaxBasisTransform()
         points = points@T.T
+    elif display_basis == DisplayBasisType.Hering:
+        maxbasis = MaxBasisFactory.get_object(observer)
+        T = maxbasis.GetConeToMaxBasisTransform()
+        if observer.dimension < 4:
+            T = GetHeringMatrixLumYDir(observer.dimension)@T
+        points = points@T.T
+        # projected anyways in the next step
+    elif display_basis == DisplayBasisType.ConeHering:
+        if observer.dimension < 4:
+            points = points@GetHeringMatrixLumYDir(observer.dimension).T
+
     if observer.dimension > 3:
         return points@GetHeringMatrix(observer.dimension).T[:, 1:]
     else:
@@ -303,7 +314,7 @@ def Render4DPointCloud(name: str, points: npt.NDArray, observer: Observer,
         points (npt.Array): N x 4 array of vertices
         rgb (npt.NDArray | None, optional): N x 3 array of RGB colors. Defaults to None.
     """
-    points = __convertPointsToBasis(points, observer, display_basis)
+    points = ConvertPointsToBasis(points, observer, display_basis)
     pcl = ps.register_point_cloud(name, points)
     if rgb is not None:
         pcl.add_color_quantity(f"{name}_colors", rgb, enabled=True)

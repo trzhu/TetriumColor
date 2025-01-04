@@ -37,15 +37,20 @@ def GetCustomObserver(wavelengths: npt.NDArray,
         _type_: Observer of specified paramters and 4 cone types
     """
 
-    l_cone = Cone.cone(m_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
+    l_cone = Cone.cone(l_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
+    l_cone_555 = Cone.cone(555, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
+    l_cone_551 = Cone.cone(551, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
+    l_cone_547 = Cone.cone(547, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
     q_cone = Cone.cone(q_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
-    m_cone = Cone.cone(l_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
+    m_cone = Cone.cone(m_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
     s_cone = Cone.cone(s_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
     # s_cone = Cone.s_cone(wavelengths=wavelengths)
     if dimension == 3:
         return Observer([s_cone, m_cone, l_cone], verbose=verbose)
     elif dimension == 4:
         return Observer([s_cone, m_cone, q_cone, l_cone], verbose=verbose)
+    elif dimension == 6:
+        return Observer([s_cone, m_cone, l_cone_547, l_cone_551, l_cone_555, l_cone], verbose=verbose)
     else:
         raise NotImplementedError
 
