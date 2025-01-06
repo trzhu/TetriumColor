@@ -20,6 +20,7 @@ def GetCustomObserver(wavelengths: npt.NDArray,
                       m_cone_peak: float = 530,
                       q_cone_peak: float = 547,
                       l_cone_peak: float = 559,
+                      subset: List[int] = [0, 1, 3],
                       macular: float = 1,
                       lens: float = 1,
                       template: str = "neitz",
@@ -46,7 +47,8 @@ def GetCustomObserver(wavelengths: npt.NDArray,
     s_cone = Cone.cone(s_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
     # s_cone = Cone.s_cone(wavelengths=wavelengths)
     if dimension == 3:
-        return Observer([s_cone, m_cone, l_cone], verbose=verbose)
+        set_cones = [s_cone, m_cone, q_cone, l_cone]
+        return Observer([set_cones[i] for i in subset], verbose=verbose)
     elif dimension == 4:
         return Observer([s_cone, m_cone, q_cone, l_cone], verbose=verbose)
     elif dimension == 6:

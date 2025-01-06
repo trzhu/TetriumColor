@@ -7,13 +7,13 @@ from TetriumColor.ColorMath.GamutMath import GetMaximalMetamerPointsOnGrid
 from TetriumColor.PsychoPhys.HueSphere import CreateCircleGrid, CreatePseudoIsochromaticGrid
 from TetriumColor.Observer.DisplayObserverSensitivity import GetColorSpaceTransforms
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform
-from TetriumColor.Observer import GetCustomTetraObserver, Spectra
+from TetriumColor.Observer import GetCustomObserver, Spectra
 from TetriumColor.Measurement import LoadPrimaries, GaussianSmoothPrimaries
 
 # Load Observer and Measured Primaries
 wavelengths = np.arange(380, 781, 1)
-observer = GetCustomTetraObserver(wavelengths, od=0.5, m_cone_peak=533,
-                                  l_cone_peak=559, template="neitz", macular=0.5, lens=1)
+observer = GetCustomObserver(wavelengths, od=0.5, m_cone_peak=533,
+                             l_cone_peak=559, template="neitz", macular=0.5, lens=1)
 primaries: List[Spectra] = LoadPrimaries("../../measurements/2024-12-06/primaries")
 gaussian_smooth_primaries: List[Spectra] = GaussianSmoothPrimaries(primaries)
 

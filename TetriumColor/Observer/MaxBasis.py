@@ -131,7 +131,7 @@ class MaxBasis:
 
     def __getMaximalBasis(self, rng=None):
         range = []
-        if self.step_size < 6 and self.dimension > 2:  # find a range to do fine-grained search to narrow down brute force
+        if self.step_size < 6 and self.dimension > 3:  # find a range to do fine-grained search to narrow down brute force
             rangbd = int(self.dim_sample_const * 2)
             coarse_wavelengths = np.arange(
                 self.observer.wavelengths[0] + self.step_size, self.observer.wavelengths[-1] - self.step_size, self.dim_sample_const)

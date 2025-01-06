@@ -6,6 +6,123 @@ import math
 from scipy.spatial import ConvexHull
 
 
+def GetSimplex(side_length, dimension) -> npt.NDArray:
+    """Get Canonical Simplex
+
+    Args:
+        side_length (_type_): side length of the simplex
+        dimension (_type_): dimension of the simplex
+
+    Raises:
+        ValueError: Only dimensions 2 & 3 & 4 are supported
+
+    Returns:
+        npt.NDArray: The canonical simplex
+    """
+    # Calculate the height of the tetrahedron
+    height = (3 ** 0.5) * side_length / 2
+
+    # Calculate the coordinates of the vertices
+    vertex1 = [-side_length/2, 0, 0]
+    vertex2 = [side_length/2, 0, 0]
+    vertex3 = [0, height, 0]
+    vertex4 = [0, height/3, (2/3)**0.5 * side_length]
+
+    arr = np.array([vertex1, vertex2, vertex3, vertex4])
+
+    if dimension == 3:
+        return arr[:3, :2]
+    elif dimension == 4:
+        return arr
+    elif dimension == 2:
+        return arr[:2, :2]
+    else:
+        raise ValueError("Only dimensions 2 & 3 & 4 are supported")
+
+
+def ComputeBarycentricCoordinates(coordinates: npt.NDArray, p: npt.NDArray) -> npt.NDArray:
+    """Compute Barycentric Coordinates of a point relative to coordinates of another simplex
+
+    Args:
+        coordinates (npt.NDArray): coordinates of the simplex
+        p (npt.NDArray): point to locate relative to the simplex
+
+    Raises:
+        NotImplementedError: Only 3D & 4D Simplex are supported
+
+    Returns:
+        npt.NDArray: Barycentric Coordinates of the point relative to the simplex
+    """
+    if len(coordinates) == 4:
+        a = coordinates[0]
+        b = coordinates[1]
+        c = coordinates[2]
+        d = coordinates[3]
+
+        vap = p - a
+        vbp = p - b
+
+        vab = b - a
+        vac = c - a
+        vad = d - a
+
+        vbc = c - b
+        vbd = d - b
+
+        va6 = np.dot(np.cross(vbp, vbd), vbc)
+        vb6 = np.dot(np.cross(vap, vac), vad)
+        vc6 = np.dot(np.cross(vap, vad), vab)
+        vd6 = np.dot(np.cross(vap, vab), vac)
+        v6 = 1 / np.dot(np.cross(vab, vac), vad)
+        return np.array([va6*v6, vb6*v6, vc6*v6, vd6*v6])
+    elif len(coordinates) == 3:
+        v0 = coordinates[1] - coordinates[0]
+        v1 = coordinates[2] - coordinates[0]
+        v2 = p - coordinates[0]
+
+        d00 = np.dot(v0, v0)
+        d01 = np.dot(v0, v1)
+        d11 = np.dot(v1, v1)
+        d20 = np.dot(v2, v0)
+        d21 = np.dot(v2, v1)
+
+        denom = d00 * d11 - d01 * d01
+
+        barycentric_coords = np.zeros(3)
+        barycentric_coords[1] = (d11 * d20 - d01 * d21) / denom
+        barycentric_coords[2] = (d00 * d21 - d01 * d20) / denom
+        barycentric_coords[0] = 1 - \
+            barycentric_coords[1] - barycentric_coords[2]
+
+        return barycentric_coords
+    else:  # 2D
+        raise NotImplementedError("Only 2D & 3D Simplex are supported")
+        # gpt generated lol
+        # v0 = coordinates[1] - coordinates[0]
+        # v1 = p - coordinates[0]
+        # return np.array([np.dot(v1, v0) / np.dot(v0, v0), 1 - np.dot(v1, v0) / np.dot(v0, v0)])
+
+
+def GetSimplexBarycentricCoords(dimension: int, simplex_points: npt.NDArray, points_to_locate: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray]:
+    """Get the barycentric coordinates of a point in a simplex
+
+    Args:
+        dimension (int): dimension of the simplex (4 is tetrahedron, 3 is triangle, 2 is line)
+        simplex_points (npt.NDArray): points that define the simplex (will be used as the basis to transform to canonical)
+        points_to_locate (npt.NDArray): points that we want to locate in the simplex (traditionally, the spectral locus)
+
+    Returns:
+        tuple[npt.NDArray, npt.NDArray]: The canonical simplex coordinates and the barycentric coordinates relative to it
+    """
+    simplex_coords = GetSimplex(1, dimension)
+    coords = np.zeros((points_to_locate.shape[0], dimension))
+    for i in range(points_to_locate.shape[0]):
+        coords[i] = ComputeBarycentricCoordinates(simplex_points, points_to_locate[i])
+
+    barycentric_coords = coords@simplex_coords
+    return simplex_coords, barycentric_coords
+
+
 def ConvertPolarToCartesian(SH: npt.NDArray) -> npt.NDArray:
     """
     Convert Polar to Cartesian Coordinates

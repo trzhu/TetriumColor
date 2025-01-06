@@ -1,7 +1,6 @@
-from typing import Callable
-from matplotlib.pyplot import arrow
 import numpy as np
 import numpy.typing as npt
+from typing import List
 
 import tetrapolyscope as ps
 
@@ -10,6 +9,7 @@ from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, DisplayBasisType
 from .Geometry import GeometryPrimitives
 from ..Observer import Observer, MaxBasisFactory, GetHeringMatrix
 from .Animation import AnimationUtils
+from scipy.spatial import ConvexHull
 
 
 def OpenVideo(filename: str):  # dunno how to type a fd
@@ -68,6 +68,33 @@ def GetHeringMatrixLumYDir(dim: int) -> npt.NDArray:
     return h_mat
 
 
+def Render2DMesh(name: str, points: npt.NDArray, rgbs: npt.NDArray) -> None:
+    """Create a 2D mesh from a list of vertices (N x 2) and RGB colors (N x 3)
+
+    Args:
+        name (str): Name of the mesh
+        points (npt.ArrayLike): N x 2 array of vertices
+        rgbs (npt.ArrayLike): N x 3 array of RGB colors
+    """
+    if len(rgbs.shape) < 2:
+        rgbs = np.tile(rgbs, (len(points), 1))
+    # Compute the convex hull of the points
+    hull = ConvexHull(points)
+    hull_vertices = points[hull.vertices]
+    rgbs = rgbs[hull.vertices]
+
+    # rerun to get the right triangle indices
+    hull = ConvexHull(hull_vertices)
+    hull_vertices = np.hstack((hull_vertices[hull.vertices], np.zeros((len(hull_vertices), 1))))
+    hull_triangles = np.hstack((hull.simplices, np.ones((hull.simplices.shape[0], 1)) * len(hull_vertices)))
+    # add center coordinate to make it a triangle fan
+    hull_vertices = np.vstack((hull_vertices, [0, 0, 0]))
+    # Register the convex hull mesh with Polyscope
+    ps_hull_mesh = ps.register_surface_mesh(f"{name}", hull_vertices, hull_triangles, back_face_policy='identical')
+    # ps_hull_mesh.add_color_quantity(f"{name}_colors",
+    #                                 rgbs[hull.vertices], defined_on='vertices', enabled=True)
+
+
 def Render3DMesh(name: str, points: npt.ArrayLike, rgbs: npt.ArrayLike) -> None:
     """Create a 3D mesh from a list of vertices (N x 3) and RGB colors (N x 3)
 
@@ -101,7 +128,7 @@ def Render3DCone(name: str, points: npt.NDArray, color: npt.NDArray, mesh_alpha:
     arrow_mesh = []
     for i in range(len(points)):
         arrow_mesh += [GeometryPrimitives.CreateArrow(endpoints=np.array(
-            [[0, 0, 0], points[i]]), color=color, radius=0.025/20)]
+            [[0, 0, 0], points[i]]), color=np.array([0, 0, 0]), radius=0.025/100)]
     arrow_mesh = GeometryPrimitives.CollapseMeshObjects(arrow_mesh)
     ps_arrows = ps.register_surface_mesh(f"{name}_arrows", np.asarray(
         arrow_mesh.vertices), np.asarray(arrow_mesh.triangles), transparency=arrow_alpha, smooth_shade=True)
@@ -123,14 +150,14 @@ def Render3DLine(name: str, points: npt.NDArray, color: npt.ArrayLike, line_alph
         color (npt.ArrayLike): 1 x 3 Array of RGB color
         line_alpha (float, optional): Transparency of the Line. Defaults to 1.
     """
-    edges = np.array([[i, (i + 1) % len(points)] for i in range(len(points))])
-    ps_net = ps.register_curve_network(f"{name}_curve", points, edges)
-    ps_net.add_color_quantity(f"{name}_curve_colors", np.tile(
+    edges = np.array([[i, (i + 1) % len(points)] for i in range(len(points)-1)])
+    ps_net = ps.register_curve_network(f"{name}", points, edges)
+    ps_net.add_color_quantity(f"{name}_colors", np.tile(
         color, (len(points), 1)), defined_on='nodes', enabled=True)
 
 
 def RenderMetamericDirection(name: str, observer: Observer, display_basis: DisplayBasisType,
-                             metameric_axis: int, color: npt.ArrayLike, line_alpha: float = 1) -> None:
+                             metameric_axis: int, color: npt.ArrayLike, line_alpha: float = 1, scale: float = 1) -> None:
 
     length = 1 * 0.05
     basisLMSQ = np.zeros((1, observer.dimension))
@@ -150,7 +177,8 @@ def RenderMetamericDirection(name: str, observer: Observer, display_basis: Displ
     elif observer.dimension > 3 and display_basis == DisplayBasisType.Hering:
         basisLMSQ = basisLMSQ[:, 1:]
 
-    Render3DLine(name, np.array([basisLMSQ[0] * -1, basisLMSQ[0]]), color, line_alpha)
+    normalizedLMSQ = basisLMSQ[0] / np.linalg.norm(basisLMSQ[0]) * scale
+    Render3DLine(name, np.array([np.zeros(3), normalizedLMSQ]), color, line_alpha)
 
 
 def RenderConeOBS(name: str, observer: Observer) -> None:
@@ -276,7 +304,7 @@ def ConvertPointsToBasis(points: npt.NDArray, observer: Observer, display_basis:
     Args:
         points (npt.NDArray): points Nx4
         observer (Observer): observer object
-        display_basis (DisplayBasisType): basis to display points in. 
+        display_basis (DisplayBasisType): basis to display points in.
 
     Returns:
         npt.NDArray: _description_
@@ -304,6 +332,24 @@ def ConvertPointsToBasis(points: npt.NDArray, observer: Observer, display_basis:
         return points
 
 
+def ConvertPointsToChromaticity(points: npt.NDArray, observer: Observer, idxs: List[int]) -> npt.NDArray:
+    """Transform coordinates into display chromaticity coordinates
+
+    Args:
+        points (npt.NDArray): points to transform (most likely spectral locus)
+        observer (Observer): Observer object
+        display_basis (DisplayBasisType): displayBasis to transform to before projecting
+        idxs (List[int]): indices of the dimension to return
+
+    Returns:
+        npt.NDArray: chromaticity points
+    """
+    maxbasis = MaxBasisFactory.get_object(observer)
+    T = maxbasis.GetConeToMaxBasisTransform()
+    basis_points = points@T.T
+    return (GetHeringMatrix(observer.dimension)@(basis_points.T / (np.sum(basis_points.T, axis=0) + 1e-9)))[idxs].T
+
+
 def Render4DPointCloud(name: str, points: npt.NDArray, observer: Observer,
                        display_basis: DisplayBasisType = DisplayBasisType.MaxBasis,
                        rgb: npt.NDArray | None = None) -> None:
@@ -320,20 +366,21 @@ def Render4DPointCloud(name: str, points: npt.NDArray, observer: Observer,
         pcl.add_color_quantity(f"{name}_colors", rgb, enabled=True)
 
 
-def RenderPointCloud(name: str, points: npt.NDArray, rgb: npt.NDArray | None = None) -> None:
+def RenderPointCloud(name: str, points: npt.NDArray, rgb: npt.NDArray | None = None, radius: float = 0.01) -> None:
     """Render a point cloud in Polyscope
 
     Args:
         name (str): Name of the point cloud
         points (npt.Array): N x 3 array of vertices
         rgb (npt.NDArray | None, optional): N x 3 array of RGB colors. Defaults to None.
+        radius (float, optional): Radius of the points. Defaults to 0.01.
     """
-    pcl = ps.register_point_cloud(name, points)
+    pcl = ps.register_point_cloud(name, points, radius=0.01)
     if rgb is not None:
         pcl.add_color_quantity(f"{name}_colors", rgb, enabled=True)
 
 
-def RenderBasisArrows(name: str, basis: npt.NDArray, rgb: npt.NDArray | None = None) -> None:
+def RenderBasisArrows(name: str, basis: npt.NDArray, rgb: npt.NDArray | None = None, radius: float = 0.025/20) -> None:
     """Render a set of basis vectors as arrows in Polyscope
 
     Args:
@@ -347,7 +394,7 @@ def RenderBasisArrows(name: str, basis: npt.NDArray, rgb: npt.NDArray | None = N
     arrow_mesh = []
     for i in range(len(basis)):
         arrow_mesh += [GeometryPrimitives.CreateArrow(endpoints=np.array(
-            [[0, 0, 0], basis[i]]), color=rgb[i], radius=0.025/20)]
+            [[0, 0, 0], basis[i]]), color=rgb[i], radius=radius)]
     arrow_mesh = GeometryPrimitives.CollapseMeshObjects(arrow_mesh)
     GeometryPrimitives.ConvertTriangleMeshToPolyscope(name, arrow_mesh)
 

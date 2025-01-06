@@ -4,11 +4,11 @@ import numpy as np
 
 from TetriumColor.Observer.DisplayObserverSensitivity import GetColorSpaceTransforms
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform
-from TetriumColor.Observer import GetCustomTetraObserver, Spectra, GetMaxBasisToDisplayTransform
+from TetriumColor.Observer import GetCustomObserver, Spectra, GetMaxBasisToDisplayTransform
 from TetriumColor.Measurement import LoadPrimaries, GaussianSmoothPrimaries
 
 wavelengths = np.arange(380, 781, 1)
-observer = GetCustomTetraObserver(wavelengths, od=0.5, m_cone_peak=530, l_cone_peak=559, template="neitz")
+observer = GetCustomObserver(wavelengths, od=0.5, m_cone_peak=530, l_cone_peak=559, template="neitz")
 primaries: List[Spectra] = LoadPrimaries("../../measurements/2024-12-06/primaries")
 gaussian_smooth_primaries: List[Spectra] = GaussianSmoothPrimaries(primaries)
 
