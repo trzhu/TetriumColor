@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 from scipy.optimize import linprog
 from scipy.spatial import ConvexHull
 
+from TetriumColor.Observer.Zonotope import getZonotopePoints
+
 
 def ScalarProjection(a: npt.NDArray, b: npt.NDArray) -> float | npt.NDArray:
     """
@@ -100,15 +102,10 @@ def ZonotopeToInequalities(generators: npt.NDArray):
     n, d = generators.shape
 
     # Compute all vertices of the zonotope as Minkowski sum of segments
-    vertices = []
-    for mask in range(1 << n):  # Generate all 2^n combinations of -1, 1 coefficients
-        coeffs = np.array([1 if (mask & (1 << i)) else 0 for i in range(n)])
-        vertex = np.dot(coeffs, generators)
-        vertices.append(vertex)
-
-    vertices = np.array(vertices)
-
+    vertices = getZonotopePoints(generators.T, d, verbose=True)
+    vertices = np.array(list(vertices[1].values())).reshape(-1, d)
     # Compute the convex hull of the vertices
+
     hull = ConvexHull(vertices)
 
     # Extract inequalities (half-space representation) from the convex hull

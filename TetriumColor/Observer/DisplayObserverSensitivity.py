@@ -1,13 +1,11 @@
-"""
-If we fix the delivery, how much can we change the observer model before we see a difference?
-"""
-import os
 import numpy as np
 import matplotlib.pyplot as plt
 import tqdm
 
 import numpy.typing as npt
 from typing import List
+from colour.colorimetry import MSDS_CMFS_STANDARD_OBSERVER
+from colour.models import RGB_COLOURSPACE_BT709
 
 from . import Observer, Cone, Spectra, MaxBasis, MaxBasisFactory
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform
@@ -182,13 +180,45 @@ def GetConeToDisplay(observer: Observer, led_spectrums: List[Spectra]):
     return mat_cone_to_primaries
 
 
-def GetDisplayToCone(observer: Observer, led_spectrums: List[Spectra]):
+def GetDisplayToCone(observer: Observer, led_spectrums: List[Spectra] | npt.NDArray):
     primary_intensities = np.array(
         [observer.observe_normalized(s) for s in led_spectrums])
     return primary_intensities
 
 
-def GetColorSpaceTransform(observer: Observer, display_primaries: List[Spectra],
+def GetColorSpaceTransformTosRGB(observer: Observer, metameric_axis: int = 2, subset_leds: List[int] = [0, 1, 2, 3]):
+    # ONLY WORKS FOR 3D RIGHT NOW
+
+    # Get XYZ primaries
+    xyz_cmfs = MSDS_CMFS_STANDARD_OBSERVER['CIE 1931 2 Degree Standard Observer'].values
+
+    # compute the transform from observer to XYZ
+    white_pt = np.diag(observer.get_whitepoint(wavelengths=observer.wavelengths))
+
+    max_basis = MaxBasisFactory.get_object(observer, verbose=False)
+
+    M_XYZ_to_RGB = RGB_COLOURSPACE_BT709.matrix_XYZ_to_RGB
+    M_Cone_To_Primaries = M_XYZ_to_RGB@(xyz_cmfs.T@np.linalg.pinv(observer.sensor_matrix) @ white_pt / 100)
+
+    M_PrimariesToCone = np.linalg.inv(M_Cone_To_Primaries)
+    M_ConeToMaxBasis = max_basis.cone_to_maxbasis
+    M_MaxBasisToHering = max_basis.HMatrix
+
+    M_PrimariesToMaxBasis = M_ConeToMaxBasis@M_PrimariesToCone
+    M_PrimariesToHering = M_MaxBasisToHering@M_PrimariesToMaxBasis
+
+    return ColorSpaceTransform(
+        observer.dimension,
+        M_Cone_To_Primaries,
+        np.linalg.inv(M_PrimariesToMaxBasis),
+        np.linalg.inv(M_PrimariesToHering),
+        metameric_axis,
+        subset_leds,
+        np.ones(observer.dimension)
+    )
+
+
+def GetColorSpaceTransform(observer: Observer, display_primaries: List[Spectra] | npt.NDArray,
                            scaling_factor: float = 1000, metameric_axis: int = 2,
                            subset_leds: List[int] = [0, 1, 2, 3]):
     """Given an observer and display primaries, return the ColorSpaceTransform
