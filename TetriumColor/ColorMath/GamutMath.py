@@ -146,7 +146,7 @@ def GetEquiluminantPlane(luminance: float, color_space_transform: ColorSpaceTran
     return map_angle_lum_sat
 
 
-def RemapGamutPoints(VSHH: npt.NDArray, color_space_transform: ColorSpaceTransform, map_angle_sat: dict) -> npt.NDArray:
+def RemapGamutPoints(VSHH: npt.NDArray, color_space_transform: ColorSpaceTransform, map_angle_sat: dict | None) -> npt.NDArray:
     """Given a set of VSHH points, remap the saturation values to be within the gamut
 
     Args:
@@ -161,7 +161,7 @@ def RemapGamutPoints(VSHH: npt.NDArray, color_space_transform: ColorSpaceTransfo
              np.ones(color_space_transform.cone_to_disp.shape[0]))[0]
     for i in range(len(VSHH)):
         angle = tuple(VSHH[i, 2:])
-        if angle not in map_angle_sat:
+        if map_angle_sat is None or angle not in map_angle_sat:
             lum_cusp, sat_cusp = FindMaxSaturationForVSH(np.array([[0, 1, *angle]]), color_space_transform)
         else:
             lum_cusp, sat_cusp = map_angle_sat[angle]
@@ -185,6 +185,27 @@ def SampleHueManifold(luminance: float, saturation: float, dim: int, num_points:
     all_vshh[:, 1] = saturation
     all_vshh[:, 2:] = all_angles
     return all_vshh
+
+
+def SampleDualCircle(luminance: float, saturation: float, dist_from_origin: float, num_points: int) -> tuple[npt.NDArray, npt.NDArray]:
+
+    all_thetas = Geometry.SampleAnglesEqually(num_points, 2)
+    all_thetas_with_s = np.hstack([np.full((all_thetas.shape[0], 1), saturation - dist_from_origin), all_thetas])
+    all_angles = Geometry.ConvertPolarToCartesian(all_thetas_with_s)
+    # all in cartesian now
+    all_hering = np.zeros((len(all_angles), 4))
+    all_hering[:, 0] = luminance
+    all_hering[:, 1:3] = all_angles
+    all_hering[:, 3] = dist_from_origin
+
+    opposite = np.copy(all_hering)
+    opposite[:, 3] = -dist_from_origin
+
+    # convert back to spherical to get vshh points for gamut mapping
+    all_hering[:, 1:] = Geometry.ConvertCartesianToSpherical(all_hering[:, 1:])
+    opposite[:, 1:] = Geometry.ConvertCartesianToSpherical(opposite[:, 1:])
+
+    return all_hering, opposite
 
 
 def __rotateToZAxis(vector: npt.NDArray) -> npt.NDArray:
@@ -251,15 +272,26 @@ def GetMetamericAxisInVSH(color_space_transform: ColorSpaceTransform) -> npt.NDA
     """
     normalized_direction_in_hering: npt.NDArray = np.linalg.inv(
         color_space_transform.hering_to_disp)@GetMetamericAxisInDispSpace(color_space_transform)
-    return ConvertHeringToVSH(normalized_direction_in_hering[np.newaxis, :])
+    return ConvertHeringToVSH(normalized_direction_in_hering[np.newaxis, :])[0]
+
+
+def GetMetamericAxisInHering(color_space_transform: ColorSpaceTransform) -> npt.NDArray:
+    """
+    Get the Metameric Axis in VSH
+    Args:
+        color_space_transform (ColorSpaceTransform): The ColorSpaceTransform to get the Metameric Axis for
+    """
+    normalized_direction_in_hering: npt.NDArray = np.linalg.inv(
+        color_space_transform.hering_to_disp)@GetMetamericAxisInDispSpace(color_space_transform)
+    return normalized_direction_in_hering
 
 
 def GetTransformChromToMetamericDir(transform: ColorSpaceTransform):
     """
     Get the transformation matrix from chromaticity to the metameric direction.
     """
-    shh = GetMetamericAxisInVSH(transform)[0, 1:]  # remove luminance
-    return __rotateToZAxis(shh)
+    xyz = GetMetamericAxisInHering(transform)[1:]  # remove luminance
+    return __rotateToZAxis(xyz)
 
 
 def GetGridPoints(dist_from_axis: float, cube_idx: int, grid_size: int, color_space_transform: ColorSpaceTransform):
@@ -277,6 +309,36 @@ def GetGridPoints(dist_from_axis: float, cube_idx: int, grid_size: int, color_sp
     return xyz_in_chrom, flattened_u, flattened_v
 
 
+def GetDualCircleMetamers(luminance: float, saturation: float, dist_from_origin: float,
+                          color_space_transform: ColorSpaceTransform, num_circle_samples: int = 100) -> tuple[npt.NDArray, npt.NDArray]:
+    """ Get the metamer points for a given luminance and cube index
+    Args:
+        luminance (float): luminance value
+        saturation (float): saturation value
+        cube_idx (int): cube index
+        grid_size (int): grid size
+        color_space_transform (ColorSpaceTransform): color space transform object
+
+    Returns:
+        npt.NDArray: The metamer points
+    """
+    # this is in z direction
+    vshh_pos, vshh_neg = SampleDualCircle(luminance, saturation, dist_from_origin, num_circle_samples)
+
+    metamericDirMat = GetTransformChromToMetamericDir(color_space_transform)
+    invMetamericDirMat = np.linalg.inv(metamericDirMat)
+
+    hering_pos = ConvertVSHToHering(vshh_pos)
+    hering_neg = ConvertVSHToHering(vshh_neg)
+    hering_pos_xyz = ConvertHeringToVSH(np.dot(invMetamericDirMat, hering_pos.T).T)
+    hering_neg_xyz = ConvertHeringToVSH(np.dot(invMetamericDirMat, hering_neg.T).T)
+
+    remapped_vshh_pos = RemapGamutPoints(hering_pos_xyz, color_space_transform, None)
+    remapped_vshh_neg = RemapGamutPoints(hering_neg_xyz, color_space_transform, None)
+
+    return remapped_vshh_pos, remapped_vshh_neg
+
+
 def _getMaximalMetamerPointsOnGrid(luminance: float, saturation: float, cube_idx: int,
                                    grid_size: int, color_space_transform: ColorSpaceTransform) -> tuple[npt.NDArray, npt.NDArray]:
     """ Get the metamer points for a given luminance and cube index
@@ -290,7 +352,14 @@ def _getMaximalMetamerPointsOnGrid(luminance: float, saturation: float, cube_idx
     Returns:
         npt.NDArray: The metamer points
     """
+    all_pts = []
+    for i in range(6):
+        xyz_in_chrom, _, _ = GetGridPoints(saturation, i, grid_size, color_space_transform)
+        all_pts.append(xyz_in_chrom)
+    all_pts = np.array(all_pts).reshape(-1, 3)
+
     xyz_in_chrom, _, _ = GetGridPoints(saturation, cube_idx, grid_size, color_space_transform)
+
     lum_vector = luminance * np.ones(grid_size * grid_size, dtype=float)
 
     vxyz = np.hstack((lum_vector[np.newaxis, :].T, xyz_in_chrom))
@@ -324,6 +393,23 @@ def _getMaximalMetamerPointsOnGrid(luminance: float, saturation: float, cube_idx
     cone_responses = (disp_to_cone@display.T).T.reshape(-1, 2, 4)
     without_discretization = (disp_to_cone@(output[:, :4] / color_space_transform.white_weights).T).T.reshape(-1, 2, 4)
 
+    # import matplotlib.pyplot as plt
+
+    # # Plot 3D points of hering responses
+    # fig = plt.figure()
+    # ax = fig.add_subplot(111, projection='3d')
+    # ax.scatter(hering_responses[:, 0], hering_responses[:, 1], hering_responses[:, 2], c='r', marker='o')
+    # ax.scatter(all_pts[:, 0], all_pts[:, 1], all_pts[:, 2], c='b', marker='o')
+    # ax.scatter(xyz_in_chrom[:, 0], xyz_in_chrom[:, 1], xyz_in_chrom[:, 2], c='g', marker='o')
+    # # Plot an arrow in the direction of metamer_dir_in_disp
+    # metamer_dir_in_disp = GetMetamericAxisInDispSpace(color_space_transform)
+    # ax.quiver(0, 0, 0, metamer_dir_in_disp[0], metamer_dir_in_disp[1], metamer_dir_in_disp[2], color='k', length=1.0)
+    # ax.set_xlabel('Hering X')
+    # ax.set_ylabel('Hering Y')
+    # ax.set_zlabel('Hering Z')
+    # ax.set_box_aspect([1, 1, 1])  # Aspect ratio is 1:1:1
+    # plt.show()
+
     diff = np.abs(cone_responses[:, 0] - cone_responses[:, 1])
     diff_without_discretization = np.abs(without_discretization[:, 0] - without_discretization[:, 1])
 
@@ -346,3 +432,16 @@ def GetMaxMetamerOverGridSample(luminance: float, saturation: float, cube_idx: i
     _, max_metamer = _getMaximalMetamerPointsOnGrid(
         luminance, saturation, cube_idx, grid_size, color_space_transform)
     return max_metamer
+
+
+def GetHueCircleSample(luminance: float, saturation: float, color_space_transform: ColorSpaceTransform, num_directions: int = 100):
+
+    vshh: npt.NDArray = SampleHueManifold(
+        luminance, saturation, color_space_transform.dim, num_directions)
+    map_angle_to_cusp = GenerateGamutLUT(vshh, color_space_transform)
+    remapped_vshh = RemapGamutPoints(vshh, color_space_transform, map_angle_to_cusp)
+    tetra_colors: List[TetraColor] = ConvertVSHtoTetraColor(remapped_vshh, color_space_transform)
+
+    # pick metameric direction
+    metamericDirMat = GetTransformChromToMetamericDir(color_space_transform)
+    invMetamericDirMat = np.linalg.inv(metamericDirMat)

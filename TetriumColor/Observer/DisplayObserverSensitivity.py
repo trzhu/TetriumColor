@@ -6,9 +6,14 @@ import numpy.typing as npt
 from typing import List
 from colour.colorimetry import MSDS_CMFS_STANDARD_OBSERVER
 from colour.models import RGB_COLOURSPACE_BT709
+from colour import XYZ_to_RGB, wavelength_to_XYZ
 
 from . import Observer, Cone, Spectra, MaxBasis, MaxBasisFactory
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform
+
+
+def GetsRGBfromWavelength(wavelength):
+    return XYZ_to_RGB(wavelength_to_XYZ(wavelength), "sRGB")
 
 
 def GetCustomObserver(wavelengths: npt.NDArray,
@@ -18,11 +23,11 @@ def GetCustomObserver(wavelengths: npt.NDArray,
                       m_cone_peak: float = 530,
                       q_cone_peak: float = 547,
                       l_cone_peak: float = 559,
-                      subset: List[int] = [0, 1, 3],
                       macular: float = 1,
                       lens: float = 1,
                       template: str = "neitz",
-                      verbose: bool = False):
+                      illuminant: Spectra | None = None,
+                      verbose: bool = False, subset: List[int] = [0, 1, 3]):
     """Given specific parameters, return an observer model with Q cone peaked at 547
 
     Args:
@@ -46,7 +51,7 @@ def GetCustomObserver(wavelengths: npt.NDArray,
     # s_cone = Cone.s_cone(wavelengths=wavelengths)
     if dimension == 3:
         set_cones = [s_cone, m_cone, q_cone, l_cone]
-        return Observer([set_cones[i] for i in subset], verbose=verbose)
+        return Observer([set_cones[i] for i in subset], verbose=verbose, illuminant=illuminant)
     elif dimension == 4:
         return Observer([s_cone, m_cone, q_cone, l_cone], verbose=verbose)
     elif dimension == 6:
@@ -100,8 +105,10 @@ def GetSubsetIdentifyingObservers(peaks=((530, 559), (530, 555), (533, 559), (53
     return all_observers, peaks
 
 
-def GetPeakPrevalentObservers(peaks=((530, 559), (530, 555), (533, 559), (533, 555),
-                                     (530, 551), (533, 551), (530, 552), (533, 552)),
+def GetPeakPrevalentObservers(peaks=((533, 559), (533, 555), (533, 551), (533, 552), (533, 557)
+                                     #   ((530, 559), (530, 555), (533, 559), (533, 555),
+                                     #  (530, 551), (533, 551), (530, 552), (533, 552)
+                                     ),
                               od=0.5,
                               macular=[1],
                               lens=1,
@@ -184,6 +191,14 @@ def GetDisplayToCone(observer: Observer, led_spectrums: List[Spectra] | npt.NDAr
     primary_intensities = np.array(
         [observer.observe_normalized(s) for s in led_spectrums])
     return primary_intensities
+
+
+def GetParalleletopeBasis(observer: Observer, led_spectrums: List[Spectra]):
+    disp = GetDisplayToCone(observer, led_spectrums)
+    intensities = disp.T
+    white_pt = observer.observe_normalized(np.ones_like(observer.wavelengths))
+    white_weights = np.linalg.inv(intensities)@white_pt
+    return (intensities@np.diag(white_weights)).T
 
 
 def GetColorSpaceTransformTosRGB(observer: Observer, metameric_axis: int = 2, subset_leds: List[int] = [0, 1, 2, 3]):

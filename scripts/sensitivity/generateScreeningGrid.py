@@ -1,15 +1,15 @@
 """
 Generate a screening grid for the general experiment
 """
-import pdb
 import numpy as np
 import argparse
+import os
 
 from PIL import Image
 from typing import List
 import numpy.typing as npt
 
-from TetriumColor.Observer.DisplayObserverSensitivity import GetCustomTetraObserver
+from TetriumColor.Observer.DisplayObserverSensitivity import GetCustomObserver
 from TetriumColor.Observer import *
 from TetriumColor.Measurement import LoadPrimaries, GaussianSmoothPrimaries
 from TetriumColor.PsychoPhys.HueSphere import CreatePseudoIsochromaticImages, CreatePaddedGrid
@@ -41,45 +41,30 @@ cube_idx = 4
 wavelengths = np.arange(380, 781, 1)
 primaries: List[Spectra] = LoadPrimaries("../../measurements/2024-12-06/primaries")
 gaussian_smooth_primaries: List[Spectra] = GaussianSmoothPrimaries(primaries)
-
+metamer_dirs = [2, 3]
 
 outputs: List[tuple[npt.NDArray, NoiseGenerator | None]] = []
 names: List[str] = []
 
 # Control Test
-avg_observer = GetCustomTetraObserver(
+avg_observer = GetCustomObserver(
     wavelengths=wavelengths, od=0.5, m_cone_peak=530, l_cone_peak=559)
 outputs.append(GetControlTest(
     avg_observer, gaussian_smooth_primaries, 2, luminance, saturation, grid_indices, grid_size, cube_idx))
 names.append("control")
 
-# Cone Identifying Test -- we want to identify peaks S cone, M cone, and variants of all the L cones
-cone_identifying_observers = []
-cone_names = [419, 530, 559]
-q_peaks = [547, 552, 555]
-for peak in q_peaks:
-    cone_identifying_observers.append(GetCustomTetraObserver(
-        wavelengths=wavelengths, od=0.5, m_cone_peak=530, q_cone_peak=peak, l_cone_peak=559))
-
-for observer, peak in zip(cone_identifying_observers, q_peaks):
-    # axis over Q cone
-    outputs.append(GetConeIdentifyingTest(
-        observer, gaussian_smooth_primaries, 2, luminance, saturation, grid_indices, factor, grid_size, cube_idx))
-    names.append(f"cone_identifying_{peak}")
-
-noise_divisions = [1, 2, 4]
-for axis, peak, noise in zip([0, 1, 3], cone_names, noise_divisions):
-    outputs.append(GetConeIdentifyingTest(
-        cone_identifying_observers[0], gaussian_smooth_primaries, axis, luminance, saturation, grid_indices, noise, grid_size, cube_idx))
-    names.append(f"cone_identifying_{peak}_{noise}")
+outputs.append(GetObserverIdentifyingTest(
+    avg_observer, gaussian_smooth_primaries, 1, luminance, lum_noise, saturation, grid_indices, grid_size, cube_idx))
+names.append(f"observer_identifying_{530}_{559}_{1}")
 
 # Observer Identifying Test
 observer_identifying_observers, peaks = GetPeakPrevalentObservers()
 for observer, peak in zip(observer_identifying_observers, peaks):
-    # axis over Q cone
-    outputs.append(GetObserverIdentifyingTest(
-        observer, gaussian_smooth_primaries, 2, luminance, lum_noise, saturation, grid_indices, grid_size, cube_idx))
-    names.append(f"observer_identifying_{peak[0]}_{peak[1]}")
+    for metamer_dir in metamer_dirs:
+        # axis over Q cone
+        outputs.append(GetObserverIdentifyingTest(
+            observer, gaussian_smooth_primaries, metamer_dir, luminance, lum_noise, saturation, grid_indices, grid_size, cube_idx))
+        names.append(f"observer_identifying_{peak[0]}_{peak[1]}_{metamer_dir}")
 
 # Generate the Output Grid
 dirname = "./screening_outputs/"

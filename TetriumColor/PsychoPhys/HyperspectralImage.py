@@ -32,3 +32,20 @@ def GenerateHyperspectralImage(hyperspectral_filename: str, observer: Observer, 
 
     Image.fromarray((rgb * 255).astype(np.uint8)).save(filename_RGB)
     Image.fromarray((ocv * 255).astype(np.uint8)).save(filename_OCV)
+
+
+def ProjectHyperSpectral(hyperspectral_filename: str, observer: Observer):
+
+    hyperspectral_wavelengths = np.arange(400, 701, 10)
+    hyperspectral_image = open_image(hyperspectral_filename)
+
+    data = np.array(hyperspectral_image.load().tolist())
+
+    image_size_h = data.shape[0]
+    image_size_w = data.shape[1]
+
+    sensor_mat = observer.get_normalized_sensor_matrix(hyperspectral_wavelengths)
+    # Convert hyperspectral images to display_space
+    cone_space = (sensor_mat@(data.reshape(-1, data.shape[2])).T).T
+
+    return cone_space.reshape((image_size_h, image_size_w, -1))

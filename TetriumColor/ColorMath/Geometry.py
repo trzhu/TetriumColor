@@ -4,6 +4,7 @@ import numpy.typing as npt
 import math
 
 from scipy.spatial import ConvexHull
+from TetriumColor.Observer.Zonotope import getZonotopePoints
 
 
 def GetSimplex(side_length, dimension) -> npt.NDArray:
@@ -121,6 +122,22 @@ def GetSimplexBarycentricCoords(dimension: int, simplex_points: npt.NDArray, poi
 
     barycentric_coords = coords@simplex_coords
     return simplex_coords, barycentric_coords
+
+
+def CheckIfPointInConvexHull(point: npt.NDArray, hull, tol=1e-12):
+    A = hull.equations[:, :-1]  # Coefficients for the inequality (Ax + b <= 0)
+    b = hull.equations[:, -1]  # Constant term in the inequality
+    return np.all(np.dot(A, point) + b <= tol)
+
+
+def ComputeVolumeOfPolytope(points: npt.NDArray) -> float:
+    return ConvexHull(points).volume
+
+
+def ComputeParalleletope(basis):
+    d = basis.shape[1]
+    _, facet_sums = getZonotopePoints(basis, d)
+    return np.array(list(facet_sums.values())).reshape(-1, d)
 
 
 def ConvertPolarToCartesian(SH: npt.NDArray) -> npt.NDArray:

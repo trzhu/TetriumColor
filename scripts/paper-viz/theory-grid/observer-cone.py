@@ -42,7 +42,7 @@ def main():
     basis_points = viz.ConvertPointsToBasis(np.eye(args.dimension), observer, DisplayBasisType.ConeHering)
 
     viz.Render3DCone("observer-cone", points, np.array([0.25, 0, 1]) * 0.5, 0.4, 1)
-    viz.RenderBasisArrows("basis", basis_points * 0.3)
+    viz.RenderBasisArrows("basis", basis_points * 0.3, radius=0.025/10)
 
     viz.AnimationUtils.AddObject("observer-cone", "surface_mesh",
                                  args.position, args.velocity, args.rotation_axis, args.rotation_speed)

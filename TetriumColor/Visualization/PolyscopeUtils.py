@@ -68,20 +68,17 @@ def GetHeringMatrixLumYDir(dim: int) -> npt.NDArray:
     return h_mat
 
 
-def Render2DMesh(name: str, points: npt.NDArray, rgbs: npt.NDArray) -> None:
-    """Create a 2D mesh from a list of vertices (N x 2) and RGB colors (N x 3)
+def Render2DMesh(name: str, points: npt.NDArray, rgb: npt.NDArray) -> None:
+    """Create a 2D mesh from a list of vertices (N x 2) and RGB colors (1 x 3)
 
     Args:
         name (str): Name of the mesh
         points (npt.ArrayLike): N x 2 array of vertices
-        rgbs (npt.ArrayLike): N x 3 array of RGB colors
+        rgbs (npt.ArrayLike): 1 x 3 array of RGB colors
     """
-    if len(rgbs.shape) < 2:
-        rgbs = np.tile(rgbs, (len(points), 1))
     # Compute the convex hull of the points
     hull = ConvexHull(points)
     hull_vertices = points[hull.vertices]
-    rgbs = rgbs[hull.vertices]
 
     # rerun to get the right triangle indices
     hull = ConvexHull(hull_vertices)
@@ -91,8 +88,8 @@ def Render2DMesh(name: str, points: npt.NDArray, rgbs: npt.NDArray) -> None:
     hull_vertices = np.vstack((hull_vertices, [0, 0, 0]))
     # Register the convex hull mesh with Polyscope
     ps_hull_mesh = ps.register_surface_mesh(f"{name}", hull_vertices, hull_triangles, back_face_policy='identical')
-    # ps_hull_mesh.add_color_quantity(f"{name}_colors",
-    #                                 rgbs[hull.vertices], defined_on='vertices', enabled=True)
+    ps_hull_mesh.add_color_quantity(f"{name}_colors",
+                                    np.tile(rgb, (len(hull_vertices), 1)), defined_on='vertices', enabled=True)
 
 
 def Render3DMesh(name: str, points: npt.ArrayLike, rgbs: npt.ArrayLike) -> None:
@@ -191,7 +188,12 @@ def RenderConeOBS(name: str, observer: Observer) -> None:
     chrom_points, rgbs = observer.get_optimal_colors()
     if observer.dimension > 3:
         chrom_points = (GetHeringMatrix(observer.dimension)@chrom_points.T).T[:, 1:]
+    elif observer.dimension == 2:
+        # First we want to get the boundary, and then get the max pt along the saturation
 
+        # then we want to color in the rest of the solid. We should do this using subspace intersection
+
+        raise NotImplementedError("2D Observer not supported")
     Render3DMesh(f"{name}", chrom_points, rgbs)
 
 
@@ -236,7 +238,7 @@ def RenderHeringBasisOBS(name: str, observer: Observer) -> None:
     if observer.dimension > 3:  # will be transformed either way in next function call
         T = np.identity(observer.dimension)
     else:
-        T = GetHeringMatrix(observer.dimension)@T
+        T = GetHeringMatrixLumYDir(observer.dimension)@T
     RenderOBSTransform(name, observer, T)
 
 
@@ -284,18 +286,49 @@ def RenderMaxBasis(name: str, observer: Observer, display_basis: DisplayBasisTyp
     GeometryPrimitives.ConvertTriangleMeshToPolyscope(name, mesh)
 
 
-def RenderDisplayGamut(name: str, basis_vectors: npt.NDArray):
+def RenderDisplayGamut(name: str, basis_vectors: npt.NDArray, T: npt.NDArray = np.eye(3)) -> None:
     """Render Display Gamut in Polyscope
 
     Args:
         name (str): Name of the gamut to be registered with polyscope
         basis_vectors (npt.NDArray): basis vectors of the paralleletope gamut
     """
-    gamut_edges = GeometryPrimitives.CreateParallelotopeEdges(basis_vectors, color=[1, 1, 1])
-    gamut = GeometryPrimitives.CreateParallelotopeMesh(basis_vectors, color=[1, 1, 1])
+
+    gamut_edges = GeometryPrimitives.CreateParallelotopeEdges(basis_vectors, color=[1, 1, 1], T=T)
+    gamut = GeometryPrimitives.CreateParallelotopeMesh(basis_vectors, color=[1, 1, 1], T=T)
 
     two_mesh = GeometryPrimitives.CollapseMeshObjects([gamut_edges, gamut])
     GeometryPrimitives.ConvertTriangleMeshToPolyscope(name, two_mesh)
+
+
+def GetBasisConvert(observer: Observer, display_basis: DisplayBasisType) -> npt.NDArray:
+    """Convert 4D points to the basis specified.
+
+    Args:
+        points (npt.NDArray): points Nx4
+        observer (Observer): observer object
+        display_basis (DisplayBasisType): basis to display points in.
+
+    Returns:
+        npt.NDArray: _description_
+    """
+    T = np.eye(observer.dimension)
+    if display_basis == DisplayBasisType.Cone:
+        pass
+    elif display_basis == DisplayBasisType.MaxBasis:
+        maxbasis = MaxBasisFactory.get_object(observer)
+        T = maxbasis.GetConeToMaxBasisTransform()@T
+    elif display_basis == DisplayBasisType.Hering:
+        maxbasis = MaxBasisFactory.get_object(observer)
+        T = maxbasis.GetConeToMaxBasisTransform()@T
+        if observer.dimension < 4:
+            T = GetHeringMatrixLumYDir(observer.dimension)@T
+    elif display_basis == DisplayBasisType.ConeHering:
+        if observer.dimension < 4:
+            T = GetHeringMatrixLumYDir(observer.dimension)@T
+    if observer.dimension > 3:
+        T = GetHeringMatrix(observer.dimension)[1:]@T
+    return T
 
 
 def ConvertPointsToBasis(points: npt.NDArray, observer: Observer, display_basis: DisplayBasisType) -> npt.NDArray:

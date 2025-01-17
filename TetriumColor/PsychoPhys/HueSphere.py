@@ -13,11 +13,11 @@ from TetriumColor.ColorMath import Geometry
 from TetriumColor.TetraColorPicker import BackgroundNoiseGenerator
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, PlateColor, TetraColor
 import TetriumColor.ColorMath.GamutMath as GamutMath
-from TetriumColor.ColorMath.Geometry import ConvertCubeUVToXYZ, ExportGeometryToObjFile, GenerateGeometryFromVertices
+from TetriumColor.ColorMath.Geometry import ConvertCubeUVToXYZ, ConvertPolarToCartesian, ExportGeometryToObjFile, GenerateGeometryFromVertices
 from TetriumColor.PsychoPhys.IshiharaPlate import IshiharaPlate
 
 
-def GetSphereGeometry(luminance, saturation, num_points: int, filename: str, color_space_transform):
+def GetSphereGeometry(luminance, saturation, num_points: int, filename: str, color_space_transform: ColorSpaceTransform):
     """
     GetSphereGeometry generates a sphere geometry with fibonacci sampling.
 
@@ -109,6 +109,8 @@ def GenerateCubeMapTextures(luminance: float, saturation: float, color_space_tra
         color_space_transform (ColorSpaceTransform): color space transform object
         filename_RGB (str): filename for the RGB cube map texture
         filename_OCV (str): filename for the OpenCV cube map texture
+        scrambleProb (float, optional): probability of scrambling the cube map. Defaults to 0.
+        std_dev (float, optional): standard deviation for the luminance. Defaults to 0.05.
     Returns:
         Saves the generated textures to the specified filenames.
     """
@@ -145,7 +147,7 @@ def GenerateCubeMapTextures(luminance: float, saturation: float, color_space_tra
         tetracolors_per_face += [GamutMath.ConvertVSHtoTetraColor(remapped_vshh, color_space_transform)]
 
     if scrambleProb:
-        face1, face2 = 0, 1
+        face1, face2 = 4, 5
         random_indices = np.random.choice([0, 1], size=len(flattened_u), p=[1-scrambleProb, scrambleProb]).astype(int)
         for i, swap in enumerate(random_indices):
             if swap:
@@ -220,6 +222,84 @@ def ConcatenateCubeMap(basename: str, output_filename: str):
     # Save the concatenated image
     cubemap_image.save(output_filename)
     print(f"Saved concatenated cubemap to {output_filename}")
+
+
+def CreateColorCircleSidebySide(image_size: tuple, output_base: str,  luminance: float, saturation: float, dist_from_origin: float,
+                                num_circle_samples: int, color_space_transform: ColorSpaceTransform):
+
+    vshh_pos, vshh_neg = GamutMath.SampleDualCircle(luminance, saturation, dist_from_origin, num_circle_samples)
+
+    metamericDirMat = GamutMath.GetTransformChromToMetamericDir(color_space_transform)
+    invMetamericDirMat = np.linalg.inv(metamericDirMat)
+
+    hering_pos = GamutMath.ConvertVSHToHering(vshh_pos)
+    hering_neg = GamutMath.ConvertVSHToHering(vshh_neg)
+
+    hering_pos[:, 1:] = np.dot(invMetamericDirMat, hering_pos[:, 1:].T).T
+    hering_neg[:, 1:] = np.dot(invMetamericDirMat, hering_neg[:, 1:].T).T
+
+    hering_pos_xyz = GamutMath.ConvertHeringToVSH(hering_pos)
+    hering_neg_xyz = GamutMath.ConvertHeringToVSH(hering_neg)
+
+    remapped_pos = GamutMath.ConvertVSHToHering(GamutMath.RemapGamutPoints(hering_pos_xyz, color_space_transform, None))
+    remapped_neg = GamutMath.ConvertVSHToHering(GamutMath.RemapGamutPoints(hering_neg_xyz, color_space_transform, None))
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    ax.scatter(hering_pos[:, 1], hering_pos[:, 2], hering_pos[:, 3], c='r', marker='o')
+    # ax.scatter(hering_neg[:, 1], hering_neg[:, 2], hering_neg[:, 3], c='b', marker='^')
+
+    ax.scatter(remapped_pos[:, 1], remapped_pos[:, 2], remapped_pos[:, 3], c='g', marker='o')
+    # ax.scatter(remapped_neg[:, 1], remapped_neg[:, 2], remapped_neg[:, 3], c='y', marker='^')
+    ax.set_xlabel('X Label')
+    ax.set_ylabel('Y Label')
+    ax.set_zlabel('Z Label')
+    plt.show()
+
+    hering_to_cone = np.linalg.inv(color_space_transform.cone_to_disp)@color_space_transform.hering_to_disp
+    colors1 = remapped_pos@hering_to_cone.T
+    colors2 = remapped_neg@hering_to_cone.T
+
+    print(colors1)
+    print(colors2)
+
+    import pdb
+    pdb.set_trace()
+
+    tetra_colors_pos = GamutMath.ConvertVSHtoTetraColor(remapped_vshh_pos, color_space_transform)
+    tetra_colors_neg = GamutMath.ConvertVSHtoTetraColor(remapped_vshh_neg, color_space_transform)
+
+    # Create the RGB/OCV textures
+    image_size = (image_size[0] * 2, image_size[1])
+    img_RGB = Image.new("RGB", image_size, "black")
+    img_OCV = Image.new("RGB", image_size, "black")
+
+    draw_RGB = ImageDraw.Draw(img_RGB)
+    draw_OCV = ImageDraw.Draw(img_OCV)
+
+    # Draw positive circle
+    for color, angle in zip(tetra_colors_pos, np.linspace(0, 2 * np.pi, num_circle_samples, endpoint=False)):
+        (x, y) = ConvertPolarToCartesian(np.array([[100, angle]]))[0]
+        cx = x + int(image_size[0]/4)
+        cy = y + int(image_size[1]/2)
+        rgb_color = (int(color.RGB[0] * 255), int(color.RGB[1] * 255), int(color.RGB[2] * 255))
+        ocv_color = (int(color.OCV[0] * 255), int(color.OCV[1] * 255), int(color.OCV[2] * 255))
+        # print(cx, cy)
+        draw_RGB.ellipse([cx - 5, cy - 5, cx + 5, cy + 5], fill=rgb_color)
+        draw_OCV.ellipse([cx - 5, cy - 5, cx + 5, cy + 5], fill=ocv_color)
+
+    # Draw negative circle
+    for color, angle in zip(tetra_colors_neg, np.linspace(0, 2 * np.pi, num_circle_samples, endpoint=False)):
+        (x, y) = ConvertPolarToCartesian(np.array([[100, angle]]))[0]
+        cx = x + int(3 * image_size[0]/4)
+        cy = y + int(image_size[1]/2)
+        rgb_color = (int(color.RGB[0] * 255), int(color.RGB[1] * 255), int(color.RGB[2] * 255))
+        ocv_color = (int(color.OCV[0] * 255), int(color.OCV[1] * 255), int(color.OCV[2] * 255))
+        draw_RGB.ellipse([cx - 5, cy - 5, cx + 5, cy + 5], fill=rgb_color)
+        draw_OCV.ellipse([cx - 5, cy - 5, cx + 5, cy + 5], fill=ocv_color)
+
+    img_RGB.save(f"{output_base}_RGB.png")
+    img_OCV.save(f"{output_base}_OCV.png")
 
 
 def CreateCircleGrid(grid: npt.NDArray, padding: int, radius: int, output_base: str):

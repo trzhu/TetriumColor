@@ -12,7 +12,7 @@ from typing import List
 import numpy.typing as npt
 
 from TetriumColor.ColorMath.Conversion import Convert6DArrayToPlateColors, ConvertPlateColorsToDisplayColors
-from TetriumColor.Observer.DisplayObserverSensitivity import GetCustomTetraObserver
+from TetriumColor.Observer.DisplayObserverSensitivity import GetCustomObserver
 from TetriumColor.Observer import *
 from TetriumColor.Measurement import LoadPrimaries, GaussianSmoothPrimaries
 from TetriumColor.PsychoPhys.HueSphere import CreatePseudoIsochromaticImages, CreatePaddedGrid
@@ -54,7 +54,7 @@ gaussian_smooth_primaries: List[Spectra] = GaussianSmoothPrimaries(primaries)
 outputs: List[tuple[npt.NDArray, NoiseGenerator | None]] = []
 names: List[str] = []
 
-observer = GetCustomTetraObserver(
+observer = GetCustomObserver(
     wavelengths=wavelengths, od=0.5, m_cone_peak=530, q_cone_peak=547, l_cone_peak=559, verbose=True)
 observer = ObserverFactory.get_object(observer)
 
@@ -97,13 +97,13 @@ ps.get_surface_mesh("tetra-custom-observer").set_transparency(0.5)
 for i in range(4):
     viz.RenderMetamericDirection(f"tetra-metameric-direction-{i}", observer, args.display_basis, i, np.array([0, 0, 0]))
 
-ps.show()
 
 for i in range(len(noise_generators)):
     cst = GetColorSpaceTransform(observer, gaussian_smooth_primaries, metameric_axis=2)
-    noise_generator_fn = noise_generators[i].GenerateNoiseFunction(center_pts[i])
-    points = np.array([noise_generator_fn() for _ in range(10)])
-    plate_colors = [Convert6DArrayToPlateColors(points[i]) for i in range(len(points))]
+    # noise_generator_fn = noise_generators[i].GenerateNoiseFunction(center_pts[i])
+    # points = np.array([noise_generator_fn() for _ in range(10)])
+    # plate_colors = [Convert6DArrayToPlateColors(points[i]) for i in range(len(points))]
+    plate_colors = [Convert6DArrayToPlateColors(center_pts[i])]
     disp_colors = ConvertPlateColorsToDisplayColors(plate_colors, cst)
     new_points = disp_colors@np.linalg.inv(cst.cone_to_disp).T
 

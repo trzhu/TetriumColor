@@ -3,7 +3,7 @@ import numpy as np
 import tetrapolyscope as ps
 import numpy.typing as npt
 
-from TetriumColor.Observer import GetCustomObserver, Observer, ObserverFactory
+from TetriumColor.Observer import GetCustomObserver, Observer, ObserverFactory, GetsRGBfromWavelength
 from TetriumColor.Utils.CustomTypes import DisplayBasisType
 import TetriumColor.Visualization as viz
 from TetriumColor.Utils.ParserOptions import *
@@ -52,6 +52,8 @@ def main():
     primary_indices = [np.argmin(np.abs(wavelengths - wl)) for wl in args.primary_wavelengths]
     primary_points = chromaticity_points[primary_indices]
 
+    primaries_sRGB = np.array([GetsRGBfromWavelength(wl) for wl in args.primary_wavelengths])
+
     simplex_coords, points = GetSimplexBarycentricCoords(
         args.dimension, primary_points, chromaticity_points)
 
@@ -59,19 +61,20 @@ def main():
         points_3d = np.hstack((points, np.zeros((points.shape[0], 1))))
         basis_points_3d = np.hstack((simplex_coords, np.zeros((basis_points.shape[0], 1))))
 
-        viz.Render3DLine("spectral_locus", points_3d, np.zeros(3), 1)
-        viz.RenderPointCloud("gamut-points", basis_points_3d, np.ones((basis_points_3d.shape[0], 3)) * 0.5, radius=0.1)
-        viz.Render2DMesh("gamut", simplex_coords, np.ones(3) * 0.5)
-        ps.get_surface_mesh("gamut").set_transparency(0.5)
+        viz.Render3DLine("spectral_locus", points_3d, np.array([0.25, 0, 1]) * 0.5, 1)
+        viz.RenderPointCloud("gamut-points", basis_points_3d, primaries_sRGB, radius=0.1)
+        viz.Render2DMesh("gamut", simplex_coords, np.array([0.25, 0, 1]) * 0.5)
+        ps.get_surface_mesh("gamut").set_transparency(0.4)
     else:
         points_3d = points
         basis_points_3d = simplex_coords
 
-        viz.Render3DLine("spectral_locus", points_3d, np.zeros(3), 1)
+        viz.Render3DLine("spectral_locus", points_3d, np.array([0.25, 0, 1]) * 0.5, 1)
 
-        viz.RenderPointCloud("gamut-points", basis_points_3d, np.zeros((basis_points_3d.shape[0], 3)))
-        viz.Render3DMesh("gamut", basis_points_3d, rgbs=np.zeros((basis_points_3d.shape[0], 3)))
-        ps.get_surface_mesh("gamut").set_transparency(0.5)
+        viz.RenderPointCloud("gamut-points", basis_points_3d, primaries_sRGB)
+        viz.Render3DMesh("gamut", basis_points_3d, rgbs=np.tile(
+            np.array([0.25, 0, 1]) * 0.5, (basis_points_3d.shape[0], 1)))
+        ps.get_surface_mesh("gamut").set_transparency(0.4)
 
         viz.AnimationUtils.AddObject("spectral_locus", "curve_network", args.position,
                                      args.velocity, args.rotation_axis, args.rotation_speed)

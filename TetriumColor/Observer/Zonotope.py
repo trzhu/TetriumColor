@@ -3,6 +3,8 @@ import math
 import itertools
 from tqdm import tqdm
 
+import numpy.typing as npt
+
 # Heavily borrowed from Mathematica implementation written by Dave Eppstein
 # https://ics.uci.edu/~eppstein/junkyard/ukraine/ukraine.html
 
@@ -140,10 +142,10 @@ def getZonotope(matrix, dim, verbose=False):
     return facetids, facet_sums, posfaces
 
 
-def getZonotopePoints(matrix, dim, verbose=False):
+def getZonotopePoints(matrix, dim, verbose=False) -> tuple[npt.NDArray, npt.NDArray]:
     facetids = getFacetIDs(matrix, dim, verbose)
     facet_sums = getFacetSums(facetids, matrix, dim, verbose)
-    return [facetids, facet_sums]
+    return facetids, facet_sums
 
 
 def getZonotopeForIntersection(matrix, dim, verbose=False):

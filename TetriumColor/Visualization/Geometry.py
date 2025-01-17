@@ -6,6 +6,9 @@ import open3d as o3d
 import glm
 from itertools import combinations
 import tetrapolyscope as ps
+from scipy.spatial import ConvexHull
+
+from TetriumColor.Utils.CustomTypes import DisplayBasisType
 
 
 def GetCylinderTransform(endpoints: List | tuple | npt.NDArray) -> glm.mat4:
@@ -238,7 +241,8 @@ class GeometryPrimitives:
 
     @staticmethod
     def CreateParallelotopeEdges(basis: npt.NDArray, color: List | tuple | npt.NDArray = [0, 0, 0],
-                                 line_color: List | npt.NDArray = [0, 0, 0]) -> o3d.geometry.TriangleMesh:
+                                 line_color: List | npt.NDArray = [0, 0, 0],
+                                 T: npt.NDArray = np.eye(3)) -> o3d.geometry.TriangleMesh:
         """Paralleletope Edges
 
         Args:
@@ -254,7 +258,6 @@ class GeometryPrimitives:
             raise ValueError("Basis must be at least 3D")
         elif dim > 4:
             raise ValueError("Basis must be at most 4D")
-
         alllines = []
         for i in range(dim):
             alllines += list(combinations(range(dim), i + 1))
@@ -280,10 +283,13 @@ class GeometryPrimitives:
                               [(basis[i] + basis[j] + basis[k]).tolist() for i in range(4) for j in range(i+1, 4) for k in range(j+1, 4)] +
                               [(basis[0] + basis[1] + basis[2] + basis[3]).tolist()])
         rgbs = np.array([color]*len(points))
+
+        points = points@T.T
+
         return GeometryPrimitives.CreateMaxBasis(points, rgbs, lines, line_color=line_color, ball_radius=0.025)
 
     @staticmethod
-    def CreateParallelotopeMesh(basis: npt.NDArray, color: List | tuple | npt.NDArray = [0, 0, 0]) -> o3d.geometry.TriangleMesh:
+    def CreateParallelotopeMesh(basis: npt.NDArray, color: List | tuple | npt.NDArray = [0, 0, 0], T: npt.NDArray = np.eye(3)) -> o3d.geometry.TriangleMesh:
         """Create Mesh of Paralleletope
 
         Args:
@@ -311,6 +317,8 @@ class GeometryPrimitives:
                               [(basis[i] + basis[j] + basis[k]).tolist() for i in range(4) for j in range(i+1, 4) for k in range(j+1, 4)] +
                               [(basis[0] + basis[1] + basis[2] + basis[3]).tolist()])
         rgbs = np.array([color]*len(points))
+        points = points@T.T
+
         return GeometryPrimitives.Create3DMesh(points, rgbs)
 
     @staticmethod

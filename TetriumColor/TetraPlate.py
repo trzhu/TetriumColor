@@ -6,7 +6,7 @@ from TetriumColor.Observer import *
 from TetriumColor.TetraColorPicker import ColorGenerator
 from TetriumColor.PsychoPhys.IshiharaPlate import IshiharaPlate
 from TetriumColor.TetraColorPicker import BackgroundNoiseGenerator, LuminanceNoiseGenerator, NoiseGenerator
-from TetriumColor.Observer.DisplayObserverSensitivity import GetAllObservers, GetColorSpaceTransformsOverObservers, GetCustomTetraObserver
+from TetriumColor.Observer.DisplayObserverSensitivity import GetAllObservers, GetColorSpaceTransformsOverObservers
 from TetriumColor.ColorMath.GamutMath import GetMaximalMetamerPointsOnGrid, GetMaxMetamerOverGridSample
 import pickle
 

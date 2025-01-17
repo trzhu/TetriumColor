@@ -43,15 +43,15 @@ def main():
     if args.dimension < 4:
         points_3d = np.hstack((points, np.zeros((points.shape[0], 1))))
         basis_points_3d = np.hstack((basis_points, np.zeros((basis_points.shape[0], 1))))
-        viz.Render3DLine("spectral_locus", points_3d, np.zeros(3), 1)
-        viz.Render2DMesh("gamut", points, np.ones(3) * 0.5)
-        ps.get_surface_mesh("gamut").set_transparency(0.5)
+        viz.Render3DLine("spectral_locus", points_3d, np.array([0.25, 0, 1]) * 0.5, 1)
+        viz.Render2DMesh("gamut", points, np.array([0.25, 0, 1]) * 0.5)
+        ps.get_surface_mesh("gamut").set_transparency(0.4)
     else:
         points_3d = points
         basis_points_3d = basis_points
-        viz.Render3DLine("spectral_locus", points_3d, np.zeros(3), 1)
-        viz.Render3DMesh("gamut", points_3d, rgbs=np.zeros((points_3d.shape[0], 3)))
-        ps.get_surface_mesh("gamut").set_transparency(0.5)
+        viz.Render3DLine("spectral_locus", points_3d, np.array([0.25, 0, 1]) * 0.5, 1)
+        viz.Render3DMesh("gamut", points_3d, rgbs=np.tile(np.array([0.25, 0, 1]) * 0.5, (points_3d.shape[0], 1)))
+        ps.get_surface_mesh("gamut").set_transparency(0.4)
         viz.AnimationUtils.AddObject("spectral_locus", "curve_network", args.position,
                                      args.velocity, args.rotation_axis, args.rotation_speed)
         viz.AnimationUtils.AddObject("gamut", "surface_mesh",

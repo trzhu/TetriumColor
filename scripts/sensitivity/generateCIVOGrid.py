@@ -10,9 +10,9 @@ from PIL import Image
 from typing import List
 
 from TetriumColor.ColorMath.GamutMath import GetMaximalMetamerPointsOnGrid
-from TetriumColor.Observer.DisplayObserverSensitivity import GetCustomTetraObserver, observerDisplaySensitivity
+from TetriumColor.Observer.DisplayObserverSensitivity import GetCustomObserver
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform
-from TetriumColor.Observer import GetPrevalentObservers, GetColorSpaceTransform, GetColorSpaceTransforms, Spectra, Observer
+from TetriumColor.Observer import GetPrevalentObservers, GetColorSpaceTransform, Spectra, Observer
 from TetriumColor.Measurement import LoadPrimaries, GaussianSmoothPrimaries
 from TetriumColor.PsychoPhys.HueSphere import CreatePseudoIsochromaticImages, CreatePaddedGrid
 from TetriumColor.TetraColorPicker import BackgroundNoiseGenerator, LuminanceNoiseGenerator
@@ -29,7 +29,7 @@ for factor, lum_noise, seed in zip([1.2], [0.035], [72]):
     center_pt = []
     noise_generator = []
     # Tetrachromat Single Testing at 547 (Noise out all the peaks as well)
-    avg_observer_overall: Observer = GetCustomTetraObserver(
+    avg_observer_overall: Observer = GetCustomObserver(
         wavelengths=wavelengths, od=0.5, m_cone_peak=530, l_cone_peak=559)
     avg_obs_cst = GetColorSpaceTransform(avg_observer_overall, gaussian_smooth_primaries, scaling_factor=1000)
 
