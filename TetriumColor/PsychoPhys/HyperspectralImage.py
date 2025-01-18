@@ -1,5 +1,6 @@
 import numpy as np
 from PIL import Image
+import os
 
 from spectral import open_image
 
@@ -9,7 +10,7 @@ from TetriumColor.ColorMath.Conversion import Map4DTo6D
 
 
 def GenerateHyperspectralImage(hyperspectral_filename: str, observer: Observer, color_space_transform: ColorSpaceTransform,
-                               filename_RGB: str, filename_OCV: str):
+                               filename_base: str):
 
     hyperspectral_wavelengths = np.arange(400, 701, 10)
     hyperspectral_image = open_image(hyperspectral_filename)
@@ -30,8 +31,8 @@ def GenerateHyperspectralImage(hyperspectral_filename: str, observer: Observer, 
     rgb = rgbocv[:, :3].reshape((image_size_h, image_size_w, 3))
     ocv = rgbocv[:, 3:].reshape((image_size_h, image_size_w, 3))
 
-    Image.fromarray((rgb * 255).astype(np.uint8)).save(filename_RGB)
-    Image.fromarray((ocv * 255).astype(np.uint8)).save(filename_OCV)
+    Image.fromarray((rgb * 255).astype(np.uint8)).save(os.path.join(filename_base, "_RGB.png"))
+    Image.fromarray((ocv * 255).astype(np.uint8)).save(os.path.join(filename_base, "_OCV.png"))
 
 
 def ProjectHyperSpectral(hyperspectral_filename: str, observer: Observer):

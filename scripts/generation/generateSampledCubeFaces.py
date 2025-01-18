@@ -20,7 +20,8 @@ args = parser.parse_args()
 wavelengths = np.arange(380, 781, 1)
 observer = GetCustomObserver(wavelengths, od=0.5, m_cone_peak=args.m_cone_peak, q_cone_peak=args.q_cone_peak,
                              l_cone_peak=args.l_cone_peak, template=args.template, macular=args.macula, lens=args.lens)
-primaries: List[Spectra] = LoadPrimaries("../../measurements/2024-12-06/primaries")
+# primaries: List[Spectra] = LoadPrimaries("../../measurements/2024-12-06/primaries")
+primaries: List[Spectra] = LoadPrimaries("../../measurements/2025-01-16/primaries")
 gaussian_smooth_primaries: List[Spectra] = GaussianSmoothPrimaries(primaries)
 
 for metameric_axis in range(4):

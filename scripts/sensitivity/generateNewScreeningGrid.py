@@ -26,6 +26,7 @@ parser.add_argument('--grid_indices', type=int, nargs=2, required=True,
 parser.add_argument('--grid_size', type=int, required=False, default=5, help='Grid size as two integers')
 parser.add_argument('--luminance', type=float, required=False, default=0.7, help='Luminance level')
 parser.add_argument('--saturation', type=float, required=False, default=0.3, help='Saturation level')
+parser.add_argument('--individual_grid', action='store_true', help='Generate individual grid')
 args = parser.parse_args()
 
 factor = args.factor
@@ -50,26 +51,35 @@ names: List[str] = []
 # Control Test
 avg_observer = GetCustomObserver(
     wavelengths=wavelengths, od=0.5, m_cone_peak=530, l_cone_peak=559)
-outputs.append(GetControlTest(
-    avg_observer, gaussian_smooth_primaries, 2, luminance, saturation, lum_noise, grid_indices, grid_size, cube_idx))
-names.append("control")
+for met_axis in range(4):
+    outputs.append(GetControlTest(
+        avg_observer, gaussian_smooth_primaries, met_axis, luminance, saturation, lum_noise, grid_indices, grid_size, cube_idx))
+    names.append(f"control_{met_axis}")
 
-outputs.append(GetObserverIdentifyingTest(
-    avg_observer, gaussian_smooth_primaries, 0, luminance, lum_noise, saturation, grid_indices, grid_size, cube_idx))
-names.append(f"observer_identifying_{530}_{559}_{0}")
+# test by hyperobserver, and each dimddension
+# normal hyperobserver -> q = 547
+normal_hyperobserver = GetCustomObserver(
+    wavelengths=wavelengths, od=0.5, m_cone_peak=530, q_cone_peak=547, l_cone_peak=559)
+for met_axis in range(4):
+    outputs.append(GetObserverIdentifyingTest(
+        normal_hyperobserver, gaussian_smooth_primaries, met_axis, luminance, lum_noise, saturation, grid_indices, grid_size, cube_idx))
+    names.append(f"standard_{530}_{547}_{559}_{met_axis}")
 
-outputs.append(GetObserverIdentifyingTest(
-    avg_observer, gaussian_smooth_primaries, 1, luminance, lum_noise, saturation, grid_indices, grid_size, cube_idx))
-names.append(f"observer_identifying_{530}_{559}_{1}")
+# q = 555 - common serala180
+normal_hyperobserver = GetCustomObserver(
+    wavelengths=wavelengths, od=0.5, m_cone_peak=530, q_cone_peak=555, l_cone_peak=559)
+for met_axis in range(4):
+    outputs.append(GetObserverIdentifyingTest(
+        normal_hyperobserver, gaussian_smooth_primaries, met_axis, luminance, lum_noise, saturation, grid_indices, grid_size, cube_idx))
+    names.append(f"standard_{530}_{555}_{559}_{met_axis}")
 
-# Observer Identifying Test
-observer_identifying_observers, peaks = GetPeakPrevalentObservers()
-for observer, peak in zip(observer_identifying_observers, peaks):
-    for metamer_dir in metamer_dirs:
-        # axis over Q cone
-        outputs.append(GetObserverIdentifyingTest(
-            observer, gaussian_smooth_primaries, metamer_dir, luminance, lum_noise, saturation, grid_indices, grid_size, cube_idx))
-        names.append(f"observer_identifying_{peak[0]}_{peak[1]}_{metamer_dir}")
+# # q = 551 - ben genotype
+normal_hyperobserver = GetCustomObserver(
+    wavelengths=wavelengths, od=0.5, m_cone_peak=530, q_cone_peak=551, l_cone_peak=559)
+for met_axis in range(4):
+    outputs.append(GetObserverIdentifyingTest(
+        normal_hyperobserver, gaussian_smooth_primaries, met_axis, luminance, lum_noise, saturation, grid_indices, grid_size, cube_idx))
+    names.append(f"standard_{530}_{551}_{559}_{met_axis}")
 
 # Generate the Output Grid
 dirname = "./screening_outputs/"
@@ -84,10 +94,26 @@ center_pts = np.array(center_pts)
 CreatePseudoIsochromaticImages(center_pts, f"./{dirname}/", output_base, names,
                                noise_generator=noise_generators, sub_image_dir=sub_image_dir, seed=seed)
 
-img_rgb = CreatePaddedGrid(rgb_image_files, grid_size=(3, 4))
-img_rgb = img_rgb.resize((1365, 1024), Image.Resampling.BOX)
-img_rgb.save(f"./{dirname}/grid_lum_{factor}_{lum_noise}_RGB.png")
 
-img_ocv = CreatePaddedGrid(ocv_image_files, grid_size=(3, 4))
-img_ocv = img_ocv.resize((1365, 1024), Image.Resampling.BOX)
-img_ocv.save(f"./{dirname}/grid_lum_{factor}_{lum_noise}_OCV.png")
+if args.individual_grid:
+    for i in range(4):
+        print(4 * i, 4 * i + 4)
+        img_rgb = CreatePaddedGrid(rgb_image_files[4 * i: 4 * i + 4], grid_size=(2, 2))
+        img_rgb = img_rgb.resize((800, 800), Image.Resampling.BOX)
+        img_rgb.save(
+            f"./{dirname}/{args.grid_indices[0]}_{args.grid_indices[1]}_{i}_grid_lum_{luminance}_{lum_noise}_RGB.png")
+
+        img_ocv = CreatePaddedGrid(ocv_image_files[4 * i: 4 * i + 4], grid_size=(2, 2))
+        img_ocv = img_ocv.resize((800, 800), Image.Resampling.BOX)
+        img_ocv.save(
+            f"./{dirname}/{args.grid_indices[0]}_{args.grid_indices[1]}_{i}_grid_lum_{luminance}_{lum_noise}_OCV.png")
+else:
+    img_rgb = CreatePaddedGrid(rgb_image_files, grid_size=(4, 4))
+    img_rgb = img_rgb.resize((800, 800), Image.Resampling.BOX)
+    img_rgb.save(
+        f"./{dirname}/full_{args.grid_indices[0]}_{args.grid_indices[1]}_lum_{luminance}_{lum_noise}_RGB.png")
+
+    img_ocv = CreatePaddedGrid(ocv_image_files, grid_size=(4, 4))
+    img_ocv = img_ocv.resize((800, 800), Image.Resampling.BOX)
+    img_ocv.save(
+        f"./{dirname}/full_{args.grid_indices[0]}_{args.grid_indices[1]}_lum_{luminance}_{lum_noise}_OCV.png")

@@ -105,12 +105,12 @@ def GetSubsetIdentifyingObservers(peaks=((530, 559), (530, 555), (533, 559), (53
     return all_observers, peaks
 
 
-def GetPeakPrevalentObservers(peaks=((533, 559), (533, 555), (533, 551), (533, 552), (533, 557)
+def GetPeakPrevalentObservers(peaks=((530, 559), (530, 555), (530, 551),  # (533, 547)
                                      #   ((530, 559), (530, 555), (533, 559), (533, 555),
                                      #  (530, 551), (533, 551), (530, 552), (533, 552)
                                      ),
                               od=0.5,
-                              macular=[1],
+                              macular=1,
                               lens=1,
                               template='neitz',
                               wavelengths=None):
@@ -120,9 +120,9 @@ def GetPeakPrevalentObservers(peaks=((533, 559), (533, 555), (533, 551), (533, 5
     all_observers = []
     i = 0
     for m_cone_peak, l_cone_peak in peaks:
-        all_observers.append(GetCustomObserver(wavelengths, od=0.5,
+        all_observers.append(GetCustomObserver(wavelengths, od=od,
                                                m_cone_peak=m_cone_peak, l_cone_peak=l_cone_peak,
-                                               macular=1, lens=1, template=template))
+                                               macular=macular, lens=lens, template=template))
     return all_observers, peaks
 
 

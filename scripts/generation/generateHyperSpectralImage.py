@@ -21,5 +21,4 @@ img_num = 418
 hyperspectral_filename = f"/Users/jessicalee/Projects/generalized-colorimetry/code/TetriumColor/data/ARAD_1K_ENVI/ARAD_1K_{img_num:04d}.hdr"
 hyperspectral_outputs = "./hyperspectral_outputs"
 GenerateHyperspectralImage(hyperspectral_filename, observer, color_space_transform,
-                           os.path.join(hyperspectral_outputs, f"ARAD_1K_{img_num:04d}_rgb.png"),
-                           os.path.join(hyperspectral_outputs, f"ARAD_1K_{img_num:04d}_ocv.png"))
+                           os.path.join(hyperspectral_outputs, f"ARAD_1K_{img_num:04d}"))
