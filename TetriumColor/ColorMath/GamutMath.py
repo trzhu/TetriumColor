@@ -52,8 +52,9 @@ def ConvertVSHtoRYGB(vsh: npt.NDArray, color_space_transform: ColorSpaceTransfor
     # convert from the "spherical coordinates" back to cartesian
     hering = ConvertVSHToHering(vsh)
     # change of basis into display space (I will give this to you)
-    rygb = ((np.linalg.inv(color_space_transform.maxbasis_to_disp)@color_space_transform.hering_to_disp)@hering.T).T
-    return np.flip(rygb, axis=1)
+    M = np.flip((np.linalg.inv(color_space_transform.maxbasis_to_disp)@color_space_transform.hering_to_disp), axis=0)
+    rygb = (M@hering.T).T
+    return rygb
 
 
 def ConvertVSHtoTetraColor(vsh: npt.NDArray, color_space_transform: ColorSpaceTransform) -> List[TetraColor]:
