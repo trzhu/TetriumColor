@@ -361,6 +361,8 @@ def ConvertPointsToBasis(points: npt.NDArray, observer: Observer, display_basis:
 
     if observer.dimension > 3:
         return points@GetHeringMatrix(observer.dimension).T[:, 1:]
+    elif observer.dimension == 2:  # fill all points with zeroes
+        return np.hstack((points, np.zeros((points.shape[0], 1))))
     else:
         return points
 

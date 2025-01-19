@@ -44,8 +44,9 @@ def main():
         points_3d = np.hstack((points, np.zeros((points.shape[0], 1))))
         basis_points_3d = np.hstack((basis_points, np.zeros((basis_points.shape[0], 1))))
         viz.Render3DLine("spectral_locus", points_3d, np.array([0.25, 0, 1]) * 0.5, 1)
-        viz.Render2DMesh("gamut", points, np.array([0.25, 0, 1]) * 0.5)
-        ps.get_surface_mesh("gamut").set_transparency(0.4)
+        if args.dimension > 2:
+            viz.Render2DMesh("gamut", points, np.array([0.25, 0, 1]) * 0.5)
+            ps.get_surface_mesh("gamut").set_transparency(0.4)
     else:
         points_3d = points
         basis_points_3d = basis_points

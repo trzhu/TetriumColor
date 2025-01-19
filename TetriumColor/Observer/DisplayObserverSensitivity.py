@@ -52,6 +52,8 @@ def GetCustomObserver(wavelengths: npt.NDArray,
     if dimension == 3:
         set_cones = [s_cone, m_cone, q_cone, l_cone]
         return Observer([set_cones[i] for i in subset], verbose=verbose, illuminant=illuminant)
+    elif dimension == 2:
+        return Observer([s_cone, m_cone], verbose=verbose)
     elif dimension == 4:
         return Observer([s_cone, m_cone, q_cone, l_cone], verbose=verbose)
     elif dimension == 6:

@@ -97,11 +97,9 @@ def ComputeBarycentricCoordinates(coordinates: npt.NDArray, p: npt.NDArray) -> n
 
         return barycentric_coords
     else:  # 2D
-        raise NotImplementedError("Only 2D & 3D Simplex are supported")
-        # gpt generated lol
-        # v0 = coordinates[1] - coordinates[0]
-        # v1 = p - coordinates[0]
-        # return np.array([np.dot(v1, v0) / np.dot(v0, v0), 1 - np.dot(v1, v0) / np.dot(v0, v0)])
+        v0 = coordinates[1] - coordinates[0]
+        v1 = p - coordinates[0]
+        return np.array([np.dot(v1, v0) / np.dot(v0, v0), 1 - np.dot(v1, v0) / np.dot(v0, v0)])
 
 
 def GetSimplexBarycentricCoords(dimension: int, simplex_points: npt.NDArray, points_to_locate: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray]:

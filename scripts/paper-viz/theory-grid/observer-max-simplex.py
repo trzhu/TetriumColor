@@ -63,8 +63,9 @@ def main():
 
         viz.Render3DLine("spectral_locus", points_3d, np.array([0.25, 0, 1]) * 0.5, 1)
         viz.RenderPointCloud("gamut-points", basis_points_3d, primaries_sRGB, radius=0.1)
-        viz.Render2DMesh("gamut", simplex_coords, np.array([0.25, 0, 1]) * 0.5)
-        ps.get_surface_mesh("gamut").set_transparency(0.4)
+        if args.dimension > 2:
+            viz.Render2DMesh("gamut", simplex_coords, np.array([0.25, 0, 1]) * 0.5)
+            ps.get_surface_mesh("gamut").set_transparency(0.4)
     else:
         points_3d = points
         basis_points_3d = simplex_coords

@@ -6,6 +6,7 @@ measurements/
 *.mp4
 *.ini
 data/
+*.pkl
 
 # Mac
 *.DS_Store

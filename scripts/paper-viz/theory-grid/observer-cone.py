@@ -65,7 +65,8 @@ def main():
         delta_time: float = 1 / args.fps
 
         def callback():
-            viz.AnimationUtils.UpdateObjects(delta_time)
+            if args.dimension > 2:
+                viz.AnimationUtils.UpdateObjects(delta_time)
         ps.set_user_callback(callback)
         ps.show()
         ps.clear_user_callback()
