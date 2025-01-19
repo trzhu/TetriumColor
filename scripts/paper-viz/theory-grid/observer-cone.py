@@ -31,7 +31,7 @@ def main():
     ps.set_window_size(720, 550)
 
     intrinsics = ps.CameraIntrinsics(fov_vertical_deg=30., aspect=1.)
-    offset_up = 0.1 if args.dimension == 3 else 0
+    offset_up = 0.1 if args.dimension == 3 or args.dimension == 2 else 0
     extrinsics = ps.CameraExtrinsics(root=(0, offset_up, -1), look_dir=(0, 0, 1), up_dir=(0., 1., 0.))
     params = ps.CameraParameters(intrinsics, extrinsics)
     ps.set_view_camera_parameters(params)

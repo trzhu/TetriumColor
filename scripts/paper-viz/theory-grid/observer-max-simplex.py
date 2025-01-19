@@ -1,4 +1,5 @@
 import argparse
+from re import I
 import numpy as np
 import tetrapolyscope as ps
 import numpy.typing as npt
@@ -7,7 +8,7 @@ from TetriumColor.Observer import GetCustomObserver, Observer, ObserverFactory, 
 from TetriumColor.Utils.CustomTypes import DisplayBasisType
 import TetriumColor.Visualization as viz
 from TetriumColor.Utils.ParserOptions import *
-from TetriumColor.ColorMath.Geometry import GetSimplexBarycentricCoords
+from TetriumColor.ColorMath.Geometry import GetSimplexBarycentricCoords, GetSimplexOrigin
 
 
 def main():
@@ -57,26 +58,41 @@ def main():
     simplex_coords, points = GetSimplexBarycentricCoords(
         args.dimension, primary_points, chromaticity_points)
 
+    simplex_origin = GetSimplexOrigin(1, args.dimension)
+
     if args.dimension < 4:
         points_3d = np.hstack((points, np.zeros((points.shape[0], 1))))
         basis_points_3d = np.hstack((simplex_coords, np.zeros((basis_points.shape[0], 1))))
+        simplex_origin = np.append(simplex_origin, 0)
 
-        viz.Render3DLine("spectral_locus", points_3d, np.array([0.25, 0, 1]) * 0.5, 1)
         viz.RenderPointCloud("gamut-points", basis_points_3d, primaries_sRGB, radius=0.1)
+        offset = np.array([0, 0, 0.01]) if args.dimension == 2 else np.array([0, 0, 0])
+
         if args.dimension > 2:
+            viz.Render3DLine("spectral_locus", points_3d, np.array([0.25, 0, 1]) * 0.5, radius=0.025/5)
+            viz.RenderSetOfArrows("basis", [(simplex_origin + offset,
+                                             x + offset) for x in basis_points_3d], radius=0.025/5)
+
             viz.Render2DMesh("gamut", simplex_coords, np.array([0.25, 0, 1]) * 0.5)
             ps.get_surface_mesh("gamut").set_transparency(0.4)
+        else:
+            viz.Render3DLine("spectral_locus", points_3d, np.array([0.25, 0, 1]) * 0.5, radius=0.025/2)
+            viz.RenderSetOfArrows("basis", [(simplex_origin + offset,
+                                             x + offset) for x in basis_points_3d], radius=0.025/2)
     else:
         points_3d = points
         basis_points_3d = simplex_coords
 
-        viz.Render3DLine("spectral_locus", points_3d, np.array([0.25, 0, 1]) * 0.5, 1)
+        viz.Render3DLine("spectral_locus", points_3d, np.array([0.25, 0, 1]) * 0.5)
 
         viz.RenderPointCloud("gamut-points", basis_points_3d, primaries_sRGB)
         viz.Render3DMesh("gamut", basis_points_3d, rgbs=np.tile(
             np.array([0.25, 0, 1]) * 0.5, (basis_points_3d.shape[0], 1)))
         ps.get_surface_mesh("gamut").set_transparency(0.4)
+        viz.RenderSetOfArrows("basis", [(simplex_origin, x) for x in basis_points_3d], radius=0.025/10)
 
+        viz.AnimationUtils.AddObject("basis", "surface_mesh", args.position, args.velocity,
+                                     args.rotation_axis, args.rotation_speed)
         viz.AnimationUtils.AddObject("spectral_locus", "curve_network", args.position,
                                      args.velocity, args.rotation_axis, args.rotation_speed)
         viz.AnimationUtils.AddObject("gamut-points", "point_cloud", args.position,

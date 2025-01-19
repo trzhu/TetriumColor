@@ -38,21 +38,33 @@ def main():
     # Create Geometry & Register with Polyscope, and define the animation
 
     points = viz.ConvertPointsToChromaticity(observer.normalized_sensor_matrix.T, observer, projection_idxs)
-    basis_points = viz.ConvertPointsToChromaticity(np.eye(args.dimension), observer, projection_idxs)
+    basis_points = viz.ConvertMaxBasisPointsToChromaticity(np.eye(args.dimension), observer, projection_idxs)
+
     points = points[~np.all(points == 0, axis=1)]
     if args.dimension < 4:
         points_3d = np.hstack((points, np.zeros((points.shape[0], 1))))
-        basis_points_3d = np.hstack((basis_points, np.zeros((basis_points.shape[0], 1))))
-        viz.Render3DLine("spectral_locus", points_3d, np.array([0.25, 0, 1]) * 0.5, 1)
-        if args.dimension > 2:
+        basis_points_3d = np.hstack((basis_points, np.zeros((basis_points.shape[0], 4 - args.dimension))))
+
+        if args.dimension == 3:
+            viz.Render3DLine("spectral_locus", points_3d, np.array([0.25, 0, 1]) * 0.5)
             viz.Render2DMesh("gamut", points, np.array([0.25, 0, 1]) * 0.5)
             ps.get_surface_mesh("gamut").set_transparency(0.4)
+            viz.RenderBasisArrows("basis", basis_points_3d, radius=0.025/3)
+        else:
+            viz.Render3DLine("spectral_locus", points_3d, np.array([0.25, 0, 1]) * 0.5, 0.025/2)
+            offset = np.array([0, 0, 0.01]) if args.dimension == 2 else np.array([0, 0, 0])
+            viz.RenderSetOfArrows("basis", [(np.zeros(3) + offset,
+                                             x + offset) for x in basis_points_3d], radius=0.025/2)
     else:
         points_3d = points
         basis_points_3d = basis_points
-        viz.Render3DLine("spectral_locus", points_3d, np.array([0.25, 0, 1]) * 0.5, 1)
+        viz.Render3DLine("spectral_locus", points_3d, np.array([0.25, 0, 1]) * 0.5)
         viz.Render3DMesh("gamut", points_3d, rgbs=np.tile(np.array([0.25, 0, 1]) * 0.5, (points_3d.shape[0], 1)))
         ps.get_surface_mesh("gamut").set_transparency(0.4)
+
+        viz.RenderBasisArrows("basis", basis_points_3d, radius=0.025/3)
+        viz.AnimationUtils.AddObject("basis", "surface_mesh",
+                                     args.position, args.velocity, args.rotation_axis, args.rotation_speed)
         viz.AnimationUtils.AddObject("spectral_locus", "curve_network", args.position,
                                      args.velocity, args.rotation_axis, args.rotation_speed)
         viz.AnimationUtils.AddObject("gamut", "surface_mesh",

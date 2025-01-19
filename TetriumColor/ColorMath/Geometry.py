@@ -7,6 +7,19 @@ from scipy.spatial import ConvexHull
 from TetriumColor.Observer.Zonotope import getZonotopePoints
 
 
+def GetSimplexOrigin(side_length, dimension) -> npt.NDArray:
+    """Get the origin of the simplex
+
+    Args:
+        side_length (_type_): side length of the simplex
+        dimension (_type_): dimension of the simplex
+
+    Returns:
+        npt.NDArray: The origin of the simplex
+    """
+    return np.sum(GetSimplex(side_length, dimension), axis=0) / dimension
+
+
 def GetSimplex(side_length, dimension) -> npt.NDArray:
     """Get Canonical Simplex
 
