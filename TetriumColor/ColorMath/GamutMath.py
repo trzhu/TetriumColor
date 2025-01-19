@@ -123,6 +123,25 @@ def GenerateGamutLUT(all_vshh: npt.NDArray, color_space_transform: ColorSpaceTra
     return map_angle_to_sat
 
 
+def GenerateGamutLUTOnUV(uvs: npt.NDArray, all_vshh: npt.NDArray, color_space_transform: ColorSpaceTransform) -> dict:
+    dim = color_space_transform.cone_to_disp.shape[0]
+    all_cartesian_points = (color_space_transform.hering_to_disp@ConvertVSHToHering(all_vshh).T).T
+
+    # get max sat points for each hue direction
+    map_angle_to_sat = {}
+    pts = []
+    for pt in tqdm(all_cartesian_points):
+        pts += [FindMaximalSaturation(pt, np.eye(dim))]
+    max_sat_cartesian_per_angle = np.array(pts)
+
+    # convert display points back to VSH, and set parameters
+    invMat = np.linalg.inv(color_space_transform.hering_to_disp)
+    max_sat_per_angle = ConvertHeringToVSH((invMat@max_sat_cartesian_per_angle.T).T)
+    for uvs_per, sat in zip(uvs, max_sat_per_angle):
+        map_angle_to_sat[tuple(uvs_per)] = tuple([sat[0], sat[1]])
+    return map_angle_to_sat
+
+
 def SolveForBoundary(L: float, max_L: float, lum_cusp: float, sat_cusp: float) -> float:
     """
     Solve for the boundary of the gamut

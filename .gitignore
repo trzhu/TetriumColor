@@ -7,6 +7,7 @@ measurements/
 *.ini
 data/
 *.pkl
+scripts/paper-viz/theory-grid/display-grid/*.csv
 
 # Mac
 *.DS_Store

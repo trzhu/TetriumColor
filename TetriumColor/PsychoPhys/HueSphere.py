@@ -2,6 +2,7 @@ import math
 from PIL import Image
 import numpy as np
 from typing import Callable, List
+from numpy.random import normal
 import numpy.typing as npt
 import os
 
@@ -111,6 +112,66 @@ def VSXYZToRYGB(luminance: float, saturation: float, xyz: npt.NDArray, color_spa
     rygb: npt.NDArray = GamutMath.ConvertVSHtoRYGB(remapped_vshh, color_space_transform)[0]
 
     return rygb
+
+
+def GenerateLUTCubeMap(color_space_transform: ColorSpaceTransform,
+                       image_size: int, filename_RGB: str):
+    """GenerateCubeMapTextures generates the cube map textures for a given luminance and saturation.
+
+    Args:
+        luminance (float): luminance value
+        saturation (float): saturation value
+        color_space_transform (ColorSpaceTransform): color space transform object
+        filename_RGB (str): filename for the RGB cube map texture
+        filename_OCV (str): filename for the OpenCV cube map texture
+        scrambleProb (float, optional): probability of scrambling the cube map. Defaults to 0.
+        std_dev (float, optional): standard deviation for the luminance. Defaults to 0.05.
+    Returns:
+        Saves the generated textures to the specified filenames.
+    """
+    # Grid of UV coordinate that are the size of image_size
+    all_us = (np.arange(image_size) + 0.5) / image_size
+    all_vs = (np.arange(image_size) + 0.5) / image_size
+    cube_u, cube_v = np.meshgrid(all_us, all_vs)
+    flattened_u, flattened_v = cube_u.flatten(), cube_v.flatten()
+
+    # change the associated xyzs -> to a new direction, but the same color values
+    metamericDirMat = GamutMath.GetTransformChromToMetamericDir(color_space_transform)
+    invMetamericDirMat = np.linalg.inv(metamericDirMat)
+
+    dicts = []
+    # Create the RGB/OCV GenerateCubeMapTextures
+    for i in range(6):
+
+        xyz = ConvertCubeUVToXYZ(i, cube_u, cube_v, 1).reshape(-1, 3)
+        xyz = np.dot(invMetamericDirMat, xyz.T).T
+
+        lum_vector = np.random.normal(1, 0, image_size * image_size)
+        vxyz = np.hstack((lum_vector[np.newaxis, :].T, xyz))
+        vshh = GamutMath.ConvertHeringToVSH(vxyz)
+
+        dicts.append(GamutMath.GenerateGamutLUTOnUV(
+            np.vstack([flattened_v, flattened_u]).T, vshh, color_space_transform))
+
+    all_values = np.array([list(dicts[i].values()) for i in range(6)]).reshape(-1, 2)
+    lum_min, lum_max = np.min(all_values[:, 0]), np.max(all_values[:, 0])
+    sat_min, sat_max = np.min(all_values[:, 1]), np.max(all_values[:, 1])
+
+    for i in range(6):
+        img_rgb = Image.new('RGB', (image_size, image_size))  # sample color per pixel to avoid empty spots
+        draw_rgb = ImageDraw.Draw(img_rgb)
+
+        for j in range(len(flattened_u)):
+            u, v = flattened_v[j], flattened_u[j]  # swap axis for PIL
+            lum_cusp, sat_cusp = dicts[i][(u, v)]
+            normalized_lum = (lum_cusp - lum_min) / (lum_max - lum_min)
+            normalized_sat = (sat_cusp - sat_min) / (sat_max - sat_min)
+            rgb_color = (int(normalized_lum * 255), int(normalized_sat * 255), 0)
+            draw_rgb.point((u * image_size, v * image_size), fill=rgb_color)
+
+        # Save the images
+        img_rgb.save(f'{filename_RGB}_{str(i)}.png')
+    return (lum_min, lum_max), (sat_min, sat_max)
 
 
 def GenerateCubeMapTextures(luminance: float, saturation: float, color_space_transform: ColorSpaceTransform,
