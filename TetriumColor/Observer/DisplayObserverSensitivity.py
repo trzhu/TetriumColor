@@ -382,9 +382,9 @@ def GetMaxBasisToDisplayTransform(color_space_transform: ColorSpaceTransform) ->
         tuple[npt.NDArray, npt.NDArray]: a tuple of 4x3 matrices that converts from max basis to display primaries
     """
     disp_weights = np.identity(4) * color_space_transform.white_weights
+    # go from bgyr to rygb
     rygb_to_rgbo = disp_weights @ np.flip(color_space_transform.maxbasis_to_disp, axis=1)
 
-    color_space_transform.white_weights
     rygb_to_rgb = np.zeros((3, 4))
     rygb_to_rgb = rygb_to_rgbo[:3]
 

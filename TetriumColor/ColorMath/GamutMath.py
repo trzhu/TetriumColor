@@ -43,6 +43,19 @@ def ConvertHeringToVSH(hering: npt.NDArray) -> npt.NDArray:
         raise NotImplementedError("Not implemented for dimensions other than 3 or 4")
 
 
+def ConvertVSHtoRYGB(vsh: npt.NDArray, color_space_transform: ColorSpaceTransform) -> npt.NDArray:
+    """
+    Convert VSH to TetraColor
+    Args:
+        vsh (npt.NDArray): The VSH coordinates to convert
+    """
+    # convert from the "spherical coordinates" back to cartesian
+    hering = ConvertVSHToHering(vsh)
+    # change of basis into display space (I will give this to you)
+    rygb = ((np.linalg.inv(color_space_transform.maxbasis_to_disp)@color_space_transform.hering_to_disp)@hering.T).T
+    return np.flip(rygb, axis=1)
+
+
 def ConvertVSHtoTetraColor(vsh: npt.NDArray, color_space_transform: ColorSpaceTransform) -> List[TetraColor]:
     """
     Convert VSH to TetraColor

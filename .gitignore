@@ -5,6 +5,7 @@ tmp
 measurements/
 *.mp4
 *.ini
+data/
 
 # Mac
 *.DS_Store
