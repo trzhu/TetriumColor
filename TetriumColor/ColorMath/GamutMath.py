@@ -49,9 +49,13 @@ def ConvertVSHtoTetraColor(vsh: npt.NDArray, color_space_transform: ColorSpaceTr
     Args:
         vsh (npt.NDArray): The VSH coordinates to convert
     """
+    # convert from the "spherical coordinates" back to cartesian
     hering = ConvertVSHToHering(vsh)
+    # change of basis into display space (I will give this to you)
     disp = (color_space_transform.hering_to_disp@hering.T).T
+    # map from RGBO -> RGBOCV --- I wrote this function to be general
     six_d_color = Conversion.Map4DTo6D(disp, color_space_transform)
+    # convert to TetraColor object.
     return [TetraColor(six_d_color[i, :3], six_d_color[i, 3:]) for i in range(six_d_color.shape[0])]
 
 

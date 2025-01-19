@@ -16,5 +16,19 @@ color_space_transform: ColorSpaceTransform = GetColorSpaceTransforms(
     [observer], [primaries], scaling_factor=10000)[0][0]
 
 rygb_to_rgb, rygb_to_ocv = GetMaxBasisToDisplayTransform(color_space_transform)
-print(rygb_to_rgb)
-print(rygb_to_ocv)
+
+
+# rygb_to_rgb = np.array([[1, 0, 0], [0, 0, 0], [0, 1, 0], [0, 0, 1]])
+# rygb_to_ocv = np.array([[0, 0, 0], [1, 0, 0], [0, 0, 0], [0, 0, 0]])
+
+
+def print_glm_format(matrix: np.ndarray):
+    print("glm::mat4x4{")
+    for row in matrix:
+        print(f"{{{row[0]}, {row[1]}, {row[2]}, {0.0}}},")
+    print("},")
+
+
+print_glm_format(rygb_to_rgb)
+
+print_glm_format(rygb_to_ocv)

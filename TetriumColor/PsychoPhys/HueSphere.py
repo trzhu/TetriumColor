@@ -98,6 +98,20 @@ def GetFibonacciSampledHueTexture(num_points: int, luminance: float, saturation:
     return uv_coords, tetra_colors, cartesian
 
 
+def VSXYZToRGBOCV(luminance: float, saturation: float, xyz: npt.NDArray, color_space_transform: ColorSpaceTransform) -> TetraColor:
+    # hering is first component luminance, rest is chromatic components.
+    vshh: npt.NDArray = GamutMath.ConvertHeringToVSH(np.array([[luminance, *xyz]]))
+    # override the "radius" component of the spherical coordinates, with saturation
+    # vshh is a vec4
+    vshh[:, 1] = saturation
+    # now, we want to map s -> new s that is within the gamut.
+    # remapped vshh is a vec4 where it is the exact same as vshh, just s may be smaller.
+    remapped_vshh: npt.NDArray = GamutMath.RemapGamutPoints(vshh, color_space_transform, None)
+    # convert vshh -> cartesian coordinates (hering) then convert from hering -> display space (RGBO) components
+    tetra_color: TetraColor = GamutMath.ConvertVSHtoTetraColor(remapped_vshh, color_space_transform)[0]
+    return tetra_color
+
+
 def GenerateCubeMapTextures(luminance: float, saturation: float, color_space_transform: ColorSpaceTransform,
                             image_size: int, filename_RGB: str, filename_OCV: str, scrambleProb: float = 0,
                             std_dev: float = 0.05):
