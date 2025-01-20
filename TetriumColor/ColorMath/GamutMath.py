@@ -471,6 +471,19 @@ def GetMaxMetamerOverGridSample(luminance: float, saturation: float, cube_idx: i
     return max_metamer
 
 
+def GenerateLUTLMStoQ(smql: npt.NDArray, color_space_transform: ColorSpaceTransform):
+    disp_pt = (color_space_transform.cone_to_disp@smql).T
+    metamer_dir_in_disp = GetMetamericAxisInDispSpace(color_space_transform)
+    try:
+        metamers_in_disp = np.array(FindMaximumIn1DimDirection(
+            disp_pt, metamer_dir_in_disp, np.eye(color_space_transform.dim)))
+    except:
+        print("Error in finding metamer")
+        return None
+    cone_space = (np.linalg.inv(color_space_transform.cone_to_disp)@metamers_in_disp.T).T
+    return cone_space[:, color_space_transform.metameric_axis]  # return range of values
+
+
 def GetHueCircleSample(luminance: float, saturation: float, color_space_transform: ColorSpaceTransform, num_directions: int = 100):
 
     vshh: npt.NDArray = SampleHueManifold(

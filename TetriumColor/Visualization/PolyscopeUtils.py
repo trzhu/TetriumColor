@@ -69,7 +69,7 @@ def GetHeringMatrixLumYDir(dim: int) -> npt.NDArray:
     return h_mat
 
 
-def Render2DMesh(name: str, points: npt.NDArray, rgb: npt.NDArray) -> None:
+def Render2DMesh(name: str, points: npt.NDArray, rgb: npt.NDArray) -> float:
     """Create a 2D mesh from a list of vertices (N x 2) and RGB colors (1 x 3)
 
     Args:
@@ -91,9 +91,10 @@ def Render2DMesh(name: str, points: npt.NDArray, rgb: npt.NDArray) -> None:
     ps_hull_mesh = ps.register_surface_mesh(f"{name}", hull_vertices, hull_triangles, back_face_policy='identical')
     ps_hull_mesh.add_color_quantity(f"{name}_colors",
                                     np.tile(rgb, (len(hull_vertices), 1)), defined_on='vertices', enabled=True)
+    return hull.volume
 
 
-def Render3DMesh(name: str, points: npt.ArrayLike, rgbs: npt.ArrayLike) -> None:
+def Render3DMesh(name: str, points: npt.ArrayLike, rgbs: npt.ArrayLike) -> float:
     """Create a 3D mesh from a list of vertices (N x 3) and RGB colors (N x 3)
 
     Args:
@@ -103,6 +104,8 @@ def Render3DMesh(name: str, points: npt.ArrayLike, rgbs: npt.ArrayLike) -> None:
     """
     mesh = GeometryPrimitives.Create3DMesh(points, rgbs)
     GeometryPrimitives.ConvertTriangleMeshToPolyscope(name, mesh)
+    hull = ConvexHull(points)
+    return hull.volume
 
 
 def Render3DCone(name: str, points: npt.NDArray, line_colors: npt.NDArray, mesh_color: npt.NDArray, mesh_alpha: float = 1, arrow_alpha: float = 1) -> None:
@@ -157,7 +160,7 @@ def Render3DLine(name: str, points: npt.NDArray, color: npt.NDArray, radius=None
     ps_net.add_color_quantity(f"{name}_colors", color, defined_on='nodes', enabled=True)
 
 
-def RenderSimplexElements(name: str, dim: int, simplex_coords: npt.NDArray, simplex_colors: npt.NDArray, isColored=False):
+def RenderSimplexElements(name: str, dim: int, simplex_coords: npt.NDArray, simplex_colors: npt.NDArray, mesh_color=np.array([0.25, 0, 1]) * 0.5, isColored=False):
     """Create a Simplex from the Elements
 
     Args:
@@ -190,7 +193,7 @@ def RenderSimplexElements(name: str, dim: int, simplex_coords: npt.NDArray, simp
         if isColored:
             color = np.sum(simplex_colors[list(faces[0])], axis=0)
         else:
-            color = np.zeros(3)
+            color = mesh_color
         RenderTriangle(f'simplex_face', simplex_coords[list(faces[0])], color)
         names.append((f"simplex_face", "surface_mesh"))
         ps.get_surface_mesh(f'simplex_face').set_transparency(0.4)
@@ -200,12 +203,40 @@ def RenderSimplexElements(name: str, dim: int, simplex_coords: npt.NDArray, simp
             if isColored:
                 color = np.sum(simplex_colors[list(faces[0])], axis=0)
             else:
-                color = np.zeros(3)
+                color = mesh_color
             color = np.sum(simplex_colors[list(face)], axis=0)
             RenderTriangle(f'simplex_face_{i}', simplex_coords[list(face)], color)
             ps.get_surface_mesh(f'simplex_face_{i}').set_transparency(0.4)
             names.append((f"simplex_face_{i}", "surface_mesh"))
     return names
+
+
+def RenderSimplexGamut(name: str, dim: int, points: npt.NDArray, colors: npt.NDArray, mesh_color: npt.NDArray):
+    """Generate a Simplex Gamut
+    Args:
+        name (str): Name of the simplex
+        dim (int): Dimension of the observer
+        points (npt.NDArray): N x 3 array of vertices
+        colors (npt.NDArray): N x 3 array of RGB colors
+        mesh_color (npt.NDArray): 1 x 3 array of RGB color
+    """
+    if dim < 4:
+        simplex_coords = np.hstack((points, np.zeros((points.shape[0], 1))))
+
+    def render_edges():
+        edges = list(combinations(range(len(points)), 2))
+        for i, edge in enumerate(edges):
+            Render3DLine(f'{name}_edge_{i}', points[list(edge)], color=np.zeros(3))
+
+    if dim == 3:
+        RenderPointCloud(name, points, colors, radius=0.1)
+        render_edges()
+        RenderTriangle(f'{name}_face', points, mesh_color)
+    else:
+        RenderPointCloud(name, points, colors, radius=0.1)
+        render_edges()
+        Render3DMesh(f'{name}_mesh', points, np.tile(mesh_color, (len(points), 1)))
+        ps.get_surface_mesh(f'{name}_mesh').set_transparency(0.4)
 
 
 def RenderTriangle(name: str, points: npt.NDArray, color: npt.NDArray) -> None:
