@@ -10,6 +10,7 @@ from .Geometry import GeometryPrimitives
 from ..Observer import Observer, MaxBasisFactory, GetHeringMatrix
 from .Animation import AnimationUtils
 from scipy.spatial import ConvexHull
+from itertools import combinations
 
 
 def OpenVideo(filename: str):  # dunno how to type a fd
@@ -104,23 +105,26 @@ def Render3DMesh(name: str, points: npt.ArrayLike, rgbs: npt.ArrayLike) -> None:
     GeometryPrimitives.ConvertTriangleMeshToPolyscope(name, mesh)
 
 
-def Render3DCone(name: str, points: npt.NDArray, color: npt.NDArray, mesh_alpha: float = 1, arrow_alpha: float = 1) -> None:
+def Render3DCone(name: str, points: npt.NDArray, line_colors: npt.NDArray, mesh_color: npt.NDArray, mesh_alpha: float = 1, arrow_alpha: float = 1) -> None:
     """Create a 3D cone from a list of vertices (N x 3) and a color (3)
 
     Args:
         name (str): basename for the cone asset
         points (npt.NDArray): N x 3 array of vertices
-        color (npt.ArrayLike): 1 x 3 Array of RGB color
+        color (npt.ArrayLike): 1 x 3 Array of RGB color or N x 3 array of RGB colors
         mesh_alpha (float, optional): Transparency of the Mesh. Defaults to 1.
         arrow_alpha (float, optional): Transparency of the Arrows. Defaults to 1.
     """
+    mesh_colors = np.tile(mesh_color, (len(points)+1, 1))
+    if len(line_colors) == 3:
+        line_colors = np.tile(line_colors, (len(points), 1))
+
     center_vertex = np.zeros(points.shape[1])
     vertices = np.concatenate([[center_vertex], points])
     triangles = [[0, i, i + 1] for i in range(1, len(vertices) - 1)]
     ps_mesh = ps.register_surface_mesh(f"{name}", np.asarray(vertices), np.asarray(
         triangles), transparency=mesh_alpha, material='wax', smooth_shade=True)
-    ps_mesh.add_color_quantity(f"{name}_colors", np.tile(
-        color, (len(vertices), 1)), defined_on='vertices', enabled=True)
+    ps_mesh.add_color_quantity(f"{name}_colors", mesh_colors, defined_on='vertices', enabled=True)
 
     arrow_mesh = []
     for i in range(len(points)):
@@ -134,11 +138,10 @@ def Render3DCone(name: str, points: npt.NDArray, color: npt.NDArray, mesh_alpha:
 
     edges = np.array([[i, (i + 1) % len(points)] for i in range(len(points))])
     ps_net = ps.register_curve_network(f"{name}_curve", points, edges)
-    ps_net.add_color_quantity(f"{name}_curve_colors", np.tile(
-        color, (len(points), 1)), defined_on='nodes', enabled=True)
+    ps_net.add_color_quantity(f"{name}_curve_colors", line_colors, defined_on='nodes', enabled=True)
 
 
-def Render3DLine(name: str, points: npt.NDArray, color: npt.ArrayLike, radius=None) -> None:
+def Render3DLine(name: str, points: npt.NDArray, color: npt.NDArray, radius=None) -> None:
     """Create a 3D line from a list of vertices (N x 3) and a color (3)
 
     Args:
@@ -147,10 +150,82 @@ def Render3DLine(name: str, points: npt.NDArray, color: npt.ArrayLike, radius=No
         color (npt.ArrayLike): 1 x 3 Array of RGB color
         line_alpha (float, optional): Transparency of the Line. Defaults to 1.
     """
+    if len(color) == 3:
+        color = np.tile(color, (len(points), 1))
     edges = np.array([[i, (i + 1) % len(points)] for i in range(len(points)-1)])
     ps_net = ps.register_curve_network(f"{name}", points, edges, radius=radius)
-    ps_net.add_color_quantity(f"{name}_colors", np.tile(
-        color, (len(points), 1)), defined_on='nodes', enabled=True)
+    ps_net.add_color_quantity(f"{name}_colors", color, defined_on='nodes', enabled=True)
+
+
+def RenderSimplexElements(name: str, dim: int, simplex_coords: npt.NDArray, simplex_colors: npt.NDArray, isColored=False):
+    """Create a Simplex from the Elements
+
+    Args:
+        name (str): Name of the simplex
+        dim (int): Dimension of the simplex
+        simplex_coords (npt.NDArray): N x 3 array of vertices
+        simplex_colors (npt.NDArray): N x 3 array of RGB colors
+        isColored (bool, optional): Whether the simplex is colored. Defaults to False.
+    """
+    names = []
+    # GENERATE POINTS
+    if dim < 4:
+        simplex_coords = np.hstack((simplex_coords, np.zeros((simplex_coords.shape[0], 1))))
+    RenderPointCloud("simplex_points", simplex_coords, simplex_colors, radius=0.1)
+    names.append(("simplex_points", "point_cloud"))
+    # GENERATE EDGES
+    edges = list(combinations(range(len(simplex_coords)), 2))
+
+    for i, edge in enumerate(edges):
+        if isColored:
+            color = np.sum(simplex_colors[list(edge)], axis=0)
+        else:
+            color = np.zeros(3)
+        Render3DLine(f'simplex_edge_{i}', simplex_coords[list(edge)], color=color)
+        names.append((f"simplex_edge_{i}", "curve_network"))
+
+    # GENERATE FACES
+    faces = list(combinations(range(len(simplex_coords)), 3))
+    if dim == 3:
+        if isColored:
+            color = np.sum(simplex_colors[list(faces[0])], axis=0)
+        else:
+            color = np.zeros(3)
+        RenderTriangle(f'simplex_face', simplex_coords[list(faces[0])], color)
+        names.append((f"simplex_face", "surface_mesh"))
+        ps.get_surface_mesh(f'simplex_face').set_transparency(0.4)
+
+    elif dim == 4:
+        for i, face in enumerate(faces):
+            if isColored:
+                color = np.sum(simplex_colors[list(faces[0])], axis=0)
+            else:
+                color = np.zeros(3)
+            color = np.sum(simplex_colors[list(face)], axis=0)
+            RenderTriangle(f'simplex_face_{i}', simplex_coords[list(face)], color)
+            ps.get_surface_mesh(f'simplex_face_{i}').set_transparency(0.4)
+            names.append((f"simplex_face_{i}", "surface_mesh"))
+    return names
+
+
+def RenderTriangle(name: str, points: npt.NDArray, color: npt.NDArray) -> None:
+    """Render a 3 point element as a triangle surface mesh
+
+    Args:
+        name (str): Name of the triangle
+        points (npt.NDArray): 3 x 3 array of vertices
+        color (npt.NDArray): 1 x 3 array of RGB color
+    """
+    if points.shape[0] != 3 or points.shape[1] != 3:
+        raise ValueError("Points array must be of shape (3, 3)")
+
+    # Create the triangle mesh
+    triangles = np.array([[0, 1, 2]])
+    colors = np.tile(color, (3, 1))
+
+    # Register the triangle mesh with Polyscope
+    ps_triangle_mesh = ps.register_surface_mesh(name, points, triangles)
+    ps_triangle_mesh.add_color_quantity(f"{name}_colors", colors, defined_on='vertices', enabled=True)
 
 
 def RenderMetamericDirection(name: str, observer: Observer, display_basis: DisplayBasisType,

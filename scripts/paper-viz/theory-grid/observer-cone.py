@@ -1,8 +1,9 @@
 import argparse
+from re import I
 import numpy as np
 import tetrapolyscope as ps
 
-from TetriumColor.Observer import GetCustomObserver, ObserverFactory
+from TetriumColor.Observer import GetCustomObserver, ObserverFactory, GetsRGBfromWavelength
 from TetriumColor.Utils.CustomTypes import DisplayBasisType
 import TetriumColor.Visualization as viz
 from TetriumColor.Utils.ParserOptions import *
@@ -22,7 +23,7 @@ def main():
                                  args.l_cone_peak, args.macula, args.lens, args.template)
     # load cached observer stuff if it exists, terrible design but whatever
     # observer = ObserverFactory.get_object(observer)
-
+    spectral_locus_colors = np.array([GetsRGBfromWavelength(wl) for wl in wavelengths])
     # Polyscope Animation Inits
     ps.init()
     ps.set_always_redraw(True)
@@ -41,7 +42,8 @@ def main():
     points = viz.ConvertPointsToBasis(observer.normalized_sensor_matrix.T, observer, args.display_basis)
     basis_points = viz.ConvertPointsToBasis(np.eye(args.dimension), observer, DisplayBasisType.ConeHering)
 
-    viz.Render3DCone("observer-cone", points, np.array([0.25, 0, 1]) * 0.5, 0.4, 1)
+    viz.Render3DCone("observer-cone", points, line_colors=spectral_locus_colors,
+                     mesh_color=np.array([0.25, 0, 1]) * 0.5, mesh_alpha=0.4, arrow_alpha=1)
     viz.RenderBasisArrows("basis", basis_points * 0.3, radius=0.025/10)
 
     viz.AnimationUtils.AddObject("observer-cone", "surface_mesh",

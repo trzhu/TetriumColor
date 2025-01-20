@@ -1,8 +1,8 @@
 import argparse
-from re import I
 import numpy as np
 import tetrapolyscope as ps
 import numpy.typing as npt
+from itertools import combinations
 
 from TetriumColor.Observer import GetCustomObserver, Observer, ObserverFactory, GetsRGBfromWavelength
 from TetriumColor.Utils.CustomTypes import DisplayBasisType
@@ -17,6 +17,8 @@ def main():
     AddVideoOutputArgs(parser)
     AddAnimationArgs(parser)
 
+    parser.add_argument('--face_idx', type=int, default=0)
+
     parser.add_argument('--primary_wavelengths', nargs='+', type=float, default=[410, 510, 585, 695],
                         help='Wavelengths for the display')
 
@@ -28,9 +30,6 @@ def main():
     observer = GetCustomObserver(wavelengths, args.od, args.dimension, args.s_cone_peak, args.m_cone_peak, args.q_cone_peak,
                                  args.l_cone_peak, args.macula, args.lens, args.template)
     spectral_locus_colors = np.array([GetsRGBfromWavelength(wl) for wl in wavelengths])
-    # load cached observer stuff if it exists, terrible design but whatever
-    # observer = ObserverFactory.get_object(observer)
-    # Polyscope Animation Inits
 
     ps.init()
     ps.set_always_redraw(True)
@@ -51,8 +50,6 @@ def main():
     chromaticity_points = chromaticity_points[idxs]
     spectral_locus_colors = spectral_locus_colors[idxs]
 
-    basis_points = viz.ConvertPointsToChromaticity(np.eye(args.dimension), observer, projection_idxs)
-
     primary_indices = [np.argmin(np.abs(wavelengths - wl)) for wl in args.primary_wavelengths]
     primary_points = chromaticity_points[primary_indices]
 
@@ -61,53 +58,44 @@ def main():
     simplex_coords, points = GetSimplexBarycentricCoords(
         args.dimension, primary_points, chromaticity_points)
 
-    simplex_origin = GetSimplexOrigin(1, args.dimension)
     if args.dimension < 4:
-        points_3d = np.hstack((points, np.zeros((points.shape[0], 1))))
-        basis_points_3d = np.hstack((simplex_coords, np.zeros((basis_points.shape[0], 1))))
-        simplex_origin = np.append(simplex_origin, 0)
+        points = np.hstack((points, np.zeros((points.shape[0], 1))))
 
-        viz.RenderPointCloud("gamut-points", basis_points_3d, primaries_sRGB, radius=0.1)
-        offset = np.array([0, 0, 0.01]) if args.dimension == 2 else np.array([0, 0, 0])
+    simplex_names = viz.RenderSimplexElements(
+        "simplex", args.dimension, simplex_coords, primaries_sRGB, isColored=False)
 
-        if args.dimension > 2:
-            viz.Render3DLine("spectral_locus", points_3d, spectral_locus_colors, radius=0.025/5)
-            viz.RenderSetOfArrows("basis", [(simplex_origin + offset,
-                                             x + offset) for x in basis_points_3d], radius=0.025/5)
-
-            viz.Render2DMesh("gamut", simplex_coords, np.array([0.25, 0, 1]) * 0.5)
-            ps.get_surface_mesh("gamut").set_transparency(0.4)
-        else:
-            viz.Render3DLine("spectral_locus", points_3d, spectral_locus_colors, radius=0.025/2)
-            viz.RenderSetOfArrows("basis", [(simplex_origin + offset,
-                                             x + offset) for x in basis_points_3d], radius=0.025/2)
-    else:
-        points_3d = points
-        basis_points_3d = simplex_coords
-
-        viz.Render3DLine("spectral_locus", points_3d, spectral_locus_colors)
-
-        viz.RenderPointCloud("gamut-points", basis_points_3d, primaries_sRGB)
-        viz.Render3DMesh("gamut", basis_points_3d, rgbs=np.tile(
-            np.array([0.25, 0, 1]) * 0.5, (basis_points_3d.shape[0], 1)))
-        ps.get_surface_mesh("gamut").set_transparency(0.4)
-        viz.RenderSetOfArrows("basis", [(simplex_origin, x) for x in basis_points_3d], radius=0.025/10)
-
-        viz.AnimationUtils.AddObject("basis", "surface_mesh", args.position, args.velocity,
-                                     args.rotation_axis, args.rotation_speed)
-        viz.AnimationUtils.AddObject("spectral_locus", "curve_network", args.position,
-                                     args.velocity, args.rotation_axis, args.rotation_speed)
-        viz.AnimationUtils.AddObject("gamut-points", "point_cloud", args.position,
-                                     args.velocity, args.rotation_axis, args.rotation_speed)
-        viz.AnimationUtils.AddObject("gamut", "surface_mesh",
-                                     args.position, args.velocity, args.rotation_axis, args.rotation_speed)
-
-    # viz.RenderPointCloud("basis", basis_points_3d, np.eye(3))
-    # viz.Render2DMesh("basis_mesh", basis_points, np.eye(3))
-    # ps.get_surface_mesh("basis_mesh").set_transparency(0.5)
-
+    viz.Render3DLine("spectral_locus", points, spectral_locus_colors)
     # Need to call this after registering structures
     ps.set_automatically_compute_scene_extents(False)
+
+    # No animation needed for this script
+    # simplex_names.append(("spectral_locus", "curve_network"))
+    # for name, element_name in simplex_names:
+    #     viz.AnimationUtils.AddObject(name, element_name, args.position, args.velocity,
+    #                                  args.rotation_axis, args.rotation_speed)
+
+    if args.dimension == 4:
+        # ps.set_up_dir('z_up')
+        # ps.set_front_dir('y_front')
+        simplex_origin = GetSimplexOrigin(1, args.dimension)
+
+        # Calculate the normal vector for each face in the simplex
+        faces = list(combinations(range(len(simplex_coords)), 3))
+        face = faces[args.face_idx]
+        face_points = simplex_coords[list(face)]
+        normal = np.cross(face_points[1] - face_points[0], face_points[2] - face_points[0])
+        normal = normal / np.linalg.norm(normal)
+        face_center = np.mean(face_points, axis=0)
+        if np.dot(normal, face_center - simplex_origin) < 0:
+            normal = -normal
+        root = (simplex_origin + 3 * normal)
+        root[1] = face_center[1]
+        if args.face_idx == 1:
+            ps.set_up_dir('z_up')
+            ps.set_front_dir('neg_y_front')
+            # ps.look_at(root, face_center - root)
+        else:
+            ps.look_at(root, face_center - root)
 
     # Output Video to Screen or Save to File (based on options)
     if args.output_filename:
