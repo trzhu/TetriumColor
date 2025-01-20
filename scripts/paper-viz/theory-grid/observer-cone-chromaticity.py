@@ -36,12 +36,12 @@ def main():
 
     projection_idxs = list(range(1, observer.dimension))
     # Create Geometry & Register with Polyscope, and define the animation
-
     points_maybe_nan = viz.ConvertPointsToChromaticity(observer.normalized_sensor_matrix.T, observer, projection_idxs)
     basis_points = viz.ConvertMaxBasisPointsToChromaticity(np.eye(args.dimension), observer, projection_idxs)
 
     points = points_maybe_nan[~np.all(points_maybe_nan == 0, axis=1)]
     spectral_locus_colors = spectral_locus_colors[~np.all(points_maybe_nan == 0, axis=1), :]
+
     if args.dimension < 4:
         points_3d = np.hstack((points, np.zeros((points.shape[0], 1))))
         basis_points_3d = np.hstack((basis_points, np.zeros((basis_points.shape[0], 4 - args.dimension))))
@@ -70,10 +70,6 @@ def main():
                                      args.velocity, args.rotation_axis, args.rotation_speed)
         viz.AnimationUtils.AddObject("gamut", "surface_mesh",
                                      args.position, args.velocity, args.rotation_axis, args.rotation_speed)
-
-    # viz.RenderPointCloud("basis", basis_points_3d, np.eye(3))
-    # viz.Render2DMesh("basis_mesh", basis_points, np.eye(3))
-    # ps.get_surface_mesh("basis_mesh").set_transparency(0.5)
 
     # Need to call this after registering structures
     ps.set_automatically_compute_scene_extents(False)
