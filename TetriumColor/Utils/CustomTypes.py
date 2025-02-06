@@ -76,3 +76,4 @@ class ColorSpaceTransform:
     metameric_axis: int
     display_basis: List[int]
     white_weights: npt.NDArray
+    cone_to_sRGB: npt.NDArray

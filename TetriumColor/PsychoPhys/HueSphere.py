@@ -300,6 +300,41 @@ def ConcatenateCubeMap(basename: str, output_filename: str):
     print(f"Saved concatenated cubemap to {output_filename}")
 
 
+def SampleEqualLumChromManifoldActivations(luminance: float, saturation: float,
+                                           color_space_transform: ColorSpaceTransform) -> npt.NDArray:
+    """GenerateFullColors generates the full color gamut for a given luminance and saturation.
+
+    Args:
+        luminance (float): luminance value
+        saturation (float): saturation value
+        color_space_transform (ColorSpaceTransform): color space transform object
+    Returns:
+        np.ndarray: The cone activations for the submanifold.
+    """
+    # Generate the full color gamut
+    vshh = GamutMath.SampleHueManifold(luminance, saturation, 4, 1000)
+    remapped_vshh = GamutMath.RemapGamutPoints(vshh, color_space_transform, None)
+    hering_colors = GamutMath.ConvertVSHToHering(remapped_vshh)
+    hering_to_cone = np.linalg.inv(color_space_transform.cone_to_disp)@color_space_transform.hering_to_disp
+    cone_stimulations = hering_colors@hering_to_cone.T
+    return cone_stimulations
+
+
+def SampleSaturatedSubManifold(lum_sat_pairs: List[tuple[float, float]], color_space_transform: ColorSpaceTransform) -> npt.NDArray:
+    """Select a Sample of Points for Dead Leaves -- modify later
+
+    Args:
+        lum_sat_pairs (tuple[float, float]): List of luminance and saturation pairs.
+        color_space_transform (ColorSpaceTransform): _description_
+
+    Returns:
+        npt.NDArray: return all points of the submanifolds specified by the luminance and saturation pairs
+    """
+    cone_stimulations = np.array([SampleEqualLumChromManifoldActivations(
+        luminance, saturation, color_space_transform) for luminance, saturation in lum_sat_pairs])
+    return cone_stimulations.reshape(-1, 4)
+
+
 def CreateColorCircleSidebySide(image_size: tuple, output_base: str,  luminance: float, saturation: float, dist_from_origin: float,
                                 num_circle_samples: int, color_space_transform: ColorSpaceTransform):
 
@@ -376,6 +411,99 @@ def CreateColorCircleSidebySide(image_size: tuple, output_base: str,  luminance:
 
     img_RGB.save(f"{output_base}_RGB.png")
     img_OCV.save(f"{output_base}_OCV.png")
+
+
+def GenerateEachFaceOfGrid(luminance: float, saturation: float, color_space_transform: ColorSpaceTransform,
+                           grid_size: int, basename: str):
+    """GenerateCubeMapTextures generates the cube map textures for a given luminance and saturation.
+
+    Args:
+        luminance (float): luminance value
+        saturation (float): saturation value
+        color_space_transform (ColorSpaceTransform): color space transform object
+        filename_RGB (str): filename for the RGB cube map texture
+        filename_OCV (str): filename for the OpenCV cube map texture
+        scrambleProb (float, optional): probability of scrambling the cube map. Defaults to 0.
+        std_dev (float, optional): standard deviation for the luminance. Defaults to 0.05.
+    Returns:
+        Saves the generated textures to the specified filenames.
+    """
+    # Grid of UV coordinate that are the size of image_size
+    all_us = (np.arange(grid_size) + 0.5) / grid_size
+    all_vs = (np.arange(grid_size) + 0.5) / grid_size
+    cube_u, cube_v = np.meshgrid(all_us, all_vs)
+    flattened_u, flattened_v = cube_u.flatten(), cube_v.flatten()
+
+    # change the associated xyzs -> to a new direction, but the same color values
+    metamericDirMat = GamutMath.GetTransformChromToMetamericDir(color_space_transform)
+    invMetamericDirMat = np.linalg.inv(metamericDirMat)
+
+    tetracolors_per_face = []
+    # Create the RGB/OCV GenerateCubeMapTextures
+    for i in range(4, 6):
+
+        xyz = ConvertCubeUVToXYZ(i, cube_u, cube_v, saturation).reshape(-1, 3)
+        xyz = np.dot(invMetamericDirMat, xyz.T).T
+
+        lum_vector = np.ones(grid_size * grid_size) * luminance
+        vxyz = np.hstack((lum_vector[np.newaxis, :].T, xyz))
+        vshh = GamutMath.ConvertHeringToVSH(vxyz)
+
+        vxyz_back = GamutMath.ConvertVSHToHering(vshh)
+
+        map_angle_sat = GamutMath.GenerateGamutLUT(vshh, color_space_transform)
+        remapped_vshh = GamutMath.RemapGamutPoints(vshh, color_space_transform, map_angle_sat)
+        tetracolors_per_face += [GamutMath.ConvertVSHto6DTuple(remapped_vshh, color_space_transform)]
+
+    colors = np.transpose(np.array(tetracolors_per_face).reshape(2, grid_size, grid_size, 6), axes=(2, 1, 0, 3))
+    # CreateCircleGrid(colors, 20, 100, basename + f"_{i}")
+
+    return colors
+
+
+def GenerateHueSpherePoints(luminance: float, saturation: float, color_space_transform: ColorSpaceTransform,
+                            grid_size: int):
+    """GenerateCubeMapTextures generates the cube map textures for a given luminance and saturation.
+
+    Args:
+        luminance (float): luminance value
+        saturation (float): saturation value
+        color_space_transform (ColorSpaceTransform): color space transform object
+        grid_size (int): size of the grid
+    Returns:
+        Saves the generated textures to the specified filenames.
+    """
+    # Grid of UV coordinate that are the size of image_size
+    all_us = (np.arange(grid_size) + 0.5) / grid_size
+    all_vs = (np.arange(grid_size) + 0.5) / grid_size
+    cube_u, cube_v = np.meshgrid(all_us, all_vs)
+    flattened_u, flattened_v = cube_u.flatten(), cube_v.flatten()
+
+    # change the associated xyzs -> to a new direction, but the same color values
+    metamericDirMat = GamutMath.GetTransformChromToMetamericDir(color_space_transform)
+    invMetamericDirMat = np.linalg.inv(metamericDirMat)
+
+    cone_responses_per_face = []
+    hering_to_cone = np.linalg.inv(color_space_transform.cone_to_disp)@color_space_transform.hering_to_disp
+    # Create the RGB/OCV GenerateCubeMapTextures
+    for i in range(0, 6):
+
+        xyz = ConvertCubeUVToXYZ(i, cube_u, cube_v, saturation).reshape(-1, 3)
+        xyz = np.dot(invMetamericDirMat, xyz.T).T
+
+        lum_vector = np.ones(grid_size * grid_size) * luminance
+        vxyz = np.hstack((lum_vector[np.newaxis, :].T, xyz))
+        vshh = GamutMath.ConvertHeringToVSH(vxyz)
+
+        vxyz_back = GamutMath.ConvertVSHToHering(vshh)
+
+        map_angle_sat = GamutMath.GenerateGamutLUT(vshh, color_space_transform)
+        remapped_vshh = GamutMath.RemapGamutPoints(vshh, color_space_transform, map_angle_sat)
+
+        hering_responses = GamutMath.ConvertVSHToHering(remapped_vshh)
+        cone_responses_per_face += [hering_responses@hering_to_cone.T]
+
+    return np.array(cone_responses_per_face).reshape(-1, 4)
 
 
 def CreateCircleGrid(grid: npt.NDArray, padding: int, radius: int, output_base: str):
@@ -510,7 +638,7 @@ def CreatePseudoIsochromaticImages(colors, output_dir: str, output_base: str, na
     subdirname = f"./{output_dir}/{sub_image_dir}"
     os.makedirs(subdirname, exist_ok=True)
     plate: IshiharaPlate = IshiharaPlate(seed=seed)
-    chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    chars = "ZABCDEFGHIJKLMNOPQRSTUVWXYZ"
     for i in range(len(colors)):
         metamer1 = TetraColor(colors[i, 0, :3], colors[i, 0, 3:])
         metamer2 = TetraColor(colors[i, 1, :3], colors[i, 1, 3:])

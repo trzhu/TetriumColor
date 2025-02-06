@@ -203,19 +203,29 @@ def GetParalleletopeBasis(observer: Observer, led_spectrums: List[Spectra]):
     return (intensities@np.diag(white_weights)).T
 
 
-def GetColorSpaceTransformTosRGB(observer: Observer, metameric_axis: int = 2, subset_leds: List[int] = [0, 1, 2, 3]):
-    # ONLY WORKS FOR 3D RIGHT NOW
+def GetConeTosRGBPrimaries(observer: Observer, metameric_axis: int = 2):
+    if observer.dimension > 3:
+        subset = [0, 1, 2]
+    else:
+        # really this only works for LMS subset so this is a bit stupid
+        subset = [i for i in range(4) if i != metameric_axis]
 
-    # Get XYZ primaries
     xyz_cmfs = MSDS_CMFS_STANDARD_OBSERVER['CIE 1931 2 Degree Standard Observer'].values
-
-    # compute the transform from observer to XYZ
-    white_pt = np.diag(observer.get_whitepoint(wavelengths=observer.wavelengths))
-
-    max_basis = MaxBasisFactory.get_object(observer, verbose=False)
+    white_pt = np.diag(observer.get_whitepoint(wavelengths=observer.wavelengths)[subset])
 
     M_XYZ_to_RGB = RGB_COLOURSPACE_BT709.matrix_XYZ_to_RGB
-    M_Cone_To_Primaries = M_XYZ_to_RGB@(xyz_cmfs.T@np.linalg.pinv(observer.sensor_matrix) @ white_pt / 100)
+    M_Cone_To_Primaries = M_XYZ_to_RGB@(xyz_cmfs.T@np.linalg.pinv(observer.sensor_matrix[subset]) @ white_pt / 100)
+
+    if observer.dimension > 3:
+        M_Cone_To_Primaries = np.insert(M_Cone_To_Primaries, metameric_axis, 0, axis=1)
+    return M_Cone_To_Primaries
+
+
+def GetColorSpaceTransformTosRGB(observer: Observer, metameric_axis: int = 2, subset_leds: List[int] = [0, 1, 2, 3]):
+    # ONLY WORKS FOR 3D in general because that transform is only defined for 3 dimensions
+    max_basis = MaxBasisFactory.get_object(observer, verbose=False)
+
+    M_Cone_To_Primaries = GetConeTosRGBPrimaries(observer, metameric_axis)
 
     M_PrimariesToCone = np.linalg.inv(M_Cone_To_Primaries)
     M_ConeToMaxBasis = max_basis.cone_to_maxbasis
@@ -231,7 +241,39 @@ def GetColorSpaceTransformTosRGB(observer: Observer, metameric_axis: int = 2, su
         np.linalg.inv(M_PrimariesToHering),
         metameric_axis,
         subset_leds,
-        np.ones(observer.dimension)
+        np.ones(observer.dimension),
+        M_Cone_To_Primaries
+    )
+
+
+def GetColorSpaceTransformWODisplay(observer: Observer, metameric_axis: int = 2) -> ColorSpaceTransform:
+    """Given an observer and display primaries, return the ColorSpaceTransform
+
+    Args:
+        observer (Observer): Observer object
+        metameric_axis: axis to be metameric over
+    Returns:
+         ColorSpaceTransform
+    """
+    max_basis = MaxBasisFactory.get_object(observer, verbose=False)
+
+    M_Cone_To_Primaries = np.eye(observer.dimension)  # dummy matrix
+    M_PrimariesToCone = np.linalg.inv(M_Cone_To_Primaries)
+    M_ConeToMaxBasis = max_basis.cone_to_maxbasis
+    M_MaxBasisToHering = max_basis.HMatrix
+
+    M_PrimariesToMaxBasis = M_ConeToMaxBasis@M_PrimariesToCone
+    M_PrimariesToHering = M_MaxBasisToHering@M_PrimariesToMaxBasis
+
+    return ColorSpaceTransform(
+        observer.dimension,
+        M_Cone_To_Primaries,
+        np.linalg.inv(M_PrimariesToMaxBasis),
+        np.linalg.inv(M_PrimariesToHering),
+        metameric_axis,
+        [i for i in range(observer.dimension)],  # dummy LEDs
+        np.ones(observer.dimension),  # dummy white point
+        GetConeTosRGBPrimaries(observer, metameric_axis)
     )
 
 
@@ -255,7 +297,7 @@ def GetColorSpaceTransform(observer: Observer, display_primaries: List[Spectra] 
     white_pt = observer.observe_normalized(np.ones_like(observer.wavelengths))
     white_weights = np.linalg.inv(intensities)@white_pt
     rescaled_white_weights = white_weights / np.max(white_weights)
-    new_intensities = intensities * (white_weights)
+    new_intensities = intensities * white_weights
 
     M_Cone_To_Primaries = np.linalg.inv(new_intensities)  # something is fucked
     M_PrimariesToCone = np.linalg.inv(M_Cone_To_Primaries)
@@ -272,7 +314,8 @@ def GetColorSpaceTransform(observer: Observer, display_primaries: List[Spectra] 
         np.linalg.inv(M_PrimariesToHering),
         metameric_axis,
         subset_leds,
-        rescaled_white_weights
+        rescaled_white_weights,
+        GetConeTosRGBPrimaries(observer, metameric_axis)
     )
 
 
@@ -293,33 +336,7 @@ def GetColorSpaceTransformsOverObservers(observers: List[Observer], primaries: L
     """
     transforms = []
     for observer in tqdm.tqdm(observers):
-        max_basis = MaxBasisFactory.get_object(observer, verbose=False)
-
-        disp = GetDisplayToCone(observer, primaries)
-
-        intensities = disp.T * scaling_factor
-        white_pt = observer.observe_normalized(np.ones_like(observer.wavelengths))
-        white_weights = np.linalg.inv(intensities)@white_pt
-        rescaled_white_weights = white_weights / np.max(white_weights)
-        new_intensities = intensities * (white_weights)
-
-        M_Cone_To_Primaries = np.linalg.inv(new_intensities)  # something is fucked
-        M_PrimariesToCone = np.linalg.inv(M_Cone_To_Primaries)
-        M_ConeToMaxBasis = max_basis.cone_to_maxbasis
-        M_MaxBasisToHering = max_basis.HMatrix
-
-        M_PrimariesToMaxBasis = M_ConeToMaxBasis@M_PrimariesToCone
-        M_PrimariesToHering = M_MaxBasisToHering@M_PrimariesToMaxBasis
-
-        transforms.append(ColorSpaceTransform(
-            observer.dimension,
-            M_Cone_To_Primaries,
-            np.linalg.inv(M_PrimariesToMaxBasis),
-            np.linalg.inv(M_PrimariesToHering),
-            metameric_axis,
-            subset_leds,
-            rescaled_white_weights
-        ))
+        transforms.append(GetColorSpaceTransform(observer, primaries, scaling_factor, metameric_axis, subset_leds))
     return transforms
 
 
@@ -344,31 +361,8 @@ def GetColorSpaceTransforms(observers: List[Observer], display_primaries: List[L
         max_basis = MaxBasisFactory.get_object(observer, verbose=False)
 
         for primaries in display_primaries:
-            disp = GetDisplayToCone(observer, primaries)
-
-            intensities = disp.T * scaling_factor
-            white_pt = observer.observe_normalized(np.ones_like(observer.wavelengths))
-            white_weights = np.linalg.inv(intensities)@white_pt
-            rescaled_white_weights = white_weights / np.max(white_weights)
-            new_intensities = intensities * (white_weights)
-
-            M_Cone_To_Primaries = np.linalg.inv(new_intensities)  # something is fucked
-            M_PrimariesToCone = np.linalg.inv(M_Cone_To_Primaries)
-            M_ConeToMaxBasis = max_basis.cone_to_maxbasis
-            M_MaxBasisToHering = max_basis.HMatrix
-
-            M_PrimariesToMaxBasis = M_ConeToMaxBasis@M_PrimariesToCone
-            M_PrimariesToHering = M_MaxBasisToHering@M_PrimariesToMaxBasis
-
-            per_observer += [ColorSpaceTransform(
-                observer.dimension,
-                M_Cone_To_Primaries,
-                np.linalg.inv(M_PrimariesToMaxBasis),
-                np.linalg.inv(M_PrimariesToHering),
-                metameric_axis,
-                subset_leds,
-                rescaled_white_weights
-            )]
+            per_observer.append(GetColorSpaceTransform(observer, primaries,
+                                scaling_factor, metameric_axis, subset_leds))
         transforms.append(per_observer)
     return transforms
 
@@ -394,6 +388,23 @@ def GetMaxBasisToDisplayTransform(color_space_transform: ColorSpaceTransform) ->
     rygb_to_ocv[0] = rygb_to_rgbo[3:]
 
     return rygb_to_rgb.T, rygb_to_ocv.T
+
+
+def GetRGBOCVToConeBasis(color_space_transform: ColorSpaceTransform) -> npt.NDArray:
+    """Generate from a 4x4 matrix that converts from RYGB to display primaries, a two 4x3 matrices
+    that represent the conversion from max basis to display primaries in order to interface with Tetrium Paint Program
+
+    Args:
+        color_space_transform (ColorSpaceTransform): the colorspace transform to use.
+
+    Returns:
+        tuple[npt.NDArray, npt.NDArray]: a tuple of 4x3 matrices that converts from max basis to display primaries
+    """
+    disp_weights = np.identity(4) * color_space_transform.white_weights
+    # go from bgyr to rygb
+    rgbo_to_smql = np.linalg.inv(disp_weights @ color_space_transform.cone_to_disp)
+
+    return rgbo_to_smql
 
 
 def spectralDeliveryObserverSensitivity(observer: Observer, used_primaries: List[Spectra], measured_metamers: List[List[Spectra]], metamer_display_weights: npt.NDArray):
