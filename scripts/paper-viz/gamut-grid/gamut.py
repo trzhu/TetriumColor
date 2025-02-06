@@ -1,6 +1,7 @@
 import argparse
 from re import I
 import numpy as np
+from pandas._config import display
 import tetrapolyscope as ps
 
 from TetriumColor.Observer import GetCustomObserver, ObserverFactory, GetParalleletopeBasis, convert_refs_to_spectras
@@ -15,7 +16,7 @@ def main():
     AddObserverArgs(parser)
     AddVideoOutputArgs(parser)
     AddAnimationArgs(parser)
-    parser.add_argument('--step_size', type=float, default=5, help='Step size for wavelengths')
+    parser.add_argument('--step_size', type=float, default=10, help='Step size for wavelengths')
     parser.add_argument('--ideal', action='store_true', default=False, help='Use ideal primaries')
     parser.add_argument('--primary_wavelengths', nargs='+', type=float, default=[410, 510, 585, 695],
                         help='Wavelengths for the display')
@@ -66,12 +67,12 @@ def main():
     observer_wavelengths = np.arange(380, 781, args.step_size)
     display_observer = GetCustomObserver(observer_wavelengths, args.od, args.dimension, args.s_cone_peak, args.m_cone_peak, args.q_cone_peak,
                                          args.l_cone_peak, args.macula, args.lens, args.template)
+    observer = ObserverFactory.get_object(display_observer)
+    viz.RenderOBS("observer", display_observer, args.display_basis)
+    ps.get_surface_mesh("observer").set_transparency(0.7)
 
-    # viz.RenderOBS("observer", display_observer, args.display_basis)
-    # ps.get_surface_mesh("observer").set_transparency(0.7)
-
-    # viz.AnimationUtils.AddObject("observer", "surface_mesh",
-    #                              args.position, args.velocity, args.rotation_axis, args.rotation_speed)
+    # # viz.AnimationUtils.AddObject("observer", "surface_mesh",
+    # #                              args.position, args.veslocity, args.rotation_axis, args.rotation_speed)
 
     # basis_colors = np.array([[0, 0, 1], [0, 1, 0], [1, 1, 0], [1, 0, 0]])
     # # Render Arrows for Basis

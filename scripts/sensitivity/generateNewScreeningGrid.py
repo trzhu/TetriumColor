@@ -89,11 +89,12 @@ output_base = "screening"
 rgb_image_files = [os.path.join(root, f"{output_base}_{base_name}_RGB.png") for base_name in names]
 ocv_image_files = [os.path.join(root, f"{output_base}_{base_name}_OCV.png") for base_name in names]
 
-center_pts, noise_generators = zip(*[(output[0], output[1]) for output in outputs])
+center_pts, cone_diffs, noise_generators = zip(*[(output[0], output[1], output[2]) for output in outputs])
 center_pts = np.array(center_pts)
 CreatePseudoIsochromaticImages(center_pts, f"./{dirname}/", output_base, names,
                                noise_generator=noise_generators, sub_image_dir=sub_image_dir, seed=seed)
-
+print(center_pts)
+print(cone_diffs)
 
 if args.individual_grid:
     for i in range(4):

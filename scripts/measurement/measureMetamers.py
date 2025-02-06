@@ -1,12 +1,20 @@
 import sys
 import os
 import numpy as np
+from datetime import datetime
+import argparse
 
 from TetriumColor.Measurement import MeasureMetamers
 
 
-metamer_weights = np.array([[[0.5, 0.5, 0.5, 0.5], [0.5, 0.5, 0.5, 0.5]]])
-save_directory = "../../measurements/2024-12-11/metamers"
-primary_directory = "../../measurements/2024-12-06/primaries"
+parser = argparse.ArgumentParser(description='Measure Metamers')
+parser.add_argument('--directory_name', type=str, default='tmp', help='Directory to save measurements')
+args = parser.parse_args()
 
-MeasureMetamers(metamer_weights, save_directory, primary_directory)
+metamer_weights = np.array([[[0.5, 0.5, 0.5, 0.5], [0.5, 0.5, 0.5, 0.5]]])
+primary_directory = "../../measurements/2024-01-21/primaries"
+
+current_date = datetime.now().strftime("%Y-%m-%d")
+directory = f"../../measurements/{current_date}/{args.directory_name}"
+
+MeasureMetamers(metamer_weights, directory, primary_directory)

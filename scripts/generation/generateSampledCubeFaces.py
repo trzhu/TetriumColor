@@ -32,7 +32,7 @@ for metameric_axis in range(4):
     os.makedirs(dirname, exist_ok=True)
 
     grid_size = 5
-    disp_points = GetMaximalMetamerPointsOnGrid(0.7, 0.3, 4, grid_size, color_space_transform)
-    CreateCircleGrid(disp_points, padding=10, radius=20, output_base="./outputs/5x5")
-    CreatePseudoIsochromaticGrid(
-        disp_points, f"./{dirname}/", f"{metameric_axis}_{grid_size}x{grid_size}_grid")
+    disp_points, _ = GetMaximalMetamerPointsOnGrid(0.7, 0.3, 4, grid_size, color_space_transform)
+    CreateCircleGrid(disp_points, padding=20, radius=100, output_base="./outputs/5x5")
+    # CreatePseudoIsochromaticGrid(
+    #     disp_points, f"./{dirname}/", f"{metameric_axis}_{grid_size}x{grid_size}_grid")

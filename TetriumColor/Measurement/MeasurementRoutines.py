@@ -24,14 +24,20 @@ def RemoveBlackLevelFromPrimaries(primaries: List[Spectra], summed_spectra: Spec
     return black_level_adjusted_spectras
 
 
-def SaveRGBOtoSixChannel(spectras: List[Spectra], save_filename: str):
+def SaveRGBOtoSixChannel(spectras: List[Spectra], save_filename: str, num_primaries=4):
     reformatted_spectras = np.array([spectras[0].wavelengths] + [spectras[i].data
                                                                  for i in range(len(spectras))]).T  # wavelengths + 4 spectra
-    modified_spectras = np.insert(arr=reformatted_spectras, obj=[5, 5], values=0, axis=1)
+    if num_primaries == 4:
+        modified_spectras = np.insert(arr=reformatted_spectras, obj=[5] * (6 - num_primaries), values=0, axis=1)
+    elif num_primaries == 5:
+        modified_spectras = np.insert(arr=reformatted_spectras, obj=[5], values=0, axis=1)
+    else:
+        modified_spectras = reformatted_spectras
+
     np.savetxt(save_filename, modified_spectras, delimiter=',', header='Wavelength,R,G,B,O,C,V')
 
 
-def MeasurePrimaries(save_directory: str):
+def MeasurePrimaries(save_directory: str, num_primaries=4):
 
     # currently need to manually measure all of the primaries + all of them together.
     # fine for now, but would be nice to get rid of it by interfacing with Tetrium
@@ -47,7 +53,8 @@ def MeasurePrimaries(save_directory: str):
     wavelengths = np.arange(380, 781, 4)
     primaries = convert_refs_to_spectras(np.array(app.spectras)[:, 1, :], wavelengths)
 
-    black_adjusted_primaries = RemoveBlackLevelFromPrimaries(primaries[:4], primaries[4], subset=[0, 1, 2])
+    black_adjusted_primaries = RemoveBlackLevelFromPrimaries(
+        primaries[:num_primaries], primaries[num_primaries], subset=list(range(num_primaries-1)))
     SaveRGBOtoSixChannel(black_adjusted_primaries, os.path.join(save_directory, 'all_primaries.csv'))
 
     with open(os.path.join(save_directory, 'black_adjusted_primaries.pkl'), 'wb') as f:
@@ -63,7 +70,7 @@ def MeasureMetamers(metamer_display_weights: npt.NDArray, save_directory: str, p
     pr650 = PR650(mac_port_name)
 
     # Create the app and manually measure all of the primaries
-    app = MeasureDisplay(pr650, save_directory='tmp')
+    app = MeasureDisplay(pr650, save_directory=save_directory)
     app.run()
 
     wavelengths = np.arange(380, 781, 4)
@@ -72,13 +79,13 @@ def MeasureMetamers(metamer_display_weights: npt.NDArray, save_directory: str, p
     with open(os.path.join(save_directory, 'metamers.pkl'), 'wb') as f:
         pickle.dump(metamers, f)
 
-    with open(os.path.join(save_directory, "metamer_display_weights.pkl"), 'wb') as f:
-        pickle.dump(metamer_display_weights, f)
+    # with open(os.path.join(save_directory, "metamer_display_weights.pkl"), 'wb') as f:
+    #     pickle.dump(metamer_display_weights, f)
 
-    with open(os.path.join(primary_directory, 'black_adjusted_primaries.pkl'), 'rb') as f:
-        primaries = pickle.load(f)
+    # with open(os.path.join(primary_directory, 'black_adjusted_primaries.pkl'), 'rb') as f:
+    #     primaries = pickle.load(f)
 
-    return metamer_display_weights, metamers, primaries
+    return metamer_display_weights  # , metamers, primaries
 
 
 def LoadMetamers(metamer_save_directory: str, primary_directory: str) -> tuple[npt.NDArray, List[Spectra], List[Spectra]]:
@@ -94,13 +101,13 @@ def LoadMetamers(metamer_save_directory: str, primary_directory: str) -> tuple[n
     with open(os.path.join(metamer_save_directory, 'metamers.pkl'), 'rb') as f:
         metamers = pickle.load(f)
 
-    with open(os.path.join(primary_directory, 'black_adjusted_primaries.pkl'), 'rb') as f:
-        primaries = pickle.load(f)
+    # with open(os.path.join(primary_directory, 'black_adjusted_primaries.pkl'), 'rb') as f:
+    #     primaries = pickle.load(f)
 
-    with open(os.path.join(metamer_save_directory, "metamer_display_weights.pkl"), 'rb') as f:
-        metamer_display_weights = pickle.load(f)
+    # with open(os.path.join(metamer_save_directory, "metamer_display_weights.pkl"), 'rb') as f:
+    #     metamer_display_weights = pickle.load(f)
 
-    return metamer_display_weights, metamers, primaries
+    return metamers
 
 
 def LoadPrimaries(primary_directory: str) -> List[Spectra]:
@@ -144,6 +151,38 @@ def GaussianSmoothPrimaries(primaries: List[Spectra]) -> List[Spectra]:
         smoothed_primaries.append(Spectra(data=fitted_data, wavelengths=upsampled_wavelengths))
 
     return smoothed_primaries
+
+
+def GetGaussianFit(primaries: List[Spectra]) -> List[Spectra]:
+    """ Smooth the primaries by fitting a better curve to the data, and using that as the real primaries
+
+    Args:
+        primaries (List[Spectra]): measured primaries
+        smoothing_factor (float, optional): . Defaults to 0.01.
+
+    Returns:
+        List[Spectra]: _description_
+    """
+    # want to upsample to at least 1 nm resolution because 4nm doesn't sample finely enough for the narrowband imo. We can tell with the red
+
+    def generalized_normal(x, amp, cen, sigma):
+        return amp * (1/(sigma * np.sqrt(2 * np.pi))) * np.exp(-((np.abs(x - cen)**2 / (2 * sigma**2))))
+
+    peak_and_hwhm = []
+
+    data_per_peak = [[630, 1], [530, 2.5], [450, 2], [590, 2], [510, 2.5], [410, 2.5]]
+    upsampled_wavelengths = np.arange(380, 781, 1)
+
+    for primary, data in zip(primaries, data_per_peak):
+        popt, _ = curve_fit(generalized_normal, primary.wavelengths,
+                            primary.data, p0=[np.max(primary.data), data[0], data[1]])
+        fitted_data = generalized_normal(upsampled_wavelengths, *popt)
+        print(popt)
+
+        fwhm = 2 * np.sqrt(2 * np.log(2)) * popt[2]
+
+        peak_and_hwhm.append((popt[1], fwhm))
+    return peak_and_hwhm
 
 
 def PerturbPrimaries(primaries: List[Spectra], wavelength_pertubation: int = 1, intensity_pertubation: float = 0.05) -> List[List[Spectra]]:

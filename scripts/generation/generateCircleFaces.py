@@ -6,7 +6,7 @@ from typing import List
 
 from TetriumColor.Observer.DisplayObserverSensitivity import GetColorSpaceTransform
 from TetriumColor.Observer.Observer import gaussian
-from TetriumColor.PsychoPhys.HueSphere import GenerateCubeMapTextures, ConcatenateCubeMap
+from TetriumColor.PsychoPhys.HueSphere import GenerateEachFaceOfGrid, GenerateCubeMapTextures, ConcatenateCubeMap
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform
 from TetriumColor.Observer import GetCustomObserver, Spectra
 from TetriumColor.Measurement import LoadPrimaries, GaussianSmoothPrimaries
@@ -30,10 +30,4 @@ for metameric_axis in range(2, 3):
     color_space_transform: ColorSpaceTransform = GetColorSpaceTransform(
         observer, primaries, metameric_axis=metameric_axis, scaling_factor=10000)
 
-    output_dirname = f'cubemap_outputs/s_{args.scrambleProb}_ma_{metameric_axis}_qcone_{args.q_cone_peak}'
-    os.makedirs(output_dirname, exist_ok=True)
-
-    GenerateCubeMapTextures(1, 1, color_space_transform, 128, f'./{output_dirname}/RGB_cube_map',
-                            f'./{output_dirname}/OCV_cube_map', scrambleProb=args.scrambleProb, std_dev=0)
-    ConcatenateCubeMap(f'./{output_dirname}/RGB_cube_map', f'./{output_dirname}/cubemap_RGB.png')
-    ConcatenateCubeMap(f'./{output_dirname}/OCV_cube_map', f'./{output_dirname}/cubemap_OCV.png')
+    GenerateEachFaceOfGrid(1.3, 0.3, color_space_transform, 5, f'./outputs/cubemap_faces_5x5')

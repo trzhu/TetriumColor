@@ -211,6 +211,11 @@ def RenderSimplexElements(name: str, dim: int, simplex_coords: npt.NDArray, simp
     return names
 
 
+def RenderSphere(name: str, radius):
+    mesh = GeometryPrimitives.CreateSphere(radius)
+    GeometryPrimitives.ConvertTriangleMeshToPolyscope(name, mesh)
+
+
 def RenderSimplexGamut(name: str, dim: int, points: npt.NDArray, colors: npt.NDArray, mesh_color: npt.NDArray):
     """Generate a Simplex Gamut
     Args:
@@ -457,6 +462,30 @@ def ConvertPointsToBasis(points: npt.NDArray, observer: Observer, display_basis:
     elif display_basis == DisplayBasisType.Hering:
         maxbasis = MaxBasisFactory.get_object(observer)
         T = maxbasis.GetConeToMaxBasisTransform()
+        if observer.dimension < 4:
+            T = GetHeringMatrixLumYDir(observer.dimension)@T
+        points = points@T.T
+        # projected anyways in the next step
+    elif display_basis == DisplayBasisType.ConeHering:
+        if observer.dimension < 4:
+            points = points@GetHeringMatrixLumYDir(observer.dimension).T
+
+    if observer.dimension > 3:
+        return points@GetHeringMatrix(observer.dimension).T[:, 1:]
+    elif observer.dimension == 2:  # fill all points with zeroes
+        return np.hstack((points, np.zeros((points.shape[0], 1))))
+    else:
+        return points
+
+
+def ConvertMaxBasisToDisplayBasis(points: npt.NDArray, observer: Observer, display_basis: DisplayBasisType) -> npt.NDArray:
+    if display_basis == DisplayBasisType.Cone:
+        maxbasis = MaxBasisFactory.get_object(observer)
+        T = maxbasis.GetConeToMaxBasisTransform()
+        points = points@np.linalg.inv(T).T
+    elif display_basis == DisplayBasisType.MaxBasis:
+        points = points
+    elif display_basis == DisplayBasisType.Hering:
         if observer.dimension < 4:
             T = GetHeringMatrixLumYDir(observer.dimension)@T
         points = points@T.T

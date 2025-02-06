@@ -73,6 +73,22 @@ def ConvertVSHtoTetraColor(vsh: npt.NDArray, color_space_transform: ColorSpaceTr
     return [TetraColor(six_d_color[i, :3], six_d_color[i, 3:]) for i in range(six_d_color.shape[0])]
 
 
+def ConvertVSHto6DTuple(vsh: npt.NDArray, color_space_transform: ColorSpaceTransform) -> npt.NDArray:
+    """
+    Convert VSH to TetraColor
+    Args:
+        vsh (npt.NDArray): The VSH coordinates to convert
+    """
+    # convert from the "spherical coordinates" back to cartesian
+    hering = ConvertVSHToHering(vsh)
+    # change of basis into display space (I will give this to you)
+    disp = (color_space_transform.hering_to_disp@hering.T).T
+    # map from RGBO -> RGBOCV --- I wrote this function to be general
+    six_d_color = Conversion.Map4DTo6D(disp, color_space_transform)
+    # convert to TetraColor object.
+    return six_d_color
+
+
 def ConvertVSHToPlateColor(vsh: npt.NDArray, luminance: float, color_space_transform: ColorSpaceTransform) -> PlateColor:
     """
     Convert VSH to PlateColor
@@ -213,7 +229,7 @@ def SampleHueManifold(luminance: float, saturation: float, dim: int, num_points:
     Args:
         luminance (float): The luminance value to generate the sphere at
         saturation (float): The saturation value to generate the sphere at
-    Returns: 
+    Returns:
         npt.NDArray: The sphere of values in vshh space
     """
     all_angles = Geometry.SampleAnglesEqually(num_points, dim-1)
@@ -327,7 +343,7 @@ def GetTransformChromToMetamericDir(transform: ColorSpaceTransform):
     """
     Get the transformation matrix from chromaticity to the metameric direction.
     """
-    xyz = GetMetamericAxisInHering(transform)[1:]  # remove luminance
+    xyz = GetMetamericAxisInVSH(transform)[1:]  # remove luminance
     return __rotateToZAxis(xyz)
 
 
@@ -377,7 +393,7 @@ def GetDualCircleMetamers(luminance: float, saturation: float, dist_from_origin:
 
 
 def _getMaximalMetamerPointsOnGrid(luminance: float, saturation: float, cube_idx: int,
-                                   grid_size: int, color_space_transform: ColorSpaceTransform) -> tuple[npt.NDArray, npt.NDArray]:
+                                   grid_size: int, color_space_transform: ColorSpaceTransform) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray]:
     """ Get the metamer points for a given luminance and cube index
     Args:
         luminance (float): luminance value
@@ -455,18 +471,19 @@ def _getMaximalMetamerPointsOnGrid(luminance: float, saturation: float, cube_idx
     print(np.round(diff_without_discretization, 5))
 
     list_metamers = output.reshape(-1, 2, 6)
-    return list_metamers.reshape(grid_size, grid_size, 2, 6), list_metamers[max_diff_index]
+    return list_metamers.reshape(grid_size, grid_size, 2, 6), list_metamers[max_diff_index], diff_without_discretization.reshape(grid_size, grid_size, 4)
 
 
 def GetMaximalMetamerPointsOnGrid(luminance: float, saturation: float, cube_idx: int,
                                   grid_size: int, color_space_transform: ColorSpaceTransform) -> npt.NDArray:
-    outputs, indices = _getMaximalMetamerPointsOnGrid(luminance, saturation, cube_idx, grid_size, color_space_transform)
-    return outputs
+    outputs, indices, cone_diff = _getMaximalMetamerPointsOnGrid(
+        luminance, saturation, cube_idx, grid_size, color_space_transform)
+    return outputs, cone_diff
 
 
 def GetMaxMetamerOverGridSample(luminance: float, saturation: float, cube_idx: int,
                                 grid_size: int, color_space_transform: ColorSpaceTransform) -> npt.NDArray:
-    _, max_metamer = _getMaximalMetamerPointsOnGrid(
+    _, max_metamer, cone_diff = _getMaximalMetamerPointsOnGrid(
         luminance, saturation, cube_idx, grid_size, color_space_transform)
     return max_metamer
 
@@ -478,7 +495,7 @@ def GenerateLUTLMStoQ(smql: npt.NDArray, color_space_transform: ColorSpaceTransf
         metamers_in_disp = np.array(FindMaximumIn1DimDirection(
             disp_pt, metamer_dir_in_disp, np.eye(color_space_transform.dim)))
     except:
-        print("Error in finding metamer")
+        # print("Error in finding metamer")
         return None
     cone_space = (np.linalg.inv(color_space_transform.cone_to_disp)@metamers_in_disp.T).T
     return cone_space[:, color_space_transform.metameric_axis]  # return range of values

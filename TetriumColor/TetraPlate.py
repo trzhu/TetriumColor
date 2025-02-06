@@ -17,13 +17,14 @@ def GetControlTest(observer: Observer, primaries: List[Spectra], metameric_axis:
                    grid_size: int = 5, cube_idx: int = 4) -> tuple[npt.NDArray, NoiseGenerator | None]:
 
     avg_obs_cst = GetColorSpaceTransform(observer, primaries, metameric_axis=metameric_axis)
-    disp_point = GetMaximalMetamerPointsOnGrid(luminance, saturation, cube_idx, grid_size, avg_obs_cst)[
+    disp_points, cone_diff = GetMaximalMetamerPointsOnGrid(luminance, saturation, cube_idx, grid_size, avg_obs_cst)
+    disp_point = disp_points[
         grid_indices[0]][grid_indices[1]]
-
+    # cone_diff = cone_diff[grid_indices[0]][grid_indices[1]]
     # set them equal to each other
     disp_point[1] = disp_point[0]
     noise_generator = LuminanceNoiseGenerator(avg_obs_cst, lum_noise)
-    return disp_point, noise_generator
+    return disp_point, 0, noise_generator
 
 
 def GetConeIdentifyingTest(observer: Observer, primaries: List[Spectra], metameric_axis: int,
@@ -44,14 +45,15 @@ def GetConeIdentifyingTest(observer: Observer, primaries: List[Spectra], metamer
 
 def GetObserverIdentifyingTest(observer: Observer, primaries: List[Spectra], metameric_axis: int,
                                luminance: float, lum_noise: float, saturation: float, grid_indices: tuple,
-                               grid_size: int = 5, cube_idx: int = 4) -> tuple[npt.NDArray, NoiseGenerator]:
+                               grid_size: int = 5, cube_idx: int = 4) -> tuple[npt.NDArray, npt.NDArray, NoiseGenerator]:
 
     cst = GetColorSpaceTransform(observer, primaries, metameric_axis=metameric_axis)
-    points_disp = GetMaximalMetamerPointsOnGrid(luminance, saturation, cube_idx, grid_size, cst)[
-        grid_indices[0]][grid_indices[1]]
+    points_disps, cone_diffs = GetMaximalMetamerPointsOnGrid(luminance, saturation, cube_idx, grid_size, cst)
+    points_disp = points_disps[grid_indices[0]][grid_indices[1]]
+    cone_diff = cone_diffs[grid_indices[0]][grid_indices[1]]
     # noise_generator = LuminanceNoiseGenerator(cst, lum_noise)
     noise_generator = ConeLuminanceNoiseGenerator(cst, lum_noise)
-    return points_disp, noise_generator
+    return points_disp, cone_diff, noise_generator
 
 
 class PseudoIsochromaticPlateGenerator:
