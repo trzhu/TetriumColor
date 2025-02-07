@@ -489,8 +489,9 @@ class Observer:
             npt.NDArray: Normalized sensor matrix at specific wavelengths as sensors x wavelengths
         """
         sensor_matrix = self.get_sensor_matrix(wavelengths)
-        whitepoint = np.matmul(self.sensor_matrix, self.illuminant.data)
-        return ((sensor_matrix * self.illuminant.data).T / whitepoint).T
+        interp_illum_data = self.illuminant.interpolate_values(wavelengths).data
+        whitepoint = np.matmul(sensor_matrix, interp_illum_data)
+        return ((sensor_matrix * interp_illum_data).T / whitepoint).T
 
     def observe(self, data: Union[npt.NDArray, Spectra]) -> npt.NDArray:
         """Given a spectra or reflectance, observe the color
