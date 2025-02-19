@@ -8,9 +8,10 @@ from typing import List
 from tqdm import tqdm
 import numpy as np
 
-from TetriumColor.ColorMath.SubSpaceIntersection import FindMaximalSaturation, FindMaximumIn1DimDirection
+from TetriumColor.ColorMath.SubSpaceIntersection import FindMaximalSaturation, FindMaximumIn1DimDirection, ZonotopeToInequalities
 import TetriumColor.ColorMath.Geometry as Geometry
 import TetriumColor.ColorMath.Conversion as Conversion
+from TetriumColor.Observer import Observer
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, PlateColor, TetraColor
 
 
@@ -135,8 +136,34 @@ def GenerateGamutLUT(all_vshh: npt.NDArray, color_space_transform: ColorSpaceTra
     invMat = np.linalg.inv(color_space_transform.hering_to_disp)
     max_sat_per_angle = ConvertHeringToVSH((invMat@max_sat_cartesian_per_angle.T).T)
     for angle, sat in zip(all_vshh[:, 2:], max_sat_per_angle):
-        map_angle_to_sat[tuple(angle)] = tuple([sat[0], sat[1]])
+        map_angle_to_sat[tuple(angle)] = tuple([sat[0], sat[1]])  # (lum cusp, sat cusp)
     return map_angle_to_sat
+
+
+def GenerateMaximalHueSpherePoints(num_points: int, color_space_transform: ColorSpaceTransform, observer: Observer) -> npt.NDArray:
+    """_summary_
+
+    Args:
+        all_vshh (npt.NDArray): _description_
+        color_space_transform (ColorSpaceTransform): _description_
+
+    Returns:
+        dict: _description_
+    """
+    vshh: npt.NDArray = SampleHueManifold(1, 0.5, 4, num_points)
+    all_cartesian_points = (color_space_transform.hering_to_disp@ConvertVSHToHering(vshh).T).T
+
+    generating_vecs = observer.get_normalized_sensor_matrix(wavelengths=np.arange(360, 831, 1)).T
+    pts = []
+    for pt in tqdm(all_cartesian_points):
+        res = FindMaximalSaturation(pt, generating_vecs=generating_vecs)
+        if res is not None:
+            pts += [res]
+    max_sat_cartesian_per_angle = np.array(pts)
+    invMat = np.linalg.inv(color_space_transform.hering_to_disp)
+    boundary_hue_sphere_points = max_sat_cartesian_per_angle@invMat.T
+
+    return boundary_hue_sphere_points
 
 
 def GenerateGamutLUTOnUV(uvs: npt.NDArray, all_vshh: npt.NDArray, color_space_transform: ColorSpaceTransform) -> dict:
@@ -343,7 +370,7 @@ def GetTransformChromToMetamericDir(transform: ColorSpaceTransform):
     """
     Get the transformation matrix from chromaticity to the metameric direction.
     """
-    xyz = GetMetamericAxisInVSH(transform)[1:]  # remove luminance
+    xyz = GetMetamericAxisInHering(transform)[1:]  # remove luminance
     return __rotateToZAxis(xyz)
 
 

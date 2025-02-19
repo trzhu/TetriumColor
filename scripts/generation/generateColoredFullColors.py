@@ -14,7 +14,7 @@ color_space_transform: ColorSpaceTransform = GetColorSpaceTransformWODisplay(obs
 lum_sat_pairs = [(0.5, 0.2), (0.8, 0.3), (1.2, 0.3), (1.5, 0.2)]
 cones = SampleSaturatedSubManifold(lum_sat_pairs, color_space_transform)
 cone_to_hering = np.linalg.inv(color_space_transform.hering_to_disp)@color_space_transform.cone_to_disp
-hering = cones@cone_to_hering.T
+hering = cones@np.linalg.inv(color_space_transform.hering_to_cone).T
 sRGBs = np.clip(cones@color_space_transform.cone_to_sRGB.T, 0, 1)
 
 fig = plt.figure()

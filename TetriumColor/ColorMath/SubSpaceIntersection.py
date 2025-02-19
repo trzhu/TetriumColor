@@ -153,35 +153,51 @@ def MaximizeDimensionOnSubspace(A, b, p0, V, k):
         raise ValueError("Optimization failed. No feasible solution found.")
 
 
-def FindMaximalSaturation(hue_direction: npt.NDArray, generating_vecs: npt.NDArray) -> npt.NDArray:
-    """Find the Maximal Point that lies along a given hue direction in a paralleletope.
+def FindMaximalSaturation(hue_direction: npt.NDArray, generating_vecs: npt.NDArray) -> npt.NDArray | None:
+    """
+    Finds the point in the zonotope that has maximal saturation in the given hue direction,
+    ensuring it remains within the subspace.
 
-    Args:
-        hue_direction (npt.NDArray): point in display basis space to represent the hue dimension in (theta, phi,.. etc)
-        paralleletope_vecs (npt.NDArray): vectors in display basis space in R^N that define the paralleletope
+    Parameters:
+    hue_direction   - (d,) array representing the hue direction vector.
+    generating_vecs - (n, d) array where each row is a generating vector of the zonotope.
 
     Returns:
-        npt.NDArray: The maximal point in the paralleletope that lies along the hue direction
+    boundary_point - The furthest point in the zonotope along the hue axis.
     """
-    M = generating_vecs.shape[0]  # Number of vectors defining the parallelepiped
-    N = generating_vecs.shape[1]  # Dimension of parallelepiped
 
-    p0 = np.zeros(N)  # Origin
-    if M > N:
-        A, b = ZonotopeToInequalities(generating_vecs)
+    d = hue_direction.shape[0]
+    n = generating_vecs.shape[0]  # Number of generators
+    p0 = np.zeros(d)  # Origin
+
+    # Compute the subspace basis
+    v1 = np.ones(d) / np.linalg.norm(np.ones(d))  # Luminance vector
+    v2 = ProjectPointOntoPlane(hue_direction, p0, v1)  # Hue vector
+    V = np.column_stack((v1, v2))  # Subspace spanning vectors (d, 2)
+
+    # Compute the projection matrix onto the subspace
+    P_V = V @ np.linalg.inv(V.T @ V) @ V.T  # Projection matrix onto V
+    I = np.eye(d)
+
+    # Constraint to enforce the slice condition
+    A_eq = (I - P_V) @ generating_vecs.T  # Ensure Gλ remains in the slice
+    b_eq = np.zeros(d)  # Enforce the slice constraint
+
+    # Objective: maximize v2^T G λ (hue axis)
+    c = -v2.T @ generating_vecs.T  # Since linprog minimizes, negate the objective
+
+    # Bounds: lambda values between 0 and 1
+    bounds = [(0, 1) for _ in range(n)]
+
+    # Solve LP
+    res = linprog(c, A_eq=A_eq, b_eq=b_eq, bounds=bounds, method="highs")
+
+    if res.success:
+        # Compute the full N-dimensional point
+        boundary_point = generating_vecs.T @ res.x
+        return boundary_point
     else:
-        A, b = ParallelepipedToInequalities(p0, generating_vecs)
-
-    v1 = np.ones(N)/np.linalg.norm(np.ones(N))  # Luminance vector
-    v2 = ProjectPointOntoPlane(hue_direction, p0, v1)  # Hue Vector
-    V = np.column_stack((v1, v2))  # Combine spanning vectors
-
-    # Maximize along t2 Hue dimension, which should correspond to saturation
-    k = 1
-    max_t2, optimal_t = MaximizeDimensionOnSubspace(A, b, p0, V, k)
-    # Back-transform to original space:
-    x_max = p0 + np.dot(V, optimal_t)
-    return x_max
+        return None
 
 
 def FindMaximumIn1DimDirection(point: npt.NDArray, metameric_direction: npt.NDArray, generating_vecs: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray]:

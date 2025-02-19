@@ -5,6 +5,8 @@ from typing import List
 import tetrapolyscope as ps
 
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, DisplayBasisType
+from TetriumColor.Observer.DisplayObserverSensitivity import GetColorSpaceTransformWODisplay
+from TetriumColor.ColorMath.GamutMath import GenerateMaximalHueSpherePoints
 
 from .Geometry import GeometryPrimitives
 from ..Observer import Observer, MaxBasisFactory, GetHeringMatrix
@@ -361,12 +363,15 @@ def RenderOBS(name: str, observer: Observer, display_basis: DisplayBasisType) ->
         observer (Observer): Observer object to render
         display_basis (DisplayBasisType): Basis to render the object in
     """
-    if display_basis == DisplayBasisType.Cone:
-        RenderConeOBS(name, observer)
-    elif display_basis == DisplayBasisType.MaxBasis:
-        RenderMaxBasisOBS(name, observer)
-    else:
-        RenderHeringBasisOBS(name, observer)
+    color_space_transform: ColorSpaceTransform = GetColorSpaceTransformWODisplay(observer)
+
+    boundary_points = GenerateMaximalHueSpherePoints(10000, color_space_transform, observer)
+    cones = boundary_points@color_space_transform.hering_to_cone.T
+    sRGBs = np.clip(cones@color_space_transform.cone_to_sRGB.T, 0, 1)
+
+    T = GetBasisConvert(observer, display_basis)
+    chrom_points = cones@T.T
+    Render3DMesh(f"{name}", chrom_points, sRGBs)
 
 
 def RenderMaxBasis(name: str, observer: Observer, display_basis: DisplayBasisType = DisplayBasisType.MaxBasis) -> None:
@@ -416,7 +421,6 @@ def GetBasisConvert(observer: Observer, display_basis: DisplayBasisType) -> npt.
     """Convert 4D points to the basis specified.
 
     Args:
-        points (npt.NDArray): points Nx4
         observer (Observer): observer object
         display_basis (DisplayBasisType): basis to display points in.
 

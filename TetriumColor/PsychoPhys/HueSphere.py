@@ -315,8 +315,7 @@ def SampleEqualLumChromManifoldActivations(luminance: float, saturation: float,
     vshh = GamutMath.SampleHueManifold(luminance, saturation, 4, 1000)
     remapped_vshh = GamutMath.RemapGamutPoints(vshh, color_space_transform, None)
     hering_colors = GamutMath.ConvertVSHToHering(remapped_vshh)
-    hering_to_cone = np.linalg.inv(color_space_transform.cone_to_disp)@color_space_transform.hering_to_disp
-    cone_stimulations = hering_colors@hering_to_cone.T
+    cone_stimulations = hering_colors@color_space_transform.hering_to_cone.T
     return cone_stimulations
 
 

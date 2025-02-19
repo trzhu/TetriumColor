@@ -19,7 +19,7 @@ parser.add_argument('--scrambleProb', type=float, default=0, help='Probability o
 args = parser.parse_args()
 
 # Load Observer and Measured Primaries
-wavelengths = np.arange(380, 781, 1)
+wavelengths = np.arange(360, 831, 1)
 observer = GetCustomObserver(wavelengths, args.od, args.dimension, args.s_cone_peak, args.m_cone_peak, args.q_cone_peak,
                              args.l_cone_peak, args.macula, args.lens, args.template)
 
@@ -33,7 +33,7 @@ for metameric_axis in range(2, 3):
     output_dirname = f'cubemap_outputs/s_{args.scrambleProb}_ma_{metameric_axis}_qcone_{args.q_cone_peak}'
     os.makedirs(output_dirname, exist_ok=True)
 
-    GenerateCubeMapTextures(1, 1, color_space_transform, 128, f'./{output_dirname}/RGB_cube_map',
+    GenerateCubeMapTextures(1, 1, color_space_transform, 32, f'./{output_dirname}/RGB_cube_map',
                             f'./{output_dirname}/OCV_cube_map', scrambleProb=args.scrambleProb, std_dev=0)
     ConcatenateCubeMap(f'./{output_dirname}/RGB_cube_map', f'./{output_dirname}/cubemap_RGB.png')
     ConcatenateCubeMap(f'./{output_dirname}/OCV_cube_map', f'./{output_dirname}/cubemap_OCV.png')

@@ -73,6 +73,7 @@ class ColorSpaceTransform:
     cone_to_disp: npt.NDArray
     maxbasis_to_disp: npt.NDArray
     hering_to_disp: npt.NDArray
+    hering_to_cone: npt.NDArray
     metameric_axis: int
     display_basis: List[int]
     white_weights: npt.NDArray

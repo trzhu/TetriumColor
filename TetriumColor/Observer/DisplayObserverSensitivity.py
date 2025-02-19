@@ -231,6 +231,7 @@ def GetColorSpaceTransformTosRGB(observer: Observer, metameric_axis: int = 2, su
     M_ConeToMaxBasis = max_basis.cone_to_maxbasis
     M_MaxBasisToHering = max_basis.HMatrix
 
+    M_ConeToHering = M_MaxBasisToHering@M_ConeToMaxBasis
     M_PrimariesToMaxBasis = M_ConeToMaxBasis@M_PrimariesToCone
     M_PrimariesToHering = M_MaxBasisToHering@M_PrimariesToMaxBasis
 
@@ -239,6 +240,7 @@ def GetColorSpaceTransformTosRGB(observer: Observer, metameric_axis: int = 2, su
         M_Cone_To_Primaries,
         np.linalg.inv(M_PrimariesToMaxBasis),
         np.linalg.inv(M_PrimariesToHering),
+        np.linalg.inv(M_ConeToHering),
         metameric_axis,
         subset_leds,
         np.ones(observer.dimension),
@@ -262,6 +264,7 @@ def GetColorSpaceTransformWODisplay(observer: Observer, metameric_axis: int = 2)
     M_ConeToMaxBasis = max_basis.cone_to_maxbasis
     M_MaxBasisToHering = max_basis.HMatrix
 
+    M_ConeToHering = M_MaxBasisToHering@M_ConeToMaxBasis
     M_PrimariesToMaxBasis = M_ConeToMaxBasis@M_PrimariesToCone
     M_PrimariesToHering = M_MaxBasisToHering@M_PrimariesToMaxBasis
 
@@ -270,6 +273,7 @@ def GetColorSpaceTransformWODisplay(observer: Observer, metameric_axis: int = 2)
         M_Cone_To_Primaries,
         np.linalg.inv(M_PrimariesToMaxBasis),
         np.linalg.inv(M_PrimariesToHering),
+        np.linalg.inv(M_ConeToHering),
         metameric_axis,
         [i for i in range(observer.dimension)],  # dummy LEDs
         np.ones(observer.dimension),  # dummy white point
@@ -304,6 +308,7 @@ def GetColorSpaceTransform(observer: Observer, display_primaries: List[Spectra] 
     M_ConeToMaxBasis = max_basis.cone_to_maxbasis
     M_MaxBasisToHering = max_basis.HMatrix
 
+    M_ConeToHering = M_MaxBasisToHering@M_ConeToMaxBasis
     M_PrimariesToMaxBasis = M_ConeToMaxBasis@M_PrimariesToCone
     M_PrimariesToHering = M_MaxBasisToHering@M_PrimariesToMaxBasis
 
@@ -312,6 +317,7 @@ def GetColorSpaceTransform(observer: Observer, display_primaries: List[Spectra] 
         M_Cone_To_Primaries,
         np.linalg.inv(M_PrimariesToMaxBasis),
         np.linalg.inv(M_PrimariesToHering),
+        np.linalg.inv(M_ConeToHering),
         metameric_axis,
         subset_leds,
         rescaled_white_weights,
