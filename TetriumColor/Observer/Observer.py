@@ -341,6 +341,9 @@ class Observer:
     def __hash__(self):
         return hash((tuple(tuple([s.peak, s.od, s.lens, s.macular]) for s in self.sensors), tuple(self.wavelengths), self.dimension))
 
+    def __str__(self):
+        return f"Observer({[[s.peak, s.od, s.lens, s.macular] for s in self.sensors]})"
+
     def get_multispectral(self) -> MultiSpectralDistributions:
         if self.dimension > 3:
             subset = [0, 1, 3]
@@ -352,20 +355,20 @@ class Observer:
             d[int(m[0])] = tuple(m[1:].tolist())
         return MultiSpectralDistributions(d)
 
-    @ staticmethod
+    @staticmethod
     def dichromat(wavelengths=None, illuminant=None):
         s_cone = Cone.s_cone(wavelengths)
         m_cone = Cone.m_cone(wavelengths)
         return Observer([s_cone, m_cone], illuminant=illuminant)
 
-    @ staticmethod
+    @staticmethod
     def trichromat(wavelengths=None, illuminant=None):
         l_cone = Cone.l_cone(wavelengths)
         m_cone = Cone.m_cone(wavelengths)
         s_cone = Cone.s_cone(wavelengths)
         return Observer([s_cone, m_cone, l_cone], illuminant=illuminant)
 
-    @ staticmethod
+    @staticmethod
     def tetrachromat(wavelengths=None, illuminant=None, verbose=False):
         # This is a "maximally well spaced" tetrachromat
         # Cone.cone(555, wavelengths=wavelengths, template="neitz", od=0.35)
@@ -378,7 +381,7 @@ class Observer:
         s_cone = Cone.s_cone(wavelengths)
         return Observer([s_cone, m_cone, q_cone, l_cone], illuminant=illuminant, verbose=verbose)
 
-    @ staticmethod
+    @staticmethod
     def neitz_tetrachromat(wavelengths=None, illuminant=None, verbose=False):
         # This is a "maximally well spaced" tetrachromat
         l_cone = Cone.cone(559, wavelengths=wavelengths,
@@ -390,7 +393,7 @@ class Observer:
         s_cone = Cone.s_cone(wavelengths=wavelengths)
         return Observer([s_cone, m_cone, q_cone, l_cone], illuminant=illuminant, verbose=verbose)
 
-    @ staticmethod
+    @staticmethod
     def govardovskii_tetrachromat(wavelengths=None, illuminant=None, verbose=False):
         # This is a "maximally well spaced" tetrachromat
         l_cone = Cone.cone(559, wavelengths=wavelengths,
@@ -402,7 +405,7 @@ class Observer:
         s_cone = Cone.s_cone(wavelengths=wavelengths)
         return Observer([s_cone, m_cone, q_cone, l_cone], illuminant=illuminant, verbose=verbose)
 
-    @ staticmethod
+    @staticmethod
     def gaussian_tetrachromat(wavelengths: npt.NDArray, illuminant=None, verbose=False):
 
         def gaussian(wavelengths, peak, width=0.1):
@@ -421,25 +424,25 @@ class Observer:
 
         return Observer([s_cone, m_cone, q_cone, l_cone], illuminant=illuminant, verbose=verbose)
 
-    @ staticmethod
+    @staticmethod
     def protanope(wavelengths=None, illuminant=None):
         m_cone = Cone.m_cone(wavelengths)
         s_cone = Cone.s_cone(wavelengths)
         return Observer([s_cone, m_cone], illuminant=illuminant)
 
-    @ staticmethod
+    @staticmethod
     def deuteranope(wavelengths=None, illuminant=None):
         l_cone = Cone.l_cone(wavelengths)
         s_cone = Cone.s_cone(wavelengths)
         return Observer([s_cone, l_cone], illuminant=illuminant)
 
-    @ staticmethod
+    @staticmethod
     def tritanope(wavelengths=None, illuminant=None):
         m_cone = Cone.m_cone(wavelengths)
         l_cone = Cone.l_cone(wavelengths)
         return Observer([m_cone, l_cone], illuminant=illuminant)
 
-    @ staticmethod
+    @staticmethod
     def bird(name, wavelengths=None, illuminant=None, verbose=False):
         """
         bird: bird types are ['UVS-Average-Bird.csv', 'UVS-bluetit.csv', 'UVS-Starling.csv', 'VS-Average-Bird.csv', 'VS-Peafowl.csv']

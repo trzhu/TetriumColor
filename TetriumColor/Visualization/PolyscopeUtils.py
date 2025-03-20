@@ -355,7 +355,7 @@ def RenderHeringBasisOBS(name: str, observer: Observer) -> None:
     RenderOBSTransform(name, observer, T)
 
 
-def RenderOBS(name: str, observer: Observer, display_basis: DisplayBasisType) -> None:
+def RenderOBS(name: str, observer: Observer, display_basis: DisplayBasisType, num_samples=10000) -> None:
     """Render Object Color Solid in Specified Basis
 
     Args:
@@ -365,7 +365,7 @@ def RenderOBS(name: str, observer: Observer, display_basis: DisplayBasisType) ->
     """
     color_space_transform: ColorSpaceTransform = GetColorSpaceTransformWODisplay(observer)
 
-    boundary_points = GenerateMaximalHueSpherePoints(10000, color_space_transform, observer)
+    boundary_points = GenerateMaximalHueSpherePoints(num_samples, color_space_transform, observer)
     cones = boundary_points@color_space_transform.hering_to_cone.T
     sRGBs = np.clip(cones@color_space_transform.cone_to_sRGB.T, 0, 1)
 
