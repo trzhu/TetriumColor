@@ -1,7 +1,9 @@
 import numpy as np
 import numpy.typing as npt
-from typing import List, Dict, Tuple, Union, Optional, Any
+from typing import List, Dict, Tuple
 from enum import Enum
+from PIL import Image, ImageDraw
+from tqdm import tqdm
 
 from TetriumColor.Observer import Observer
 from TetriumColor.Observer.Spectra import Spectra
@@ -11,7 +13,6 @@ from TetriumColor.Observer.DisplayObserverSensitivity import (
 )
 import TetriumColor.ColorMath.Geometry as Geometry
 import TetriumColor.ColorMath.Conversion as Conversion
-from tqdm import tqdm
 
 
 class ColorSpaceType(Enum):
@@ -54,6 +55,10 @@ class ColorSpace:
         self.metameric_axis = metameric_axis
         self.subset_leds = subset_leds or [0, 1, 2, 3]
         self._gamut_lut = None
+        self._gamut_cubemap = None
+        self._lum_range = None
+        self._sat_range = None
+        self._cubemap_size = 64  # Default size for the cubemap
 
         if display is None:
             # Create a default display transformation without specific primaries
@@ -76,32 +81,169 @@ class ColorSpace:
         # Store the dimensionality of the color space
         self.dim = self.transform.dim
 
-    def _generate_gamut_lut(self, num_points: int = 100) -> Dict:
+    def _generate_gamut_cubemap(self) -> Tuple[Dict, Tuple[Tuple[float, float], Tuple[float, float]]]:
         """
-        Generate a lookup table for the gamut boundaries.
+        Generate a cubemap representation of the gamut boundaries.
 
         Parameters:
-            num_points (int): Number of hue directions to sample
+            self._cubemap_size (int): Size of the cubemap images
+
+        Returns:
+            Tuple containing:
+                - Dict of cubemap images
+                - Tuple of luminance and saturation ranges
+        """
+        # Generate grid of UV coordinates
+        all_us = (np.arange(self._cubemap_size) + 0.5) / self._cubemap_size
+        all_vs = (np.arange(self._cubemap_size) + 0.5) / self._cubemap_size
+        cube_u, cube_v = np.meshgrid(all_us, all_vs)
+        flattened_u, flattened_v = cube_u.flatten(), cube_v.flatten()
+
+        # Get metameric direction matrix
+        metamericDirMat = self._get_transform_chrom_to_metameric_dir()
+        invMetamericDirMat = np.linalg.inv(metamericDirMat)
+
+        # Process each face of the cube
+        lut_dicts = []
+        for i in tqdm(range(6)):
+            # Convert UV to XYZ coordinates for this cube face
+            xyz = Geometry.ConvertCubeUVToXYZ(i, cube_u, cube_v, 1).reshape(-1, 3)
+            xyz = np.dot(invMetamericDirMat, xyz.T).T
+
+            # Create hering coordinates with unit luminance
+            lum_vector = np.ones(self._cubemap_size * self._cubemap_size)
+            vxyz = np.hstack((lum_vector[np.newaxis, :].T, xyz))
+
+            # Convert to VSH space
+            vshh = self._hering_to_vsh(vxyz)
+
+            # Generate gamut LUT for this face
+            face_dict = {}
+            for j in range(len(flattened_u)):
+                u, v = flattened_v[j], flattened_u[j]
+                angle = tuple(vshh[j, 2:])
+                # Find cusp point for this hue angle
+                hue_cartesian = self._vsh_to_hering(np.array([[0, 1, *angle]]))
+                max_sat_point = self._find_maximal_saturation(
+                    (self.transform.hering_to_disp @ hue_cartesian.T).T[0]
+                )
+                max_sat_hering = np.linalg.inv(self.transform.hering_to_disp) @ max_sat_point
+                max_sat_vsh = self._hering_to_vsh(max_sat_hering[np.newaxis, :])[0]
+                lum_cusp, sat_cusp = max_sat_vsh[0], max_sat_vsh[1]
+                face_dict[(u, v)] = (lum_cusp, sat_cusp)
+
+            lut_dicts.append(face_dict)
+
+        # Compute overall ranges for normalization
+        all_values = np.array([list(lut_dicts[i].values()) for i in range(6)]).reshape(-1, 2)
+        lum_min, lum_max = np.min(all_values[:, 0]), np.max(all_values[:, 0])
+        sat_min, sat_max = np.min(all_values[:, 1]), np.max(all_values[:, 1])
+
+        # Generate cubemap images
+        cubemap_images = {}
+        for i in tqdm(range(6)):
+            img = Image.new('RGB', (self._cubemap_size, self._cubemap_size))
+            draw = ImageDraw.Draw(img)
+
+            for j in range(len(flattened_u)):
+                u, v = flattened_v[j], flattened_u[j]
+                lum_cusp, sat_cusp = lut_dicts[i][(u, v)]
+                normalized_lum = (lum_cusp - lum_min) / (lum_max - lum_min)
+                normalized_sat = (sat_cusp - sat_min) / (sat_max - sat_min)
+                rgb_color = (int(normalized_lum * 255), int(normalized_sat * 255), 0)
+                draw.point((int(u * self._cubemap_size), int(v * self._cubemap_size)), fill=rgb_color)
+
+            cubemap_images[i] = img
+
+        return cubemap_images, ((lum_min, lum_max), (sat_min, sat_max))
+
+    def _get_transform_chrom_to_metameric_dir(self) -> npt.NDArray:
+        """
+        Get the transformation matrix from chromatic coordinates to metameric direction.
+
+        Returns:
+            npt.NDArray: Transformation matrix
+        """
+        # "Q" direction
+        metameric_axis = np.zeros(self.dim)
+        metameric_axis[self.transform.metameric_axis] = 1
+
+        direction = self.convert(metameric_axis, ColorSpaceType.CONE, ColorSpaceType.HERING)
+        normalized_direction = direction / np.linalg.norm(direction)
+        return Geometry.RotateToZAxis(normalized_direction[1:])
+
+    def _interpolate_from_cubemap(self, angles: tuple) -> Tuple[float, float]:
+        """
+        Interpolate luminance and saturation values from the cubemap for given angles.
+
+        Parameters:
+            angles (npt.NDArray): Nx2 Array of angles for which to interpolate values
+
+        Returns:
+            Tuple[float, float]: List of interpolated luminance and saturation values
+        """
+        if self._gamut_cubemap is None:
+            self.get_gamut_lut()  # Initialize the cubemap if not already done
+
+        face_idx, u, v = self._angles_to_cube_uv(angles)
+
+        lum_min, lum_max = self._lum_range
+        sat_min, sat_max = self._sat_range
+
+        img = self._gamut_cubemap[face_idx]
+        # Convert UV to pixel coordinates
+        x, y = u * img.width, v * img.height
+
+        # Get integer pixel coordinates and fractional parts
+        x0, y0 = int(x), int(y)
+        x1, y1 = min(x0 + 1, img.width - 1), min(y0 + 1, img.height - 1)
+        dx, dy = x - x0, y - y0
+
+        # Get pixel values for the four surrounding pixels
+        r00, g00, _ = img.getpixel((x0, y0))
+        r10, g10, _ = img.getpixel((x1, y0))
+        r01, g01, _ = img.getpixel((x0, y1))
+        r11, g11, _ = img.getpixel((x1, y1))
+
+        # Perform bilinear interpolation
+        r = (1 - dx) * (1 - dy) * r00 + dx * (1 - dy) * r10 + (1 - dx) * dy * r01 + dx * dy * r11
+        g = (1 - dx) * (1 - dy) * g00 + dx * (1 - dy) * g10 + (1 - dx) * dy * g01 + dx * dy * g11
+
+        # Convert normalized values back to actual luminance and saturation
+        lum = (r / 255.0) * (lum_max - lum_min) + lum_min
+        sat = (g / 255.0) * (sat_max - sat_min) + sat_min
+
+        return lum, sat
+
+    def _angles_to_cube_uv(self, angles: tuple[float, float]):
+        """
+        Convert angles to cube face index and UV coordinates.
+
+        Parameters:
+            angles (npt.NDArray): Angles to convert
+
+        Returns:
+            Tuple[int, Tuple[float, float]]: Cube face index and UV coordinates
+        """
+        angles_with_ones = np.array([[1, 1, *angles]])
+        x, y, z = self.convert(angles_with_ones, ColorSpaceType.VSH, ColorSpaceType.HERING)[0, 1:]
+        face_id, u, v = Geometry.ConvertXYZToCubeUV(x, y, z)
+        return int(face_id), float(u), float(v)
+
+    def get_gamut_lut(self, force_recompute: bool = False):
+        """
+        Get the gamut lookup table, represented as a cubemap.
+
+        Parameters:
+            num_points (int): Number of points for cubemap resolution if recomputing
+            force_recompute (bool): Whether to force recomputation
 
         Returns:
             Dict: Mapping from angle to (luminance_cusp, saturation_cusp)
         """
-        vshh = self.sample_hue_manifold(1.0, 1.0, num_points)
-        all_cartesian_points = (self.transform.hering_to_disp @ self._vsh_to_hering(vshh).T).T
-
-        # Get max sat points for each hue direction
-        map_angle_to_sat = {}
-        pts = []
-        for pt in tqdm(all_cartesian_points, desc="Generating gamut LUT"):
-            pts.append(self._find_maximal_saturation(pt))
-        max_sat_cartesian_per_angle = np.array(pts)
-
-        # Convert display points back to VSH, and set parameters
-        invMat = np.linalg.inv(self.transform.hering_to_disp)
-        max_sat_per_angle = self._hering_to_vsh((invMat @ max_sat_cartesian_per_angle.T).T)
-        for angle, sat in zip(vshh[:, 2:], max_sat_per_angle):
-            map_angle_to_sat[tuple(angle)] = tuple([sat[0], sat[1]])  # (lum_cusp, sat_cusp)
-        return map_angle_to_sat
+        if self._gamut_cubemap is None or force_recompute:
+            self._gamut_cubemap, ranges = self._generate_gamut_cubemap()
+            self._lum_range, self._sat_range = ranges
 
     def _find_maximal_saturation(self, hue_direction: npt.NDArray) -> npt.NDArray:
         """
@@ -231,21 +373,6 @@ class ColorSpace:
 
         return vshh
 
-    def get_gamut_lut(self, num_points: int = 100, force_recompute: bool = False) -> Dict:
-        """
-        Get the lookup table for the gamut boundaries.
-
-        Parameters:
-            num_points (int): Number of hue directions to sample
-            force_recompute (bool): Whether to force recomputation of the LUT
-
-        Returns:
-            Dict: Mapping from angle to (luminance_cusp, saturation_cusp)
-        """
-        if self._gamut_lut is None or force_recompute:
-            self._gamut_lut = self._generate_gamut_lut(num_points)
-        return self._gamut_lut
-
     def remap_to_gamut(self, vshh: npt.NDArray) -> npt.NDArray:
         """
         Remap points to be within the gamut.
@@ -256,8 +383,9 @@ class ColorSpace:
         Returns:
             npt.NDArray: Remapped points that are in gamut
         """
-        # Get or compute the gamut LUT
-        map_angle_sat = self.get_gamut_lut()
+        # Ensure the cubemap is generated
+        if self._gamut_cubemap is None:
+            self.get_gamut_lut()
 
         # Get the maximum luminance
         max_L = (np.linalg.inv(self.transform.hering_to_disp) @
@@ -270,18 +398,8 @@ class ColorSpace:
         for i in range(len(remapped_vshh)):
             angle = tuple(remapped_vshh[i, 2:])
 
-            # Get the cusp point for the given angle
-            if angle not in map_angle_sat:
-                # Compute the cusp point dynamically if not in the LUT
-                hue_cartesian = self._vsh_to_hering(np.array([[0, 1, *angle]]))
-                max_sat_point = self._find_maximal_saturation(
-                    (self.transform.hering_to_disp @ hue_cartesian.T).T[0]
-                )
-                max_sat_hering = np.linalg.inv(self.transform.hering_to_disp) @ max_sat_point
-                max_sat_vsh = self._hering_to_vsh(max_sat_hering[np.newaxis, :])[0]
-                lum_cusp, sat_cusp = max_sat_vsh[0], max_sat_vsh[1]
-            else:
-                lum_cusp, sat_cusp = map_angle_sat[angle]
+            # Get cusp values by interpolating from the cubemap
+            lum_cusp, sat_cusp = self._interpolate_from_cubemap(angle)
 
             # Calculate the maximum saturation at the given luminance
             sat_max = self._solve_for_boundary(remapped_vshh[i, 0], max_L, lum_cusp, sat_cusp)
