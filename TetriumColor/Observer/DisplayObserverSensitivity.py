@@ -221,7 +221,18 @@ def GetConeTosRGBPrimaries(observer: Observer, metameric_axis: int = 2):
     return M_Cone_To_Primaries
 
 
-def GetColorSpaceTransformTosRGB(observer: Observer, metameric_axis: int = 2, subset_leds: List[int] = [0, 1, 2, 3]):
+def GetColorSpaceTransformTosRGB(observer: Observer, metameric_axis: int = 2,
+                                 subset_leds: List[int] = [0, 1, 2, 3]) -> ColorSpaceTransform:
+    """ONLY WORKS FOR 3D OBSERVERS. ColorSpaceTransform Object for Observer to sRGB
+
+    Args:
+        observer (Observer): observer object
+        metameric_axis (int, optional): axis along metamers. Defaults to 2.
+        subset_leds (List[int], optional): subset_led. Defaults to [0, 1, 2, 3].
+
+    Returns:
+        ColorSpaceTransform: ColorSpaceTransform object
+    """
     # ONLY WORKS FOR 3D in general because that transform is only defined for 3 dimensions
     max_basis = MaxBasisFactory.get_object(observer, verbose=False)
 
@@ -283,7 +294,7 @@ def GetColorSpaceTransformWODisplay(observer: Observer, metameric_axis: int = 2)
 
 def GetColorSpaceTransform(observer: Observer, display_primaries: List[Spectra] | npt.NDArray,
                            scaling_factor: float = 1000, metameric_axis: int = 2,
-                           subset_leds: List[int] = [0, 1, 2, 3]):
+                           subset_leds: List[int] = [0, 1, 2, 3]) -> ColorSpaceTransform:
     """Given an observer and display primaries, return the ColorSpaceTransform
 
     Args:
