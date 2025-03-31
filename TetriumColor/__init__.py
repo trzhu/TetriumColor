@@ -1,3 +1,4 @@
 # Tetrium Color - A color library for Python
-from TetriumColor.ColorSpace import ColorSpace, ColorSpaceType
+from .ColorSpace import ColorSpace, ColorSpaceType
+from .ColorSampler import ColorSampler
 from .Utils.CustomTypes import *

@@ -19,7 +19,7 @@ class ColorSpaceType(Enum):
     MAXBASIS = "maxbasis"  # Display space (RYGB)
     CONE = "cone"  # Cone responses (SMQL)
     RGB_OCV = "rgb_ocv"  # RGB/OCV 6D representation
-    sRGB = "srgb"  # sRGB display
+    SRGB = "srgb"  # sRGB display
 
     def __str__(self):
         return self.value
@@ -53,9 +53,6 @@ class ColorSpace:
         self.metameric_axis = metameric_axis
         self.subset_leds = subset_leds or [0, 1, 2, 3]
 
-        self.max_L = (np.linalg.inv(self.transform.hering_to_disp) @
-                      np.ones(self.transform.cone_to_disp.shape[0]))[0]
-
         if display is None:
             # Create a default display transformation without specific primaries
             self.transform: ColorSpaceTransform = GetColorSpaceTransformWODisplay(observer, metameric_axis)
@@ -76,6 +73,9 @@ class ColorSpace:
 
         # Store the dimensionality of the color space
         self.dim = self.transform.dim
+
+        self.max_L = (np.linalg.inv(self.transform.hering_to_disp) @
+                      np.ones(self.transform.cone_to_disp.shape[0]))[0]
 
     def _get_transform_chrom_to_metameric_dir(self) -> npt.NDArray:
         """
@@ -327,13 +327,13 @@ class ColorSpace:
             return points
 
         # Handle sRGB as target space (to_space)
-        if to_space == ColorSpaceType.sRGB:
+        if to_space == ColorSpaceType.SRGB:
             # Convert to cone space first, then to sRGB
             cone_points = self.convert(points, from_space, ColorSpaceType.CONE)
             return (self.transform.cone_to_sRGB @ cone_points.T).T
 
         # Handle sRGB as source space (from_space)
-        if from_space == ColorSpaceType.sRGB:
+        if from_space == ColorSpaceType.SRGB:
             if self.transform.dim != 3:
                 raise ValueError("sRGB color space is only defined for 3D color spaces")
             # Convert from sRGB to cone space, then proceed with normal conversions

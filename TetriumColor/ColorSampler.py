@@ -36,7 +36,9 @@ class ColorSampler:
         self._max_L = color_space.max_L
 
         # Try to load cubemap from cache during initialization
-        self._load_from_cache()
+        if not self._load_from_cache():
+            print("Failed to load cubemap from cache, generating new cubemap")
+            self.get_gamut_lut()
 
     def _get_cache_filename(self) -> str:
         """
@@ -67,13 +69,13 @@ class ColorSampler:
         }
 
         _cache_file = self._get_cache_filename()
-
-        with resources.path("TetriumColor.Assets.Cache", _cache_file) as path:
-            if os.path.exists(path):
+        try:
+            with resources.path("TetriumColor.Assets.Cache", _cache_file) as path:
                 with open(path, "wb") as f:
                     pickle.dump(cache_data, f)
-
-        print(f"Saved cubemap cache to {_cache_file}")
+            print(f"Saved cubemap cache to {_cache_file}")
+        except Exception as e:
+            print(f"Failed to save cubemap cache: {e}")
 
     def _load_from_cache(self) -> bool:
         """
@@ -394,7 +396,6 @@ class ColorSampler:
         Returns:
             bool or npt.NDArray: Boolean indicating if point(s) are in gamut
         """
-        # Get the remapped points
         remapped = self.remap_to_gamut(vshh)
 
         # If single point
@@ -444,6 +445,81 @@ class ColorSampler:
             vshh = self.remap_to_gamut(vshh)
 
         return vshh
+
+    @staticmethod
+    def _concatenate_cubemap(faces):
+        """
+        Concatenate cubemap textures into a single cross-layout image with correct orientation.
+
+        Parameters:
+            basename (str): The base name of the input files, e.g., "texture". Files are assumed to follow the format "<basename>_i.png".
+                        `i` corresponds to the index: 0 (+X), 1 (-X), 2 (+Y), 3 (-Y), 4 (+Z), 5 (-Z).
+        """
+        # Assume all faces are the same size
+        face_width, face_height = faces[0].size
+
+        # Create a blank image for the cross layout
+        width = 4 * face_width
+        height = 3 * face_height
+        cubemap_image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+
+        # +X (0)
+        cubemap_image.paste(faces[0], (2 * face_width, face_height))
+        # -X (1) flipped horizontally
+        cubemap_image.paste(faces[1], (0, face_height))
+        # +Y (2) flipped vertically
+        cubemap_image.paste(faces[3], (face_width, 0))  # swap 2 and 3 because of the flipped orientation i think
+        # -Y (3) flipped vertically
+        cubemap_image.paste(faces[2], (face_width, 2 * face_height))
+        # +Z (4)
+        cubemap_image.paste(faces[4], (face_width, face_height))
+        # -Z (5) flipped horizontally
+        cubemap_image.paste(faces[5], (3 * face_width, face_height))
+
+        # Save the concatenated image
+        return cubemap_image
+
+    def display_cubemap(self, luminance: float, saturation: float, display_color_space: ColorSpaceType = ColorSpaceType.SRGB):
+
+        # Generate grid of UV coordinates
+        all_us = (np.arange(self._cubemap_size) + 0.5) / self._cubemap_size
+        all_vs = (np.arange(self._cubemap_size) + 0.5) / self._cubemap_size
+        cube_u, cube_v = np.meshgrid(all_us, all_vs)
+
+        # Get metameric direction matrix
+        metamericDirMat = self._get_transform_chrom_to_metameric_dir()
+        invMetamericDirMat = np.linalg.inv(metamericDirMat)
+
+        # Process each face of the cube
+        cubemap_images = []
+        for i in tqdm(range(6), desc="Generating cubemap"):
+            # Convert UV to XYZ coordinates for this cube face
+            xyz = Geometry.ConvertCubeUVToXYZ(i, cube_u, cube_v, 1).reshape(-1, 3)
+            xyz = np.dot(invMetamericDirMat, xyz.T).T
+
+            max_saturations = np.array(self._gamut_cubemap[i]).reshape(-1, 3)[:, 1]
+            normalized_saturations = (max_saturations + self._sat_range[0]) / (self._sat_range[1] - self._sat_range[0])
+
+            # Create hering coordinates with unit luminance
+            lum_vector = np.ones(self._cubemap_size * self._cubemap_size) * luminance
+            vxyz = np.hstack((lum_vector[np.newaxis, :].T, xyz))
+
+            # Convert to VSH space
+            vshh = self.color_space.convert(vxyz, ColorSpaceType.HERING, ColorSpaceType.VSH)
+            vshh[:, 1] = np.min(
+                np.vstack((np.full(normalized_saturations.shape, saturation), normalized_saturations)), axis=0)
+            remapped_points = self.remap_to_gamut(vshh)
+            corresponding_colors = self.color_space.convert(remapped_points, ColorSpaceType.VSH, display_color_space)
+            # Convert colors to 8-bit format and reshape for image saving
+            corresponding_colors = np.clip(corresponding_colors, 0, 1) * 255
+            corresponding_colors = corresponding_colors.astype(np.uint8)
+            corresponding_colors = corresponding_colors.reshape(
+                self._cubemap_size, self._cubemap_size, 3).transpose(1, 0, 2)
+
+            # Create an image from the array
+            cubemap_images += [Image.fromarray(corresponding_colors, 'RGB')]
+
+        return self._concatenate_cubemap(cubemap_images)
 
     def to_tetra_color(self, vsh_points: npt.NDArray) -> List[TetraColor]:
         """
