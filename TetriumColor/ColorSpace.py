@@ -6,8 +6,8 @@ from enum import Enum
 from TetriumColor.Observer import Observer
 from TetriumColor.Observer.Spectra import Spectra
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, TetraColor, PlateColor
-from TetriumColor.Observer.DisplayObserverSensitivity import (
-    GetColorSpaceTransform, GetColorSpaceTransformTosRGB, GetColorSpaceTransformWODisplay
+from TetriumColor.Observer.ColorSpaceTransform import (
+    GetColorSpaceTransform, GetColorSpaceTransformTosRGB, GetColorSpaceTransformWODisplay, GetMaxBasisToDisplayTransform
 )
 import TetriumColor.ColorMath.Geometry as Geometry
 import TetriumColor.ColorMath.Conversion as Conversion
@@ -342,62 +342,47 @@ class ColorSpace:
 
         # Define transformation paths
         if from_space == ColorSpaceType.VSH:
-            if to_space == ColorSpaceType.HERING:
-                return self._vsh_to_hering(points)
-            elif to_space == ColorSpaceType.MAXBASIS:
-                hering = self._vsh_to_hering(points)
-                return (self.transform.hering_to_disp @ hering.T).T
-            elif to_space == ColorSpaceType.CONE:
-                hering = self._vsh_to_hering(points)
-                display = (self.transform.hering_to_disp @ hering.T).T
-                return (np.linalg.inv(self.transform.cone_to_disp) @ display.T).T
-            elif to_space == ColorSpaceType.RGB_OCV:
-                hering = self._vsh_to_hering(points)
-                display = (self.transform.hering_to_disp @ hering.T).T
-                return Conversion.Map4DTo6D(display, self.transform)
+            return self.convert(self._vsh_to_hering(points), ColorSpaceType.HERING, to_space)
 
         elif from_space == ColorSpaceType.HERING:
+            disp_points = self.transform.hering_to_disp @ points.T
             if to_space == ColorSpaceType.VSH:
                 return self._hering_to_vsh(points)
             elif to_space == ColorSpaceType.MAXBASIS:
-                return (self.transform.hering_to_disp @ points.T).T
+                return (np.linalg.inv(self.transform.maxbasis_to_disp)@disp_points).T
             elif to_space == ColorSpaceType.CONE:
-                display = (self.transform.hering_to_disp @ points.T).T
-                return (np.linalg.inv(self.transform.cone_to_disp) @ display.T).T
+                display = (np.linalg.inv(self.transform.cone_to_disp)@disp_points).T
             elif to_space == ColorSpaceType.RGB_OCV:
-                display = (self.transform.hering_to_disp @ points.T).T
-                return Conversion.Map4DTo6D(display, self.transform)
+                return Conversion.Map4DTo6D(disp_points.T, self.transform)
 
         elif from_space == ColorSpaceType.MAXBASIS:
+            disp_points = self.transform.maxbasis_to_disp @ points.T
             if to_space == ColorSpaceType.VSH:
-                hering = (np.linalg.inv(self.transform.hering_to_disp) @ points.T).T
+                hering = (np.linalg.inv(self.transform.hering_to_disp) @ disp_points).T
                 return self._hering_to_vsh(hering)
             elif to_space == ColorSpaceType.HERING:
-                return (np.linalg.inv(self.transform.hering_to_disp) @ points.T).T
+                return (np.linalg.inv(self.transform.hering_to_disp) @ disp_points).T
             elif to_space == ColorSpaceType.CONE:
-                return (np.linalg.inv(self.transform.cone_to_disp) @ points.T).T
+                return (np.linalg.inv(self.transform.cone_to_disp) @ disp_points).T
             elif to_space == ColorSpaceType.RGB_OCV:
-                return Conversion.Map4DTo6D(points, self.transform)
+                return Conversion.Map4DTo6D(disp_points.T, self.transform)
 
         elif from_space == ColorSpaceType.CONE:
+            disp_points = self.transform.cone_to_disp @ points.T
             if to_space == ColorSpaceType.VSH:
-                display = (self.transform.cone_to_disp @ points.T).T
-                hering = (np.linalg.inv(self.transform.hering_to_disp) @ display.T).T
+                hering = (np.linalg.inv(self.transform.hering_to_disp) @ disp_points.T).T
                 return self._hering_to_vsh(hering)
             elif to_space == ColorSpaceType.HERING:
-                display = (self.transform.cone_to_disp @ points.T).T
-                return (np.linalg.inv(self.transform.hering_to_disp) @ display.T).T
+                return (np.linalg.inv(self.transform.hering_to_disp) @ disp_points.T).T
             elif to_space == ColorSpaceType.MAXBASIS:
                 return (self.transform.cone_to_disp @ points.T).T
             elif to_space == ColorSpaceType.RGB_OCV:
-                display = (self.transform.cone_to_disp @ points.T).T
-                return Conversion.Map4DTo6D(display, self.transform)
+                return Conversion.Map4DTo6D(disp_points, self.transform)
 
         elif from_space == ColorSpaceType.RGB_OCV:
             if to_space == ColorSpaceType.MAXBASIS:
                 return Conversion.Map6DTo4D(points, self.transform)
             else:
-                # First convert to DISPLAY, then to the target space
                 display = Conversion.Map6DTo4D(points, self.transform)
                 return self.convert(display, ColorSpaceType.MAXBASIS, to_space)
 
@@ -445,6 +430,27 @@ class ColorSpace:
 
         # Return the PlateColor
         return PlateColor(foreground, background)
+
+    def get_RYGB_to_RGBOCV(self):
+        """
+        Get the transformation matrix from RYGB to RGB/OCV
+
+        Returns:
+            npt.NDArray: Transformation matrix
+        """
+        return GetMaxBasisToDisplayTransform(self.transform)
+
+    def get_RYGB_to_sRGB(self):
+        """
+        Get the transformation matrix from RYGB to sRGB
+
+        Returns:
+            npt.NDArray: Transformation matrix
+        """
+        max_to_cone = np.linalg.inv(self.transform.cone_to_disp) @ self.transform.maxbasis_to_disp
+        max_to_sRGB = self.transform.cone_to_sRGB @ max_to_cone
+        print(max_to_sRGB)
+        return max_to_sRGB
 
     def __str__(self) -> str:
         """

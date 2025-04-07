@@ -455,6 +455,52 @@ class Observer:
             all_cones += [Cone(reflectances).interpolate_values(wavelengths)]
         return Observer(all_cones, illuminant=illuminant, verbose=verbose)
 
+    @staticmethod
+    def custom_observer(wavelengths: npt.NDArray,
+                        od: float = 0.5,
+                        dimension: int = 4,
+                        s_cone_peak: float = 419,
+                        m_cone_peak: float = 530,
+                        q_cone_peak: float = 547,
+                        l_cone_peak: float = 559,
+                        macular: float = 1,
+                        lens: float = 1,
+                        template: str = "neitz",
+                        illuminant: Spectra | None = None,
+                        verbose: bool = False, subset: List[int] = [0, 1, 3]):
+        """Given specific parameters, return an observer model with Q cone peaked at 547
+
+        Args:
+            wavelengths (_type_): Array of wavelengths
+            od (float, optional): optical density of photopigment. Defaults to 0.5.
+            m_cone_peak (int, optional): peak of the M-cone. Defaults to 530.
+            l_cone_peak (int, optional): peak of the L-cone. Defaults to 560.
+            template (str, optional): cone template function. Defaults to "neitz".
+
+        Returns:
+            _type_: Observer of specified paramters and 4 cone types
+        """
+
+        l_cone = Cone.cone(l_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
+        l_cone_555 = Cone.cone(555, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
+        l_cone_551 = Cone.cone(551, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
+        l_cone_547 = Cone.cone(547, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
+        q_cone = Cone.cone(q_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
+        m_cone = Cone.cone(m_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
+        s_cone = Cone.cone(s_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
+        # s_cone = Cone.s_cone(wavelengths=wavelengths)
+        if dimension == 3:
+            set_cones = [s_cone, m_cone, q_cone, l_cone]
+            return Observer([set_cones[i] for i in subset], verbose=verbose, illuminant=illuminant)
+        elif dimension == 2:
+            return Observer([s_cone, m_cone], verbose=verbose)
+        elif dimension == 4:
+            return Observer([s_cone, m_cone, q_cone, l_cone], verbose=verbose)
+        elif dimension == 6:
+            return Observer([s_cone, m_cone, l_cone_547, l_cone_551, l_cone_555, l_cone], verbose=verbose)
+        else:
+            raise NotImplementedError
+
     def get_whitepoint(self, wavelengths: Optional[npt.NDArray] = None):
         sensor_matrix = self.get_sensor_matrix(wavelengths)
 
@@ -530,6 +576,19 @@ class Observer:
             data = data.interpolate_values(self.wavelengths).data
 
         return np.matmul(self.normalized_sensor_matrix, data)
+
+    def observe_spectras(self, spectras: List[Spectra]) -> npt.NDArray:
+        """Observe the list of spectras 
+
+        Args:
+            spectras (List[Spectra]): List of spectras to observe
+
+        Returns:
+            npt.NDArray: A n-dimensional array of the observed colors
+        """
+        primary_intensities = np.array(
+            [self.observe_normalized(s) for s in spectras])
+        return primary_intensities
 
     def dist(self, color1: Union[npt.NDArray, Spectra], color2: Union[npt.NDArray, Spectra]):
         return np.linalg.norm(self.observe(color1) - self.observe(color2))
@@ -627,16 +686,6 @@ class Observer:
     def get_trans_ref_from_idx(self, index: int) -> npt.NDArray:
         cuts, start = self.getFacetIdxFromIdx(index)
         return getReflectance(cuts, start, self.get_sensor_matrix(), self.dimension)
-
-    # @staticmethod
-    # def save_observer(observer: 'Observer', filename: str):
-    #     with open(filename, 'wb') as file:
-    #         pickle.dump(observer, file)
-
-    # @staticmethod
-    # def load_observer(filename: str) -> 'Observer':
-    #     with open(filename, 'rb') as file:
-    #         return pickle.load(file)
 
 
 class ObserverFactory:

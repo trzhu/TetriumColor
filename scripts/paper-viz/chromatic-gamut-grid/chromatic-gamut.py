@@ -4,7 +4,7 @@ import tetrapolyscope as ps
 from scipy.spatial import ConvexHull
 from colour.notation import RGB_to_HEX
 
-from TetriumColor.Observer import GetCustomObserver, GetsRGBfromWavelength, convert_refs_to_spectras, GetDisplayToCone
+from TetriumColor.Observer import Observer, GetsRGBfromWavelength, convert_refs_to_spectras
 import TetriumColor.Visualization as viz
 from TetriumColor.Utils.ParserOptions import *
 from TetriumColor.ColorMath.Geometry import GetSimplexBarycentricCoords
@@ -28,8 +28,8 @@ def main():
     # Observer attributes
     observer_wavelengths = np.arange(380, 781, 5)
 
-    observer = GetCustomObserver(observer_wavelengths, args.od, args.dimension, args.s_cone_peak, args.m_cone_peak, args.q_cone_peak,
-                                 args.l_cone_peak, args.macula, args.lens, args.template)
+    observer = Observer.custom_observer(observer_wavelengths, args.od, args.dimension, args.s_cone_peak, args.m_cone_peak, args.q_cone_peak,
+                                        args.l_cone_peak, args.macula, args.lens, args.template)
     # load cached observer stuff if it exists, terrible design but whatever
     # observer = ObserverFactory.get_object(observer)
     wavelengths = np.arange(380, 780, 5)
@@ -64,8 +64,8 @@ def main():
     our_primaries_sRGB = np.array([s.to_rgb() for s in primary_spectra])
     our_primaries_sRGB = our_primaries_sRGB / np.max(our_primaries_sRGB)
 
-    display_to_cone = GetDisplayToCone(observer, primary_spectra)
-    ideal_display_to_cone = GetDisplayToCone(observer, ideal_primary_spectra)
+    display_to_cone = observer.observe_spectras(primary_spectra)
+    ideal_display_to_cone = observer.observe_spectras(ideal_primary_spectra)
     chromaticity_points = viz.ConvertPointsToChromaticity(
         observer.normalized_sensor_matrix.T, observer, projection_idxs)
 

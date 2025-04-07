@@ -21,7 +21,7 @@ class ColorSampler:
     gamut mapping by computing and caching the gamut boundary information.
     """
 
-    def __init__(self, color_space: ColorSpace):
+    def __init__(self, color_space: ColorSpace, cubemap_size: int = 64):
         """
         Initialize the ColorSampler with a ColorSpace.
 
@@ -32,7 +32,7 @@ class ColorSampler:
         self._gamut_cubemap = None
         self._lum_range = None
         self._sat_range = None
-        self._cubemap_size = 64  # Default size for the cubemap
+        self._cubemap_size = cubemap_size  # Default size for the cubemap
         self._max_L = color_space.max_L
 
         # Try to load cubemap from cache during initialization
@@ -479,7 +479,18 @@ class ColorSampler:
         # Save the concatenated image
         return cubemap_image
 
-    def display_cubemap(self, luminance: float, saturation: float, display_color_space: ColorSpaceType = ColorSpaceType.SRGB):
+    def generate_cubemap(self, luminance: float, saturation: float,
+                         display_color_space: ColorSpaceType = ColorSpaceType.SRGB) -> Image.Image:
+        """Generate a cubemap within the gamut boundaries
+
+        Args:
+            luminance (float): luminance
+            saturation (float): saturation
+            display_color_space (ColorSpaceType, optional): color space that you want to transform to. Defaults to ColorSpaceType.SRGB.
+
+        Returns:
+            PIL.Image.Image: Image of the cubemap
+        """
 
         # Generate grid of UV coordinates
         all_us = (np.arange(self._cubemap_size) + 0.5) / self._cubemap_size

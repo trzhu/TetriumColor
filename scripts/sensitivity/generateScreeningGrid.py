@@ -9,7 +9,6 @@ from PIL import Image
 from typing import List
 import numpy.typing as npt
 
-from TetriumColor.Observer.DisplayObserverSensitivity import GetCustomObserver
 from TetriumColor.Observer import *
 from TetriumColor.Measurement import LoadPrimaries, GaussianSmoothPrimaries
 from TetriumColor.PsychoPhys.HueSphere import CreatePseudoIsochromaticImages, CreatePaddedGrid

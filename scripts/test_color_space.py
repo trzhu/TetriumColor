@@ -120,7 +120,7 @@ def test_color_space():
 def visualize_equiluminant_plane(cs, points):
     """Visualize points on an equiluminant plane by plotting in 2D"""
     # Convert points to display space for RGB values
-    rgb_values = np.clip(cs.convert(points, ColorSpaceType.VSH, ColorSpaceType.sRGB), 0, 1)
+    rgb_values = np.clip(cs.convert(points, ColorSpaceType.VSH, ColorSpaceType.SRGB), 0, 1)
     hering_points = cs.convert(points, ColorSpaceType.VSH, ColorSpaceType.HERING)
     # Normalize for RGB display (assuming first 3 dimensions are RGB)
 
@@ -141,11 +141,6 @@ def test_gamut_cubemap(cs: ColorSpace):
     print("\nTest: Gamut cubemap generation and visualization")
 
     # Generate the gamut cubemap
-    print("Generating gamut cubemap...")
-    # Smaller size for faster testing
-    cs._cubemap_size = 64
-    cubemap_images = cs.get_gamut_lut(force_recompute=True)
-
     # Save individual cubemap faces
     output_dir = "cubemap_output"
     os.makedirs(output_dir, exist_ok=True)
@@ -165,7 +160,8 @@ def test_gamut_cubemap(cs: ColorSpace):
             plt.axis('off')
 
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "cubemap_faces.png"))
+    # plt.savefig(os.path.join(output_dir, "cubemap_faces.png"))
+    plt.show()
     print(f"Saved cubemap faces to {output_dir}/cubemap_faces.png")
 
     # Create a cross visualization
@@ -226,7 +222,7 @@ def test_interpolation(cs: ColorSpace, output_dir):
 
         # Convert to sRGB for coloring (if available)
         try:
-            rgb_values = np.clip(cs.convert(points, ColorSpaceType.VSH, ColorSpaceType.sRGB), 0, 1)
+            rgb_values = np.clip(cs.convert(points, ColorSpaceType.VSH, ColorSpaceType.SRGB), 0, 1)
         except Exception:
             rgb_values = np.zeros((len(points), 3))
             # Use a simple coloring scheme based on hue angle
@@ -237,13 +233,13 @@ def test_interpolation(cs: ColorSpace, output_dir):
                                  0.5 * (1 + np.cos(hue + 4*np.pi/3))]
 
         # Plot the equiluminant plane
-        ax = fig.add_subplot(1, 3, i + 1)
+        ax = fig.add_subplot(1, 3, i + 1, projection='3d')
         if cs.dim == 3:  # 2D gamut boundary
-            ax.scatter(hering_points[:, 1], hering_points[:, 2], c=rgb_values)
+            ax.scatter(hering_points[:, 1], hering_points[:, 2], hering_points[:, 3], c=rgb_values)
             ax.set_xlabel('X')
             ax.set_ylabel('Y')
         else:  # 3D gamut boundary (project to 2D)
-            ax.scatter(hering_points[:, 1], hering_points[:, 2], c=rgb_values)
+            ax.scatter(hering_points[:, 1], hering_points[:, 2], hering_points[:, 3], c=rgb_values)
             ax.set_xlabel('X')
             ax.set_ylabel('Y')
 
@@ -252,7 +248,8 @@ def test_interpolation(cs: ColorSpace, output_dir):
         ax.grid(True)
 
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "gamut_boundaries.png"))
+    # plt.savefig(os.path.join(output_dir, "gamut_boundaries.png"))
+    plt.show()
     print(f"Saved gamut boundary visualization to {output_dir}/gamut_boundaries.png")
 
     # Test specific angle interpolation
