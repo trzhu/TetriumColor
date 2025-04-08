@@ -19,7 +19,10 @@ def GetParalleletopeBasis(observer: Observer, led_spectrums: List[Spectra]):
 
 
 def GetsRGBfromWavelength(wavelength):
-    return XYZ_to_RGB(wavelength_to_XYZ(wavelength), "sRGB")
+    try:
+        return XYZ_to_RGB(wavelength_to_XYZ(wavelength), "sRGB")
+    except Exception as e:
+        return np.array([0, 0, 0])
 
 
 def GetConeTosRGBPrimaries(observer: Observer, metameric_axis: int = 2):

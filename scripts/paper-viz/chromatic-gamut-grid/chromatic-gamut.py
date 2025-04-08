@@ -4,7 +4,8 @@ import tetrapolyscope as ps
 from scipy.spatial import ConvexHull
 from colour.notation import RGB_to_HEX
 
-from TetriumColor.Observer import Observer, GetsRGBfromWavelength, convert_refs_to_spectras
+from TetriumColor.Observer import Observer, convert_refs_to_spectras
+from TetriumColor.Observer.ColorSpaceTransform import GetsRGBfromWavelength
 import TetriumColor.Visualization as viz
 from TetriumColor.Utils.ParserOptions import *
 from TetriumColor.ColorMath.Geometry import GetSimplexBarycentricCoords
@@ -136,11 +137,11 @@ def main():
     else:
         delta_time: float = 1 / args.fps
 
-        def callback():
-            viz.AnimationUtils.UpdateObjects(delta_time)
-        ps.set_user_callback(callback)
+        # def callback():
+        #     viz.AnimationUtils.UpdateObjects(delta_time)
+        # ps.set_user_callback(callback)
         ps.show()
-        ps.clear_user_callback()
+        # ps.clear_user_callback()
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@ import numpy.typing as npt
 from typing import List
 from enum import Enum
 
-from TetriumColor.Observer import Observer
+from TetriumColor.Observer import Observer, GetHeringMatrix
 from TetriumColor.Observer.Spectra import Spectra
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, TetraColor, PlateColor
 from TetriumColor.Observer.ColorSpaceTransform import (
@@ -20,6 +20,8 @@ class ColorSpaceType(Enum):
     CONE = "cone"  # Cone responses (SMQL)
     RGB_OCV = "rgb_ocv"  # RGB/OCV 6D representation
     SRGB = "srgb"  # sRGB display
+    CHROM = "chrom"  # Chromaticity space
+    HERING_CHROM = "hering_chrom"  # Hering chromaticity space
 
     def __str__(self):
         return self.value
@@ -340,7 +342,18 @@ class ColorSpace:
             cone_points = (np.linalg.inv(self.transform.cone_to_sRGB) @ points.T).T
             return self.convert(cone_points, ColorSpaceType.CONE, to_space)
 
-        # Define transformation paths
+        # handle Chromaticity based color conversions
+        if from_space == ColorSpaceType.CHROM or from_space == ColorSpaceType.HERING_CHROM:
+            raise ValueError("Cannot transform from chromaticity back to another color space")
+        elif to_space == ColorSpaceType.CHROM:
+            cone_pts = self.convert(points, from_space, ColorSpaceType.CONE)
+            return (cone_pts.T / (np.sum(cone_pts.T, axis=0) + 1e-9))[1:].T  # auto drop first coordinate
+        elif to_space == ColorSpaceType.HERING_CHROM:
+            maxbasis_pts = self.convert(points, from_space, ColorSpaceType.MAXBASIS)
+            return (GetHeringMatrix(self.transform.dim) @
+                    (maxbasis_pts.T / (np.sum(maxbasis_pts.T, axis=0) + 1e-9)))[:, 1:].T
+
+            # Define transformation paths
         if from_space == ColorSpaceType.VSH:
             return self.convert(self._vsh_to_hering(points), ColorSpaceType.HERING, to_space)
 

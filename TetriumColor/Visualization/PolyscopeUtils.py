@@ -5,7 +5,7 @@ from typing import List
 import tetrapolyscope as ps
 
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, DisplayBasisType
-from TetriumColor.Observer.DisplayObserverSensitivity import GetColorSpaceTransformWODisplay
+from TetriumColor.Observer.ColorSpaceTransform import GetColorSpaceTransformWODisplay
 from TetriumColor.ColorMath.GamutMath import GenerateMaximalHueSpherePoints
 
 from .Geometry import GeometryPrimitives
