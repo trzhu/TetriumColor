@@ -1,6 +1,7 @@
 import numpy as np
 import packcircles
-from importlib import resources
+import importlib.resources as resources
+from importlib.resources import as_file
 
 from typing import Callable, List
 import numpy.typing as npt
@@ -8,9 +9,10 @@ import numpy.typing as npt
 from PIL import Image, ImageDraw
 from TetriumColor.Utils.CustomTypes import PlateColor, TetraColor
 from PIL import ImageFont
+from pathlib import Path
 
 
-class IshiharaPlate:
+class IshiharaPlateGenerator:
     _secrets = [27, 35, 39, 64, 67, 68, 72, 73, 85, 87, 89, 96]
 
     def __init__(self, plate_color: PlateColor = None, secret: int = _secrets[0],
@@ -42,7 +44,7 @@ class IshiharaPlate:
         self.__setSecretImage(secret)
 
     def __setSecretImage(self, secret: int):
-        if secret in IshiharaPlate._secrets:
+        if secret in IshiharaPlateGenerator._secrets:
             with resources.path("TetriumColor.Assets.HiddenImages", f"{str(secret)}.png") as data_path:
                 self.secret = Image.open(data_path)
             self.secret = self.secret.resize(
@@ -75,7 +77,7 @@ class IshiharaPlate:
 
         if hidden_number:
             if hidden_number < 0:  # pick random if negative.
-                hidden_number = np.random.choice(IshiharaPlate._secrets)
+                hidden_number = np.random.choice(IshiharaPlateGenerator._secrets)
             self.__setSecretImage(hidden_number)
 
         # Plate doesn't exist; set seed and colors and generate whole plate.
@@ -285,3 +287,44 @@ class IshiharaPlate:
         """
         self.__resetGeometry()
         self.__resetImages()
+
+
+def GenerateHiddenImages(output_dir: str):
+    """
+    Generate a series of images from 1-99 that resemble the style of Assets/HiddenImages/27.png.
+    Each image will have a transparent background, a white circle, and a black number centered.
+
+    :param output_dir: Directory to save the generated images.
+    """
+
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    for number in range(10, 100):
+        # Create a transparent image
+        image_size = 1024
+        img = Image.new("RGBA", (image_size, image_size), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+
+        # Draw a white circle
+        circle_radius = image_size // 2 - 50
+        circle_bbox = [
+            (image_size // 2 - circle_radius, image_size // 2 - circle_radius),
+            (image_size // 2 + circle_radius, image_size // 2 + circle_radius),
+        ]
+        draw.ellipse(circle_bbox, fill=(255, 255, 255, 255))
+
+        # Draw the black number centered
+        font_size = 600
+        resource = resources.files('TetriumColor.Assets.Fonts') / 'Rubik-Medium.ttf'
+        with as_file(resource) as font_path:
+            font = ImageFont.truetype(str(font_path), size=font_size)
+        text = str(number)
+        draw.text((image_size/2, image_size/2), text, font=font, anchor="mm", fill=(0, 0, 0, 255))
+
+        # Save the image
+        img.save(output_path / f"{number}.png")
+
+
+if __name__ == "__main__":
+    GenerateHiddenImages("TetriumColor/Assets/HiddenImagesNew")

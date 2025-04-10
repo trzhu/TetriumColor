@@ -11,7 +11,7 @@ from TetriumColor.ColorMath import Geometry
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, PlateColor, TetraColor
 import TetriumColor.ColorMath.GamutMath as GamutMath
 from TetriumColor.ColorMath.Geometry import ConvertCubeUVToXYZ, ConvertPolarToCartesian, ExportGeometryToObjFile, GenerateGeometryFromVertices
-from TetriumColor.PsychoPhys.IshiharaPlate import IshiharaPlate
+from TetriumColor.PsychoPhys.IshiharaPlate import IshiharaPlateGenerator
 
 
 def GetSphereGeometry(luminance: float, saturation: float, num_points: int, filename: str, color_space_transform: ColorSpaceTransform):
@@ -90,7 +90,7 @@ def CreatePaddedGrid(image_files, grid_size=None, padding=10, bg_color=(0, 0, 0)
 def CreatePseudoIsochromaticGrid(grid, output_dir: str, output_base: str, seed: int = 42, noise_generator: BackgroundNoiseGenerator | None = None):
     subdirname = f"./{output_dir}/sub_images"
     os.makedirs(subdirname, exist_ok=True)
-    plate: IshiharaPlate = IshiharaPlate(seed=seed)
+    plate: IshiharaPlateGenerator = IshiharaPlateGenerator(seed=seed)
     for i in range(grid.shape[0]):
         for j in range(grid.shape[1]):
             metamer1 = TetraColor(grid[i, j, 0, :3], grid[i, j, 0, 3:])
@@ -123,7 +123,7 @@ def CreatePseudoIsochromaticImages(colors, output_dir: str, output_base: str, na
     """
     subdirname = f"./{output_dir}/{sub_image_dir}"
     os.makedirs(subdirname, exist_ok=True)
-    plate: IshiharaPlate = IshiharaPlate(seed=seed)
+    plate: IshiharaPlateGenerator = IshiharaPlateGenerator(seed=seed)
     chars = "ZABCDEFGHIJKLMNOPQRSTUVWXYZ"
     for i in range(len(colors)):
         metamer1 = TetraColor(colors[i, 0, :3], colors[i, 0, 3:])
