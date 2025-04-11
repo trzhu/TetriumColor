@@ -3,7 +3,7 @@ import packcircles
 import importlib.resources as resources
 from importlib.resources import as_file
 
-from typing import Callable, List
+from typing import Callable, List, Tuple, Optional
 import numpy.typing as npt
 
 from PIL import Image, ImageDraw
@@ -12,281 +12,282 @@ from PIL import ImageFont
 from pathlib import Path
 
 
-class IshiharaPlateGenerator:
-    _secrets = [27, 35, 39, 64, 67, 68, 72, 73, 85, 87, 89, 96]
+# Available hidden numbers
+_SECRETS = list(range(10, 100))
 
-    def __init__(self, plate_color: PlateColor = None, secret: int = _secrets[0],
-                 num_samples: int = 100, dot_sizes: List[int] = [16, 22, 28],
-                 image_size: int = 1024, directory: str = '.', seed: int = 0,
-                 lum_noise: float = 0, noise: float = 0, gradient: bool = False):
-        """
-        :param plate_color: A PlateColor object with shape and background colors (RGB/OCV tuples).
 
-        :param secret:  May be either a string or integer, specifies which
-                        secret file to use from the secrets directory.
-        """
-        if not gradient:
-            # only need to sample center of circles for once
-            num_samples = 1
-            if noise != 0:
-                raise ValueError("None-zero noise is not supported for non-gradient plates -- it doesn't make sense!")
-        self.num_samples: int = num_samples
-        self.dot_sizes: List[int] = dot_sizes
-        self.image_size: int = image_size
-        self.directory: str = directory
-        self.seed: int = seed
-        self.noise: float = noise
-        self.gradient: bool = gradient
-        self.lum_noise: float = lum_noise
-        self.circles: List = None
+def _standardize_color(color: TetraColor) -> np.ndarray:
+    """
+    Ensure a TetraColor is a float in [0, 1].
 
-        self.__generateGeometry()
-        self.__setSecretImage(secret)
+    :param color: TetraColor to standardize
+    :return: Standardized color as numpy array
+    """
+    if np.issubdtype(color.RGB.dtype, np.integer):
+        rgb = color.RGB.astype(float) / 255.0
+    else:
+        rgb = color.RGB
 
-    def __setSecretImage(self, secret: int):
-        if secret in IshiharaPlateGenerator._secrets:
-            with resources.path("TetriumColor.Assets.HiddenImages", f"{str(secret)}.png") as data_path:
-                self.secret = Image.open(data_path)
-            self.secret = self.secret.resize(
-                [self.image_size, self.image_size])
-            self.secret = np.asarray(self.secret)
+    if np.issubdtype(color.OCV.dtype, np.integer):
+        ocv = color.OCV.astype(float) / 255.0
+    else:
+        ocv = color.OCV
+
+    return np.concatenate([rgb, ocv])
+
+
+def _generate_geometry(dot_sizes: List[int], image_size: int, seed: int) -> List[List[float]]:
+    """
+    Generate the geometry for the Ishihara plate.
+
+    :param dot_sizes: List of dot sizes to use
+    :param image_size: Size of the output image
+    :param seed: Random seed for reproducibility
+    :return: List of circle definitions [x, y, r]
+    """
+    np.random.seed(seed)
+
+    # Create packed_circles, a list of (x, y, r) tuples
+    radii = dot_sizes * 2000
+    np.random.shuffle(radii)
+    packed_circles = packcircles.pack(radii)
+
+    # Generate output_circles
+    center = image_size // 2
+    output_circles = []
+
+    for (x, y, radius) in packed_circles:
+        if np.sqrt((x - center) ** 2 + (y - center) ** 2) < center * 0.95:
+            r = radius - np.random.randint(2, 5)
+            output_circles.append([x, y, r])
+
+    return output_circles
+
+
+def _compute_inside_outside(
+    circles: List[List[float]],
+    secret_img: np.ndarray,
+    image_size: int,
+    num_samples: int,
+    noise: float,
+    gradient: bool
+) -> Tuple[List[float], List[float]]:
+    """
+    Compute which circles are inside vs outside the secret shape.
+
+    :param circles: List of circle definitions [x, y, r]
+    :param secret_img: Secret image as numpy array
+    :param image_size: Size of the image
+    :param num_samples: Number of samples to take for gradient plates
+    :param noise: Amount of noise to add
+    :param gradient: Whether to use gradient sampling
+    :return: Tuple of (inside_props, outside_props)
+    """
+    # Inside corresponds to numbers; outside corresponds to background
+    outside = np.int32(np.sum(secret_img == 255, -1) == 4)
+    inside = None
+
+    if gradient:
+        inside = np.int32((secret_img[:, :, 3] == 255)) - outside
+
+    inside_props = []
+    outside_props = []
+    n = np.random.rand(len(circles))
+
+    for i, [x, y, r] in enumerate(circles):
+        x, y = int(round(x)), int(round(y))
+
+        if gradient:
+            assert inside is not None
+            inside_count, outside_count = 0, 0
+
+            for _ in range(num_samples):
+                while True:
+                    dx = np.random.uniform(-r, r)
+                    dy = np.random.uniform(-r, r)
+                    if (dx**2 + dy**2) <= r**2:
+                        break
+
+                x_grid = int(np.clip(np.round(x + dx), 0, image_size - 1))
+                y_grid = int(np.clip(np.round(y + dy), 0, image_size - 1))
+                if inside[y_grid, x_grid]:
+                    inside_count += 1
+                elif outside[y_grid, x_grid]:
+                    outside_count += 1
+
+            in_p = np.clip(inside_count / num_samples * (1 - (n[i] * noise / 100)), 0, 1)
+            out_p = np.clip(outside_count / num_samples * (1 - (n[i] * noise / 100)), 0, 1)
         else:
-            raise ValueError(f"Invalid Hidden Number {secret}")
+            # Non-gradient sampling -- only sample center of circles
+            x = int(np.clip(x, 0, image_size - 1))
+            y = int(np.clip(y, 0, image_size - 1))
+            is_outside = 1 if outside[y, x] else 0
+            is_inside = 1 - is_outside
+            in_p, out_p = is_inside, is_outside
 
-    def GeneratePlate(self, seed: int | None = None, hidden_number: int | None = None, plate_color: PlateColor | None = None, noise_generator: Callable[[], npt.NDArray] | None = None):
-        """
-        Generate the Ishihara Plate with specified inside/outside colors and secret.
-        A new seed can be specified to generate a different plate pattern.
-        New inside or outside colors may be specified to recolor the plate
-        without modifying the geometry.
+        inside_props.append(in_p)
+        outside_props.append(out_p)
 
-        :param seed: A seed for RNG when creating the plate pattern.
-        :param hidden_number: The hidden number to embed in the plate.
-        :param inside_color: A 6-tuple RGBOCV color.
-        :param outside_color: A 6-tuple RGBOCV color.
-        """
-        def helper_generate():
-            self.__generateGeometry()
-            self.__computeInsideOutside()
-            self.__drawPlate(noise_generator)
+    return inside_props, outside_props
 
-        if plate_color:
-            self.inside_color = self.__standardizeColor(plate_color.shape)
-            self.outside_color = self.__standardizeColor(
-                plate_color.background)
 
-        if hidden_number:
-            if hidden_number < 0:  # pick random if negative.
-                hidden_number = np.random.choice(IshiharaPlateGenerator._secrets)
-            self.__setSecretImage(hidden_number)
+def _draw_plate(
+    circles: List[List[float]],
+    inside_props: List[float],
+    outside_props: List[float],
+    inside_color: np.ndarray,
+    outside_color: np.ndarray,
+    channel_draws: List[ImageDraw.ImageDraw],
+    lum_noise: float,
+    noise_generator: Optional[Callable[[], npt.NDArray]] = None
+) -> None:
+    """
+    Draw the plate with the computed circle positions and colors.
 
-        # Plate doesn't exist; set seed and colors and generate whole plate.
-        if self.circles is None:
-            self.seed = seed or self.seed
-            helper_generate()
-            return
+    :param circles: List of circle definitions [x, y, r]
+    :param inside_props: List of inside proportions for each circle
+    :param outside_props: List of outside proportions for each circle
+    :param inside_color: Color for shape elements
+    :param outside_color: Color for background elements
+    :param channel_draws: ImageDraw objects for each channel
+    :param lum_noise: Luminance noise amount
+    :param noise_generator: Optional custom noise generator
+    """
+    for i, [x, y, r] in enumerate(circles):
+        in_p, out_p = inside_props[i], outside_props[i]
 
-        # Need to generate new geometry and re-color.
-        if seed and seed != self.seed:
-            self.seed = seed
-            self.__resetPlate()
-            helper_generate()
-            return
-
-        # Don't regenerate geometry but recolor w/new hidden number
-        if hidden_number:
-            self.__computeInsideOutside()
-            self.__resetImages()
-            self.__drawPlate(noise_generator)
-            return
-
-        # Need to re-color, but don't need to re-generate geometry or hidden number.
-        if plate_color:
-            self.__resetImages()
-            self.__drawPlate(noise_generator)
-            return
-
-    def ExportPlate(self, filename_RGB: str, filename_OCV: str):
-        """
-        This method saves two images - RGB and OCV encoded image.
-
-        :param save_name: Name of directory to save plate to.
-        :param ext: File extension to use, such as 'png' or 'tif'.
-        """
-        self.channels[0].save(filename_RGB)
-        self.channels[1].save(filename_OCV)
-
-    def DrawCorner(self, label: str, color: npt.ArrayLike = np.array([255/2, 255/2, 255/2, 255/2, 0, 0]).astype(int)):
-        """
-        Draw a colored corner on the plate.
-
-        :param label: what you want displayed
-        :param color: RGBOCV tuple represented as float [0, 1].
-        """
-        font = ImageFont.load_default(size=150)
-
-        self.channel_draws[0].text((10, 10), label, fill=tuple(color[:3]), font=font)
-        self.channel_draws[1].text((10, 10), label, fill=tuple(color[3:]), font=font)
-
-    def __standardizeColor(self, color: TetraColor):
-        """
-        :param color: Ensure a TetraColor is a float in [0, 1].
-        """
-        if np.issubdtype(color.RGB.dtype, np.integer):
-            color.RGB = color.RGB.astype(float) / 255.0
-
-        if np.issubdtype(color.OCV.dtype, np.integer):
-            color.OCV = color.OCV.astype(float) / 255.0
-
-        return np.concatenate([color.RGB, color.OCV])
-
-    def __generateGeometry(self):
-        """
-        :return output_circles: List of [x, y, r] sequences, where (x, y)
-                                are the center coordinates of a circle and r
-                                is the radius.
-        """
-        np.random.seed(self.seed)
-
-        # Create packed_circles, a list of (x, y, r) tuples.
-        radii = self.dot_sizes * 2000
-        np.random.shuffle(radii)
-        packed_circles = packcircles.pack(radii)
-
-        # Generate output_circles.
-        center = self.image_size // 2
-        output_circles = []
-
-        for (x, y, radius) in packed_circles:
-            if np.sqrt((x - center) ** 2 + (y - center) ** 2) < center * 0.95:
-                r = radius - np.random.randint(2, 5)
-                output_circles.append([x, y, r])
-
-        self.circles = output_circles
-
-    def __computeInsideOutside(self):
-        """
-        For each circle, estimate the proportion of its area that is inside or outside.
-        Take num_sample point samples within each circle, generated by rejection sampling.
-        """
-        # Inside corresponds to numbers; outside corresponds to background
-        outside = np.int32(np.sum(self.secret == 255, -1) == 4)
-        inside = None
-
-        if self.gradient:
-            # TODO: is this necessary for gradient? it's cursed to be both inside and outside
-            inside = np.int32((self.secret[:, :, 3] == 255)) - outside
-
-        inside_props = []
-        outside_props = []
-        n = np.random.rand(len(self.circles))
-
-        for i, [x, y, r] in enumerate(self.circles):
-            x, y = int(round(x)), int(round(y))
-
-            if self.gradient:
-                assert inside is not None
-                inside_count, outside_count = 0, 0
-
-                for _ in range(self.num_samples):
-                    while True:
-                        dx = np.random.uniform(-r, r)
-                        dy = np.random.uniform(-r, r)
-                        if (dx**2 + dy**2) <= r**2:
-                            break
-
-                    x_grid = int(np.clip(np.round(x + dx), 0, self.image_size - 1))
-                    y_grid = int(np.clip(np.round(y + dy), 0, self.image_size - 1))
-                    if inside[y_grid, x_grid]:
-                        inside_count += 1
-                    elif outside[y_grid, x_grid]:
-                        outside_count += 1
-
-                in_p = np.clip(inside_count / self.num_samples *
-                               (1 - (n[i] * self.noise / 100)), 0, 1)
-                out_p = np.clip(outside_count / self.num_samples *
-                                (1 - (n[i] * self.noise / 100)), 0, 1)
-
-                inside_props.append(in_p)
-                outside_props.append(out_p)
-            else:  # non-gradient sampling -- only sample center of circles
-                x = np.clip(x, 0, self.image_size - 1)
-                y = np.clip(y, 0, self.image_size - 1)
-                is_outside: int = 1 if outside[y, x] else 0
-                is_inside: int = 1 - is_outside
-
-                inside_props.append(is_inside)
-                outside_props.append(is_outside)
-
-        self.inside_props = inside_props
-        self.outside_props = outside_props
-
-    def __drawPlate(self, noise_generator: Callable[[], npt.NDArray] | None = None):
-        """
-        Using generated geometry data and computed inside/outside proportions,
-        draw the plate.
-        """
-        assert None not in [self.circles,
-                            self.inside_props, self.outside_props]
-
-        for i, [x, y, r] in enumerate(self.circles):
-            in_p, out_p = self.inside_props[i], self.outside_props[i]
-            # only apply to vector that are on
-            if noise_generator:
-                new_color = np.clip(noise_generator(), 0, 1)
-                if in_p:
-                    new_color = new_color[0]
-                else:
-                    new_color = new_color[1]
+        if noise_generator:
+            new_color = np.clip(noise_generator(), 0, 1)
+            if in_p:
+                new_color = new_color[0]
             else:
-                circle_color = in_p * self.inside_color + out_p * self.outside_color
-                # noise apply to the six channel, scale the entire vector
-                lum_noise = np.random.normal(0, self.lum_noise)
-                # only apply to vector that are on
-                new_color = np.clip(
-                    circle_color + (lum_noise * (circle_color > 0)), 0, 1)
-            self.__drawEllipse([x-r, y-r, x+r, y+r], new_color)
+                new_color = new_color[1]
+        else:
+            circle_color = in_p * inside_color + out_p * outside_color
+            # Noise applied to the six channel, scale the entire vector
+            lum_noise_val = np.random.normal(0, lum_noise)
+            # Only apply to vector that are on
+            new_color = np.clip(circle_color + (lum_noise_val * (circle_color > 0)), 0, 1)
 
-    def __drawEllipse(self, bounding_box: List, fill: npt.ArrayLike):
-        """
-        Wrapper function for PIL ImageDraw. Draws to each of the
-        R, G1, G2, and B channels; each channel is represented as
-        a grayscale image.
+        # Draw the ellipse
+        bounding_box = [x-r, y-r, x+r, y+r]
+        ellipse_color = (new_color * 255).astype(int)
+        channel_draws[0].ellipse(bounding_box, fill=tuple(ellipse_color[:3]), width=0)
+        channel_draws[1].ellipse(bounding_box, fill=tuple(ellipse_color[3:]), width=0)
 
-        :param bounding_box: Four points to define the bounding box.
-            Sequence of either [(x0, y0), (x1, y1)] or [x0, y0, x1, y1].
-        :param fill: RGBOCV tuple represented as float [0, 1].
-        """
-        ellipse_color = (fill * 255).astype(int)
-        self.channel_draws[0].ellipse(
-            bounding_box, fill=tuple(ellipse_color[:3]), width=0)
-        self.channel_draws[1].ellipse(
-            bounding_box, fill=tuple(ellipse_color[3:]), width=0)
 
-    def __resetGeometry(self):
-        """
-        Reset plate geometry. Useful if we want to regenerate the plate pattern
-        with a different seed.
-        """
-        self.circles = None
-        self.inside_props = None
-        self.outside_props = None
+def generate_ishihara_plate(
+    plate_color: PlateColor,
+    secret: int = _SECRETS[0],
+    num_samples: int = 100,
+    dot_sizes: List[int] = [16, 22, 28],
+    image_size: int = 1024,
+    seed: int = 0,
+    lum_noise: float = 0,
+    noise: float = 0,
+    gradient: bool = False,
+    noise_generator: Optional[Callable[[], npt.NDArray]] = None,
+    corner_label: Optional[str] = None,
+    corner_color: npt.ArrayLike = np.array([255/2, 255/2, 255/2, 255/2, 0, 0]).astype(int)
+) -> Tuple[Image.Image, Image.Image]:
+    """
+    Generate an Ishihara Plate with specified properties.
 
-    def __resetImages(self):
-        """
-        Reset plate images. Useful if we want to regenerate the plate with
-        different inside/outside colors.
-        """
-        self.channels = [Image.new(mode='RGB', size=(
-            self.image_size, self.image_size)) for _ in range(4)]
-        self.channel_draws = [ImageDraw.Draw(ch) for ch in self.channels]
+    Parameters:
+    -----------
+    plate_color : PlateColor
+        A PlateColor object with shape and background colors (RGB/OCV tuples).
+    secret : int
+        Specifies which secret file to use from the secrets directory.
+    num_samples : int
+        Number of samples to take for gradient plates.
+    dot_sizes : List[int]
+        List of dot sizes to use in the plate.
+    image_size : int
+        Size of the output image.
+    seed : int
+        RNG seed for plate generation.
+    lum_noise : float
+        Amount of luminance noise to add.
+    noise : float
+        Amount of noise to add to gradient plates.
+    gradient : bool
+        Whether to generate a gradient plate.
+    noise_generator : Callable[[], npt.NDArray]
+        Custom noise generator function.
+    corner_label : str
+        Optional label text to draw in the corner of the plate.
+    corner_color : npt.ArrayLike
+        Color for the corner label.
 
-    def __resetPlate(self):
-        """
-        Reset geometry and images.
-        """
-        self.__resetGeometry()
-        self.__resetImages()
+    Returns:
+    --------
+    Tuple[Image.Image, Image.Image]
+        A tuple of (RGB_image, OCV_image).
+    """
+    # Validate inputs
+    if secret not in _SECRETS:
+        raise ValueError(f"Invalid Hidden Number {secret}")
+
+    if not gradient:
+        num_samples = 1
+        if noise != 0:
+            raise ValueError("None-zero noise is not supported for non-gradient plates -- it doesn't make sense!")
+
+    # Standardize colors
+    inside_color = _standardize_color(plate_color.shape)
+    outside_color = _standardize_color(plate_color.background)
+
+    # Load secret image
+    with resources.path("TetriumColor.Assets.HiddenImages", f"{str(secret)}.png") as data_path:
+        secret_img = Image.open(data_path)
+    secret_img = secret_img.resize([image_size, image_size])
+    secret_img = np.asarray(secret_img)
+
+    # Generate geometry
+    circles = _generate_geometry(dot_sizes, image_size, seed)
+
+    # Calculate inside/outside proportions
+    inside_props, outside_props = _compute_inside_outside(
+        circles, secret_img, image_size, num_samples, noise, gradient
+    )
+
+    # Create images
+    channels: List[Image.Image] = [Image.new(mode='RGB', size=(image_size, image_size)) for _ in range(2)]
+    channel_draws = [ImageDraw.Draw(ch) for ch in channels]
+
+    # Draw plate
+    _draw_plate(
+        circles, inside_props, outside_props, inside_color, outside_color,
+        channel_draws, lum_noise, noise_generator
+    )
+
+    # Draw corner label if provided
+    if corner_label:
+        font = ImageFont.load_default(size=150)
+        corner_color_array = np.array(corner_color)
+        if np.issubdtype(corner_color_array.dtype, np.floating):
+            corner_color_array = (corner_color_array * 255).astype(int)
+
+        channel_draws[0].text((10, 10), corner_label, fill=tuple(corner_color_array[:3]), font=font)
+        channel_draws[1].text((10, 10), corner_label, fill=tuple(corner_color_array[3:]), font=font)
+
+    if len(channels) != 2:
+        raise ValueError("Expected exactly two channels, but got {len(channels)}")
+    return channels[0], channels[1]
+
+
+def export_plate(rgb_img: Image.Image, ocv_img: Image.Image, filename_rgb: str, filename_ocv: str):
+    """
+    Export the generated plate images to files.
+
+    :param rgb_img: RGB channel image
+    :param ocv_img: OCV channel image
+    :param filename_rgb: Filename for the RGB image
+    :param filename_ocv: Filename for the OCV image
+    """
+    rgb_img.save(filename_rgb)
+    ocv_img.save(filename_ocv)
 
 
 def GenerateHiddenImages(output_dir: str):
@@ -307,7 +308,7 @@ def GenerateHiddenImages(output_dir: str):
         draw = ImageDraw.Draw(img)
 
         # Draw a white circle
-        circle_radius = image_size // 2 - 50
+        circle_radius = image_size // 2
         circle_bbox = [
             (image_size // 2 - circle_radius, image_size // 2 - circle_radius),
             (image_size // 2 + circle_radius, image_size // 2 + circle_radius),
@@ -315,7 +316,7 @@ def GenerateHiddenImages(output_dir: str):
         draw.ellipse(circle_bbox, fill=(255, 255, 255, 255))
 
         # Draw the black number centered
-        font_size = 600
+        font_size = 700
         resource = resources.files('TetriumColor.Assets.Fonts') / 'Rubik-Medium.ttf'
         with as_file(resource) as font_path:
             font = ImageFont.truetype(str(font_path), size=font_size)
@@ -327,4 +328,4 @@ def GenerateHiddenImages(output_dir: str):
 
 
 if __name__ == "__main__":
-    GenerateHiddenImages("TetriumColor/Assets/HiddenImagesNew")
+    GenerateHiddenImages("TetriumColor/Assets/HiddenImages")
