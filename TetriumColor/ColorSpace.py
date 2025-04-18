@@ -1,3 +1,5 @@
+from re import I
+from colour.colorimetry import XYZ_ColourMatchingFunctions
 import numpy as np
 import numpy.typing as npt
 from typing import List
@@ -9,8 +11,25 @@ from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, TetraColor, Plat
 from TetriumColor.Observer.ColorSpaceTransform import (
     GetColorSpaceTransform, GetColorSpaceTransformTosRGB, GetColorSpaceTransformWODisplay, GetMaxBasisToDisplayTransform
 )
+
+from colour.models import RGB_COLOURSPACE_BT709
 import TetriumColor.ColorMath.Geometry as Geometry
 import TetriumColor.ColorMath.Conversion as Conversion
+
+
+OKLAB_M1 = np.array([
+    [0.8189330101, 0.0329845436, 0.0482003018],
+    [0.3618667424, 0.9293118715, 0.2643662691],
+    [-0.1288597137, 0.0361456387, 0.6338517070]
+]).T
+
+OKLAB_M2 = np.array([
+    [0.210454, 0.793617, -0.004072],
+    [1.977998, -2.428592, 0.450593],
+    [0.025904, 0.782771, -0.808675]
+])
+
+M_XYZ_to_RGB = RGB_COLOURSPACE_BT709.matrix_XYZ_to_RGB
 
 
 class ColorSpaceType(Enum):
@@ -19,9 +38,12 @@ class ColorSpaceType(Enum):
     MAXBASIS = "maxbasis"  # Display space (RYGB)
     CONE = "cone"  # Cone responses (SMQL)
     RGB_OCV = "rgb_ocv"  # RGB/OCV 6D representation
+    DISP = "disp"  # Display space (RGBO)
     SRGB = "srgb"  # sRGB display
+    XYZ = "xyz"  # CIE XYZ color space
     CHROM = "chrom"  # Chromaticity space
     HERING_CHROM = "hering_chrom"  # Hering chromaticity space
+    OKLAB = 'oklab'
 
     def __str__(self):
         return self.value
@@ -328,21 +350,22 @@ class ColorSpace:
         if from_space == to_space:
             return points
 
-        # Handle sRGB as target space (to_space)
+        # Handle 3D only points separately -- only one directional
         if to_space == ColorSpaceType.SRGB:
             # Convert to cone space first, then to sRGB
-            cone_points = self.convert(points, from_space, ColorSpaceType.CONE)
-            return (self.transform.cone_to_sRGB @ cone_points.T).T
-
-        # Handle sRGB as source space (from_space)
-        if from_space == ColorSpaceType.SRGB:
+            cone_points = self.convert(points, from_space, ColorSpaceType.XYZ)
+            return (M_XYZ_to_RGB @ cone_points.T).T
+        elif to_space == ColorSpaceType.OKLAB:
             if self.transform.dim != 3:
-                raise ValueError("sRGB color space is only defined for 3D color spaces")
-            # Convert from sRGB to cone space, then proceed with normal conversions
-            cone_points = (np.linalg.inv(self.transform.cone_to_sRGB) @ points.T).T
-            return self.convert(cone_points, ColorSpaceType.CONE, to_space)
+                raise ValueError("OKLAB color space is only defined for 3D color spaces")
+            # Convert to cone space first, then to OKLAB
+            xyz_points = self.convert(points, from_space, ColorSpaceType.XYZ)
+            m1_points = OKLAB_M1 @ xyz_points.T
+            m1_cubed = np.cbrt(m1_points)
+            m2_points = OKLAB_M2 @ m1_cubed
+            return m2_points.T
 
-        # handle Chromaticity based color conversions
+         # chromaticity based color transforms
         if from_space == ColorSpaceType.CHROM or from_space == ColorSpaceType.HERING_CHROM:
             raise ValueError("Cannot transform from chromaticity back to another color space")
         elif to_space == ColorSpaceType.CHROM:
@@ -353,54 +376,80 @@ class ColorSpace:
             return (GetHeringMatrix(self.transform.dim) @
                     (maxbasis_pts.T / (np.sum(maxbasis_pts.T, axis=0) + 1e-9)))[:, 1:].T
 
-            # Define transformation paths
+        # Handle the basic linear transforms
         if from_space == ColorSpaceType.VSH:
             return self.convert(self._vsh_to_hering(points), ColorSpaceType.HERING, to_space)
-
+        elif from_space == ColorSpaceType.SRGB:
+            # Convert from sRGB to cone space, then proceed with normal conversions
+            cone_points = (np.linalg.inv(M_XYZ_to_RGB) @ points.T).T
+            return self.convert(cone_points, ColorSpaceType.XYZ, to_space)
+        elif from_space == ColorSpaceType.OKLAB:
+            if self.transform.dim != 3:
+                raise ValueError("OKLAB color space is only defined for 3D color spaces")
+            # Convert to cone space first, then to OKLAB
+            m2_points = np.linalg.inv(OKLAB_M2) @ points.T
+            m2_cubed = np.power(m2_points, 3)
+            xyz_points = np.linalg.inv(OKLAB_M1) @ m2_cubed
+            return self.convert(xyz_points.T, ColorSpaceType.XYZ, to_space)
+        elif from_space == ColorSpaceType.XYZ:
+            if self.transform.dim != 3:
+                raise ValueError("transforming from XYZ to another color space is only defined for 3D color spaces")
+            cone_pts = np.linalg.inv(self.transform.cone_to_XYZ) @ points.T  # can't do this inverse if it's not 3D
+            return self.convert(cone_pts.T, ColorSpaceType.CONE, to_space)
         elif from_space == ColorSpaceType.HERING:
             disp_points = self.transform.hering_to_disp @ points.T
-            if to_space == ColorSpaceType.VSH:
-                return self._hering_to_vsh(points)
-            elif to_space == ColorSpaceType.MAXBASIS:
-                return (np.linalg.inv(self.transform.maxbasis_to_disp)@disp_points).T
-            elif to_space == ColorSpaceType.CONE:
-                display = (np.linalg.inv(self.transform.cone_to_disp)@disp_points).T
-            elif to_space == ColorSpaceType.RGB_OCV:
-                return Conversion.Map4DTo6D(disp_points.T, self.transform)
-
+            return self.convert(disp_points.T, ColorSpaceType.DISP, to_space)
         elif from_space == ColorSpaceType.MAXBASIS:
             disp_points = self.transform.maxbasis_to_disp @ points.T
-            if to_space == ColorSpaceType.VSH:
-                hering = (np.linalg.inv(self.transform.hering_to_disp) @ disp_points).T
-                return self._hering_to_vsh(hering)
-            elif to_space == ColorSpaceType.HERING:
-                return (np.linalg.inv(self.transform.hering_to_disp) @ disp_points).T
-            elif to_space == ColorSpaceType.CONE:
-                return (np.linalg.inv(self.transform.cone_to_disp) @ disp_points).T
-            elif to_space == ColorSpaceType.RGB_OCV:
-                return Conversion.Map4DTo6D(disp_points.T, self.transform)
-
+            return self.convert(disp_points.T, ColorSpaceType.DISP, to_space)
         elif from_space == ColorSpaceType.CONE:
             disp_points = self.transform.cone_to_disp @ points.T
+            return self.convert(disp_points.T, ColorSpaceType.DISP, to_space)
+        elif from_space == ColorSpaceType.DISP:
             if to_space == ColorSpaceType.VSH:
-                hering = (np.linalg.inv(self.transform.hering_to_disp) @ disp_points.T).T
+                hering = (np.linalg.inv(self.transform.hering_to_disp) @ points.T).T
                 return self._hering_to_vsh(hering)
             elif to_space == ColorSpaceType.HERING:
-                return (np.linalg.inv(self.transform.hering_to_disp) @ disp_points.T).T
+                return (np.linalg.inv(self.transform.hering_to_disp) @ points.T).T
             elif to_space == ColorSpaceType.MAXBASIS:
                 return (self.transform.cone_to_disp @ points.T).T
             elif to_space == ColorSpaceType.RGB_OCV:
-                return Conversion.Map4DTo6D(disp_points, self.transform)
-
+                return Conversion.Map4DTo6D(points, self.transform)
         elif from_space == ColorSpaceType.RGB_OCV:
-            if to_space == ColorSpaceType.MAXBASIS:
-                return Conversion.Map6DTo4D(points, self.transform)
-            else:
-                display = Conversion.Map6DTo4D(points, self.transform)
-                return self.convert(display, ColorSpaceType.MAXBASIS, to_space)
+            display = Conversion.Map6DTo4D(points, self.transform)
+            return self.convert(display, ColorSpaceType.DISP, to_space)
 
         # If we reach here, the transformation is not defined
         raise ValueError(f"Transformation from {from_space} to {to_space} not implemented")
+
+    def convert_to_perceptual(self, points: npt.NDArray,
+                              from_space: str | ColorSpaceType,
+                              M_basis: str | ColorSpaceType,
+                              denom_of_nonlin: float) -> npt.NDArray:
+        """Convert points from some linear space to a perceptual space
+
+        Args:
+            points (npt.NDArray): input points in from_space, that will be converted to to_space
+            from_space (str | ColorSpaceType): The space to convert from
+            M_basis (str | ColorSpaceType): M_basis to use as the basis of the transform
+            denom_of_nonlin (float): denominator for the non-linearity
+
+        Returns:
+            npt.NDArray: Converted points in "perceptual space" 
+        """
+        # Convert to the basis space
+        points = self.convert(points, from_space, M_basis)
+        # Apply the non-linearity
+        return np.power(points, 1/denom_of_nonlin)
+
+    def convert_to_linear(self, points: npt.NDArray,
+                          to_space: str | ColorSpaceType,
+                          M_basis: str | ColorSpaceType,
+                          denom_of_nonlin: float) -> npt.NDArray:
+        # revert the power
+        points = np.power(points, denom_of_nonlin)
+        # Convert to the basis space
+        return self.convert(points, M_basis, to_space)
 
     def to_tetra_color(self, vsh_points: npt.NDArray) -> List[TetraColor]:
         """
@@ -461,7 +510,7 @@ class ColorSpace:
             npt.NDArray: Transformation matrix
         """
         max_to_cone = np.linalg.inv(self.transform.cone_to_disp) @ self.transform.maxbasis_to_disp
-        max_to_sRGB = self.transform.cone_to_sRGB @ max_to_cone
+        max_to_sRGB = M_XYZ_to_RGB @ self.transform.cone_to_XYZ @ max_to_cone
         print(max_to_sRGB)
         return max_to_sRGB
 
@@ -484,3 +533,79 @@ class ColorSpace:
         ]
         # Join all components with a separator
         return "|".join(components)
+
+
+if __name__ == "__main__":
+    # Test if Oklab implementation is correct
+    observer = Observer.trichromat()
+
+    import matplotlib.pyplot as plt
+    from colour.colorimetry import MSDS_CMFS_STANDARD_OBSERVER
+    from colour import SpectralShape
+    shape = SpectralShape(min(observer.wavelengths), max(observer.wavelengths),
+                          int(observer.wavelengths[1] - observer.wavelengths[0]))
+    xyz = MSDS_CMFS_STANDARD_OBSERVER['CIE 1931 2 Degree Standard Observer'].copy().align(shape).values
+    fig, axes = plt.subplots(1, 4, figsize=(12, 3))
+
+    # Plot the original XYZ color matching functions
+    axes[0].plot(observer.wavelengths, xyz)
+    axes[0].set_title("CIE 1931 XYZ Color Matching Functions")
+    axes[0].set_xlabel("Wavelength (nm)")
+    axes[0].set_ylabel("Value")
+
+    # Plot the transformed OKLAB M1 values
+    axes[1].plot(observer.wavelengths, xyz @ OKLAB_M1.T)
+    axes[1].set_title("Transformed OKLAB M1 Values")
+    axes[1].set_xlabel("Wavelength (nm)")
+    axes[1].set_ylabel("Value")
+
+    # Plot the transformed OKLAB M1 values
+    axes[2].plot(observer.wavelengths, np.cbrt(xyz @ OKLAB_M1.T))
+    axes[2].set_title("Transformed OKLAB M1 Values (Cube Root)")
+    axes[2].set_xlabel("Wavelength (nm)")
+    axes[2].set_ylabel("Value")
+
+    axes[3].plot(observer.wavelengths, np.cbrt(xyz @ OKLAB_M1.T)@OKLAB_M2.T)
+    axes[3].set_title("Transformed OKLAB M2 Values")
+    axes[3].set_xlabel("Wavelength (nm)")
+    axes[3].set_ylabel("Value")
+
+    plt.tight_layout()
+    plt.show()
+
+    cs = ColorSpace(observer)
+
+    white_pt = np.array([1, 1, 1])  # observer.get_whitepoint()
+    # Convert white point to XYZ
+    print("White point in Cone", white_pt)
+    print("White point in XYZ", cs.convert(white_pt, from_space=ColorSpaceType.CONE, to_space=ColorSpaceType.XYZ))
+    print("White point in OKlab", cs.convert(white_pt, from_space=ColorSpaceType.CONE, to_space=ColorSpaceType.OKLAB))
+
+    print(np.round(cs.convert(np.array([0.950, 1.0, 1.089]),
+          from_space=ColorSpaceType.XYZ, to_space=ColorSpaceType.OKLAB), 3))
+    print(np.round(cs.convert(np.array([1, 0, 0]), from_space=ColorSpaceType.XYZ, to_space=ColorSpaceType.OKLAB), 3))
+    print(np.round(cs.convert(np.array([0, 1, 0]), from_space=ColorSpaceType.XYZ, to_space=ColorSpaceType.OKLAB), 3))
+    print(np.round(cs.convert(np.array([0, 0, 1]), from_space=ColorSpaceType.XYZ, to_space=ColorSpaceType.OKLAB), 3))
+
+    # Store the results of the conversions
+    oklab_results = [
+        np.round(cs.convert(np.array([0.950, 1.0, 1.089]),
+                            from_space=ColorSpaceType.XYZ, to_space=ColorSpaceType.OKLAB), 3),
+        np.round(cs.convert(np.array([1, 0, 0]),
+                            from_space=ColorSpaceType.XYZ, to_space=ColorSpaceType.OKLAB), 3),
+        np.round(cs.convert(np.array([0, 1, 0]),
+                            from_space=ColorSpaceType.XYZ, to_space=ColorSpaceType.OKLAB), 3),
+        np.round(cs.convert(np.array([0, 0, 1]),
+                            from_space=ColorSpaceType.XYZ, to_space=ColorSpaceType.OKLAB), 3)
+    ]
+
+    # Convert back to XYZ and check equivalence
+    for original, oklab in zip(
+        [np.array([0.950, 1.0, 1.089]),
+         np.array([1, 0, 0]),
+         np.array([0, 1, 0]),
+         np.array([0, 0, 1])],
+        oklab_results
+    ):
+        converted_back = np.round(cs.convert(oklab, from_space=ColorSpaceType.OKLAB, to_space=ColorSpaceType.XYZ), 3)
+        print(f"Original: {original}, Converted Back: {converted_back}, Equivalent: {np.allclose(original, converted_back)}")

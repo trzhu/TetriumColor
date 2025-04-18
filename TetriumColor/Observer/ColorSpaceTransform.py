@@ -4,9 +4,9 @@ import numpy.typing as npt
 from typing import List
 from colour.colorimetry import MSDS_CMFS_STANDARD_OBSERVER
 from colour.models import RGB_COLOURSPACE_BT709
-from colour import XYZ_to_RGB, wavelength_to_XYZ
+from colour import XYZ_to_RGB, wavelength_to_XYZ, SpectralShape
 
-from . import Observer, Spectra, MaxBasisFactory
+from . import Observer, Spectra, MaxBasisFactory, Illuminant
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform
 
 
@@ -26,18 +26,44 @@ def GetsRGBfromWavelength(wavelength):
 
 
 def GetConeTosRGBPrimaries(observer: Observer, metameric_axis: int = 2):
+    M_XYZ_to_RGB = RGB_COLOURSPACE_BT709.matrix_XYZ_to_RGB
+    return M_XYZ_to_RGB@GetConeToXYZPrimaries(observer, metameric_axis)
+
+
+def GetConeToXYZPrimaries(observer: Observer, metameric_axis: int = 2):
+    subset = list(range(observer.dimension))
     if observer.dimension > 3:
         subset = [i for i in range(4) if i != metameric_axis]
 
-    xyz_cmfs = MSDS_CMFS_STANDARD_OBSERVER['CIE 1931 2 Degree Standard Observer'].values
-    white_pt = np.diag(observer.get_whitepoint(wavelengths=observer.wavelengths)[subset])
+    shape = SpectralShape(min(observer.wavelengths), max(observer.wavelengths),
+                          int(observer.wavelengths[1] - observer.wavelengths[0]))
+    xyz_cmfs = MSDS_CMFS_STANDARD_OBSERVER['CIE 1931 2 Degree Standard Observer'].copy().align(shape).values
+    # white_pt = np.diag(observer.get_whitepoint(wavelengths=observer.wavelengths)[subset])
 
-    M_XYZ_to_RGB = RGB_COLOURSPACE_BT709.matrix_XYZ_to_RGB
-    M_Cone_To_Primaries = M_XYZ_to_RGB@(xyz_cmfs.T@np.linalg.pinv(observer.sensor_matrix[subset]) @ white_pt / 100)
+    # M_Cone_To_XYZ = (xyz_cmfs.T@np.linalg.pinv(observer.sensor_matrix[subset]) @ white_pt / 100)
 
-    if observer.dimension > 3:
-        M_Cone_To_Primaries = np.insert(M_Cone_To_Primaries, metameric_axis, 0, axis=1)
-    return M_Cone_To_Primaries
+    # lms_d65 = observer.get_whitepoint(wavelengths=observer.wavelengths)[subset]
+    xyz_d65 = xyz_cmfs.T @ Illuminant.get("D65").to_colour().align(shape).values
+    xyz_d65 = xyz_d65/xyz_d65[1]
+
+    # 1. Calculate initial transformation matrix
+    # (using pseudoinverse with your sample colors)
+    M_initial = xyz_cmfs.T @ np.linalg.pinv(observer.normalized_sensor_matrix[subset])
+
+    # 2. Apply to D65 white point
+    xyz_d65_transformed = M_initial @ np.ones(len(subset))
+
+    # 3. Calculate scaling factors
+    scaling_factors = xyz_d65 / xyz_d65_transformed
+
+    # 4. Apply scaling to transformation matrix
+    # (scaling each row of the matrix)
+    M_scaled = np.diag(scaling_factors) @ M_initial
+    return M_scaled
+
+#    if observer.dimension > 3:
+#         M_Cone_To_XYZ = np.insert(M_Cone_To_XYZ, metameric_axis, 0, axis=1)
+#     return M_Cone_To_XYZ
 
 
 def GetColorSpaceTransformTosRGB(observer: Observer, metameric_axis: int = 2,
@@ -55,9 +81,10 @@ def GetColorSpaceTransformTosRGB(observer: Observer, metameric_axis: int = 2,
     # ONLY WORKS FOR 3D in general because that transform is only defined for 3 dimensions
     max_basis = MaxBasisFactory.get_object(observer, verbose=False)
 
-    M_Cone_To_Primaries = GetConeTosRGBPrimaries(observer, metameric_axis)
+    M_Cone_To_sRGB = GetConeTosRGBPrimaries(observer, metameric_axis)
+    M_Cone_to_XYZ = GetConeToXYZPrimaries(observer, metameric_axis)
 
-    M_PrimariesToCone = np.linalg.inv(M_Cone_To_Primaries)
+    M_PrimariesToCone = np.linalg.inv(M_Cone_To_sRGB)
     M_ConeToMaxBasis = max_basis.cone_to_maxbasis
     M_MaxBasisToHering = max_basis.HMatrix
 
@@ -67,14 +94,14 @@ def GetColorSpaceTransformTosRGB(observer: Observer, metameric_axis: int = 2,
 
     return ColorSpaceTransform(
         observer.dimension,
-        M_Cone_To_Primaries,
+        M_Cone_To_sRGB,
         np.linalg.inv(M_PrimariesToMaxBasis),
         np.linalg.inv(M_PrimariesToHering),
         np.linalg.inv(M_ConeToHering),
         metameric_axis,
         subset_leds,
         np.ones(observer.dimension),
-        M_Cone_To_Primaries
+        M_Cone_to_XYZ,
     )
 
 
@@ -98,6 +125,8 @@ def GetColorSpaceTransformWODisplay(observer: Observer, metameric_axis: int = 2)
     M_PrimariesToMaxBasis = M_ConeToMaxBasis@M_PrimariesToCone
     M_PrimariesToHering = M_MaxBasisToHering@M_PrimariesToMaxBasis
 
+    M_Cone_to_XYZ = GetConeToXYZPrimaries(observer, metameric_axis)
+
     return ColorSpaceTransform(
         observer.dimension,
         M_Cone_To_Primaries,
@@ -107,7 +136,7 @@ def GetColorSpaceTransformWODisplay(observer: Observer, metameric_axis: int = 2)
         metameric_axis,
         [i for i in range(observer.dimension)],  # dummy LEDs
         np.ones(observer.dimension),  # dummy white point
-        GetConeTosRGBPrimaries(observer, metameric_axis)
+        M_Cone_to_XYZ
     )
 
 
@@ -142,6 +171,8 @@ def GetColorSpaceTransform(observer: Observer, display_primaries: List[Spectra] 
     M_PrimariesToMaxBasis = M_ConeToMaxBasis@M_PrimariesToCone
     M_PrimariesToHering = M_MaxBasisToHering@M_PrimariesToMaxBasis
 
+    M_Cone_to_XYZ = GetConeToXYZPrimaries(observer, metameric_axis)
+
     return ColorSpaceTransform(
         observer.dimension,
         M_Cone_To_Primaries,
@@ -151,7 +182,7 @@ def GetColorSpaceTransform(observer: Observer, display_primaries: List[Spectra] 
         metameric_axis,
         subset_leds,
         rescaled_white_weights,
-        GetConeTosRGBPrimaries(observer, metameric_axis)
+        M_Cone_to_XYZ
     )
 
 
