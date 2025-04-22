@@ -117,20 +117,6 @@ def compute_3d_vol(color_space: ColorSpace, sets_of_primaries, alpha=0.5):
     return idx, volumes[idx], efficacies[idx]
 
 
-def add_to_dict(results_dict, ):
-    max_primaries = list(sets_of_observed)[idx]
-    corresponding_max_peaks = corresponding_primaries[idx]
-    max_primaries = np.array(max_primaries)
-    key = (observer, basis, tuple(map(tuple, spds)))
-    results_dict[key] = {
-        "max_volume": volume,
-        "efficacy": efficacy,
-        "max_primaries": max_primaries,
-        "corresponding_max_peaks": corresponding_max_peaks
-    }
-
-
-# given observers
 wavelengths = np.arange(400, 701, 5)
 observer_wavelengths = np.arange(380, 781, 1)
 observers = [
@@ -150,22 +136,19 @@ sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to standard deviatio
 peak_wavelengths = np.arange(400, 701, 5)  # Peaks every 10nm from 380nm to 720nm
 
 gaussian_primaries = [gaussian(wavelengths, peak, sigma) for peak in peak_wavelengths]
-# Generate monochromatic lights from 380nm to 720nm
 monochromatic_lights = [np.eye(1, len(wavelengths), np.abs(wavelengths - p).argmin()).flatten()
                         for p in peak_wavelengths]
 
 primary_sets = [monochromatic_lights, gaussian_primaries]
 
-# set of possible perceptual functions
-denoms = [1, 2.43, 3]
-
-# set of Basis
-bases = [ColorSpaceType.HERING_CHROM, ColorSpaceType.CHROM]  # ColorSpaceType.CONE, ColorSpaceType.MAXBASIS]
+# set of bases to project into from chromaticity
+bases = [ColorSpaceType.HERING_CHROM, ColorSpaceType.CHROM]
 
 save_dir = "./results/"
 os.makedirs(save_dir, exist_ok=True)
 results_dict = {}
-# compute routine
+
+# For all possible combinations of observers, primary sets, and bases
 for observer in observers:
     corresponding_primaries = list(combinations(peak_wavelengths, observer.dimension))
     for basis in bases:
@@ -198,11 +181,6 @@ for observer in observers:
             print(f"Efficacy: {efficacy}")
             print(f"Corresponding Max Peaks: {corresponding_max_peaks}")
 
-            # best_idx, max_det_vol = compute_max_parallelotope(sets_of_observed)
-            # print(f"Max Parallelotope Volume: {max_det_vol}")
-            # print(f"Corresponding Max Peaks: {corresponding_primaries[best_idx]}")
-
-# Save results_dict to a file
 output_file = os.path.join(save_dir, "all_results.pkl")
 with open(output_file, "wb") as f:
     pickle.dump(results_dict, f)
