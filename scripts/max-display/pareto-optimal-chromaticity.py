@@ -46,7 +46,17 @@ def get_pareto_front(volumes: np.ndarray, efficiencies: np.ndarray):
     return pareto_idx
 
 
-def compute_efficiency(color_space: ColorSpace, primary_candidates: npt.NDArray, spds: List[Spectra]):
+def compute_efficiency(color_space: ColorSpace, primary_candidates: npt.NDArray, spds: List[Spectra]) -> npt.NDArray:
+    """Compute the efficiency of the primary candidates as inverse of power
+
+    Args:
+        color_space (ColorSpace): Color space object
+        primary_candidates (npt.NDArray): primary candidates
+        spds (List[Spectra]): spds of the primaries
+
+    Returns:
+        npt.NDArray: List of efficacies
+    """
     # compute total power needed to reach luminance
     spd_powers = np.array([np.trapz(spd.data) for spd in spds])
     weights = []
@@ -65,7 +75,17 @@ def compute_efficiency(color_space: ColorSpace, primary_candidates: npt.NDArray,
     return efficacies
 
 
-def compute_max_chromatic_vol(color_space: ColorSpace, chrom_basis: ColorSpaceType, primary_candidates: npt.NDArray):
+def compute_max_chromatic_vol(color_space: ColorSpace, chrom_basis: ColorSpaceType, primary_candidates: npt.NDArray) -> npt.NDArray:
+    """Compute the maximum chromatic volume of the primary candidates
+
+    Args:
+        color_space (ColorSpace): Color space object
+        chrom_basis (ColorSpaceType): chromatic basis to perform maximization in
+        primary_candidates (npt.NDArray): primary candidates
+
+    Returns:
+        npt.NDArray: List of volumes
+    """
     sets_of_primaries = primary_candidates.reshape(-1, color_space.dim)
     chrom_points = cs.convert(sets_of_primaries, ColorSpaceType.CONE, chrom_basis)
     chrom_points = np.hstack((chrom_points, np.ones((chrom_points.shape[0], 1))))
@@ -77,7 +97,20 @@ def compute_max_chromatic_vol(color_space: ColorSpace, chrom_basis: ColorSpaceTy
 
 
 def compute_max_pareto_vol_efficiency(color_space: ColorSpace, chrom_basis: ColorSpaceType, primary_candidates: npt.NDArray,
-                                      idxs: npt.NDArray, spds: List[Spectra], paretoPlot: bool | str = False):
+                                      spds: List[Spectra], paretoPlot: bool | str = False) -> tuple[int, float, float]:
+    """Compute the maximum Pareto volume and efficiency of the primary candidates
+    returns the closest point to (1, 1) line
+
+    Args:
+        color_space (ColorSpace): color space object
+        chrom_basis (ColorSpaceType): chromatic basis to perform maximization in
+        primary_candidates (npt.NDArray): primary candidates
+        spds (List[Spectra]): spds of the primaries
+        paretoPlot (bool | str, optional): plots the pareto frontier. Defaults to False.
+
+    Returns:
+        tuple[int, float, float]: idx, volume, efficiency returned of the optimal candidate
+    """
     efficacies = compute_efficiency(color_space, primary_candidates, spds)
     volumes = compute_max_chromatic_vol(color_space, chrom_basis, primary_candidates)
 
@@ -105,13 +138,21 @@ def compute_max_pareto_vol_efficiency(color_space: ColorSpace, chrom_basis: Colo
             plt.show()
         plt.close()
 
-    return best_idx, volumes[best_idx], efficacies[best_idx]
+    return int(best_idx), volumes[best_idx], efficacies[best_idx]
 
 
-def compute_max_parallelotope(primary_candidates: npt.NDArray):
+def compute_max_parallelotope(primary_candidates: npt.NDArray) -> tuple[int, float]:
+    """Old method - compute the max parallelotope of the primary candidates
+
+    Args:
+        primary_candidates (npt.NDArray): primary candidates
+
+    Returns:
+        tuple[int, float]: idx, volume of the optimal candidate
+    """
     volumes = np.array([np.linalg.det(p) for p in primary_candidates])
     best_idx = np.argmax(volumes)
-    return best_idx, volumes[best_idx]
+    return int(best_idx), volumes[best_idx]
 
 
 wavelengths = np.arange(400, 701, 5)
@@ -172,7 +213,7 @@ for observer in observers:
             idxs = np.array(list(combinations(range(len(observed_primaries)), observer.dimension)))
 
             idx, volume, efficacy = compute_max_pareto_vol_efficiency(
-                cs, basis, sets_of_observed, idxs, np.array(spds))  # , paretoPlot=f"{save_dir}/{str(observer)}_{basis}_primary_set_{pset_idx}.png")
+                cs, basis, sets_of_observed, spds)  # , paretoPlot=f"{save_dir}/{str(observer)}_{basis}_primary_set_{pset_idx}.png")
 
             max_primaries = list(sets_of_observed)[idx]
             corresponding_max_peaks = corresponding_primaries[idx]
