@@ -46,8 +46,7 @@ def get_pareto_front(volumes: np.ndarray, efficiencies: np.ndarray):
     return pareto_idx
 
 
-def compute_max_pareto_vol_efficiency(color_space: ColorSpace, chrom_basis: ColorSpaceType, primary_candidates: npt.NDArray,
-                                      idxs: npt.NDArray, spds: npt.NDArray, paretoPlot: bool | str = False):
+def compute_efficiency(color_space: ColorSpace, primary_candidates: npt.NDArray, spds: List[Spectra]):
     # compute total power needed to reach luminance
     spd_powers = np.array([np.trapz(spd.data) for spd in spds])
     weights = []
@@ -61,10 +60,12 @@ def compute_max_pareto_vol_efficiency(color_space: ColorSpace, chrom_basis: Colo
             weights.append(np.ones(color_space.dim) * -1)
     efficacies = 1.0 / np.array([np.dot(w, spd_powers[idx])
                                  for w, idx in zip(weights, idxs)])  # power needed to reach luminance
-    # efficacies = np.clip(efficacies, 0, None)  # clip to avoid negative efficaciess
     weights = np.array(weights)
     efficacies[np.any(np.array(weights) < 0, axis=1)] = 0
+    return efficacies
 
+
+def compute_max_chromatic_vol(color_space: ColorSpace, chrom_basis: ColorSpaceType, primary_candidates: npt.NDArray):
     sets_of_primaries = primary_candidates.reshape(-1, color_space.dim)
     chrom_points = cs.convert(sets_of_primaries, ColorSpaceType.CONE, chrom_basis)
     chrom_points = np.hstack((chrom_points, np.ones((chrom_points.shape[0], 1))))
@@ -72,7 +73,15 @@ def compute_max_pareto_vol_efficiency(color_space: ColorSpace, chrom_basis: Colo
 
     volumes = np.array([np.linalg.det(p) for p in chrom_points]) / math.factorial(color_space.dim)
     volumes[volumes < 0] = 0
+    return volumes
 
+
+def compute_max_pareto_vol_efficiency(color_space: ColorSpace, chrom_basis: ColorSpaceType, primary_candidates: npt.NDArray,
+                                      idxs: npt.NDArray, spds: List[Spectra], paretoPlot: bool | str = False):
+    efficacies = compute_efficiency(color_space, primary_candidates, spds)
+    volumes = compute_max_chromatic_vol(color_space, chrom_basis, primary_candidates)
+
+    # Normalize volumes and efficacies to [0, 1]
     v_norm = (volumes - volumes.min()) / (volumes.max() - volumes.min())
     e_norm = (efficacies - efficacies.min()) / (efficacies.max() - efficacies.min())
     distances = np.sqrt((1 - v_norm) ** 2 + (1 - e_norm) ** 2)
