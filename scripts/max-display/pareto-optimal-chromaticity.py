@@ -102,21 +102,6 @@ def compute_max_parallelotope(primary_candidates: npt.NDArray):
     return best_idx, volumes[best_idx]
 
 
-def compute_3d_vol(color_space: ColorSpace, sets_of_primaries, alpha=0.5):
-    efficacies = color_space.compute_efficiacies_per_primary(sets_of_primaries, ColorSpaceType.CONE)
-    # efficacies = efficacies.mean(axis=1)  # or compute the min efficiency
-    efficacies = efficacies.min(axis=1)
-    volumes = np.array([np.linalg.det(np.array(p)) for p in sets_of_primaries])
-
-    v_norm = (volumes - volumes.min()) / (volumes.max() - volumes.min())
-    e_norm = (efficacies - efficacies.min()) / (efficacies.max() - efficacies.min())
-    scores = alpha * v_norm + (1 - alpha) * e_norm
-
-    # Select the best
-    idx = np.argmax(scores)
-    return idx, volumes[idx], efficacies[idx]
-
-
 wavelengths = np.arange(400, 701, 5)
 observer_wavelengths = np.arange(380, 781, 1)
 observers = [
