@@ -319,6 +319,9 @@ class Observer:
         self.sensors = sensors
         self.sensor_matrix = self.get_sensor_matrix(total_wavelengths)
 
+        # take the average of non S-cone sensors
+        self.v_lambda = self.sensor_matrix[1:].sum(axis=0) / (len(self.sensors) - 1)
+
         if illuminant is not None:
             illuminant = illuminant.interpolate_values(self.wavelengths)
         else:
@@ -590,6 +593,19 @@ class Observer:
             [self.observe_normalized(s) for s in spectras])
         return primary_intensities
 
+    def observer_v_lambda(self, data: npt.NDArray | Spectra) -> npt.NDArray:
+        """_summary_
+
+        Args:
+            data (npt.NDArray | Spectra): _description_
+
+        Returns:
+            npt.NDArray: _description_
+        """
+        if isinstance(data, Spectra):
+            data = data.interpolate_values(self.wavelengths).data
+        return np.matmul(self.v_lambda, data)
+
     def dist(self, color1: Union[npt.NDArray, Spectra], color2: Union[npt.NDArray, Spectra]):
         return np.linalg.norm(self.observe(color1) - self.observe(color2))
 
@@ -598,9 +614,7 @@ class Observer:
         for cuts, start in self.facet_ids:
             ref = getReflectance(
                 cuts, start, self.normalized_sensor_matrix, self.dimension)
-            ref = np.concatenate(
-                [self.wavelengths[:, np.newaxis], ref[:, np.newaxis]], axis=1)
-            spectras += [Spectra(ref, illuminant=self.illuminant)]
+            spectras += [Spectra(wavelengths=self.wavelengths, data=ref)]
         return spectras
 
     def get_optimal_rgbs(self) -> npt.NDArray:

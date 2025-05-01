@@ -1,6 +1,5 @@
 
 
-import pdb
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -88,6 +87,7 @@ def compute_max_chromatic_vol(color_space: ColorSpace, chrom_basis: ColorSpaceTy
     """
     sets_of_primaries = primary_candidates.reshape(-1, color_space.dim)
     chrom_points = cs.convert(sets_of_primaries, ColorSpaceType.CONE, chrom_basis)
+    # add a column of ones to use determinant to compute simplex volume
     chrom_points = np.hstack((chrom_points, np.ones((chrom_points.shape[0], 1))))
     chrom_points = chrom_points.reshape(-1, color_space.dim, color_space.dim)
 
@@ -96,49 +96,76 @@ def compute_max_chromatic_vol(color_space: ColorSpace, chrom_basis: ColorSpaceTy
     return volumes
 
 
-def compute_max_pareto_vol_efficiency(color_space: ColorSpace, chrom_basis: ColorSpaceType, primary_candidates: npt.NDArray,
-                                      spds: List[Spectra], paretoPlot: bool | str = False) -> tuple[int, float, float]:
-    """Compute the maximum Pareto volume and efficiency of the primary candidates
-    returns the closest point to (1, 1) line
+def compute_max_perceptual_volume(color_space: ColorSpace, basis: ColorSpaceType,
+                                  denom: float, primary_candidates: npt.NDArray,
+                                  spds: List[Spectra]) -> tuple[npt.NDArray, npt.NDArray]:
+    """Compute the maximum perceptual volume of the primary candidates
 
     Args:
-        color_space (ColorSpace): color space object
-        chrom_basis (ColorSpaceType): chromatic basis to perform maximization in
-        primary_candidates (npt.NDArray): primary candidates
-        spds (List[Spectra]): spds of the primaries
-        paretoPlot (bool | str, optional): plots the pareto frontier. Defaults to False.
+        color_space (ColorSpace): _color space object
+        chrom_basis (ColorSpaceType): _chromatic basis to perform maximization in
+        denom (float): _denominator of the nonlinearity
+        primary_candidates (npt.NDArray): _primary candidates
+        spds (npt.NDArray): _spds of the primaries
 
     Returns:
-        tuple[int, float, float]: idx, volume, efficiency returned of the optimal candidate
+        tuple[npt.NDArray, npt.NDArray]: volumes, efficacies
     """
-    efficacies = compute_efficiency(color_space, primary_candidates, spds)
-    volumes = compute_max_chromatic_vol(color_space, chrom_basis, primary_candidates)
+    # TODO: implement the rest of this function
+    sets_of_primaries = primary_candidates.reshape(-1, color_space.dim)
+    perceptual_points = cs.convert_to_perceptual(
+        sets_of_primaries, ColorSpaceType.CONE, basis, denom_of_nonlin=denom).reshape(-1, color_space.dim, color_space.dim)
+    perceptual_points = np.nan_to_num(perceptual_points, nan=0.0)
 
-    # Normalize volumes and efficacies to [0, 1]
-    v_norm = (volumes - volumes.min()) / (volumes.max() - volumes.min())
-    e_norm = (efficacies - efficacies.min()) / (efficacies.max() - efficacies.min())
-    distances = np.sqrt((1 - v_norm) ** 2 + (1 - e_norm) ** 2)
-    best_idx = np.argmin(distances)
+    # compute total power needed to reach luminance
+    spd_powers = np.array([np.trapz(spd.data) for spd in spds])
+    weights = []
+    for p in perceptual_points:
+        p = p.T
+        try:
+            w = np.linalg.solve(p, np.ones(color_space.dim))
+            weights.append(w)
+        except Exception as e:
+            # Handle singular matrix case
+            weights.append(np.ones(color_space.dim) * -1)
+    weights = np.array(weights)
+    efficacies = 1.0 / np.array([np.dot(w, spd_powers[idx])
+                                 for w, idx in zip(weights, idxs)])  # power needed to reach luminance
 
-    pareto_idxs = get_pareto_front(v_norm, e_norm)
+    volumes = np.array([np.linalg.det(p.T@np.diag(w)) for w, p in zip(weights, perceptual_points)])
+    volumes[np.any(np.array(weights) < 0, axis=1)] = 0
+    efficacies[np.any(np.array(weights) < 0, axis=1)] = 0
+    # Remove NaN values from volumes and efficacies
+    volumes = np.nan_to_num(volumes, nan=0.0)
+    efficacies = np.nan_to_num(efficacies, nan=0.0)
 
-    if paretoPlot:
-        plt.figure(figsize=(10, 6))
-        plt.scatter(v_norm, e_norm, c=distances, cmap='viridis', label='Candidates')
-        plt.plot(v_norm[pareto_idxs], e_norm[pareto_idxs], color='red', label='Pareto Front')
-        plt.colorbar(label='Scores')
-        plt.xlabel('Volume')
-        plt.ylabel('Efficacy')
-        plt.title('Pareto Front: Volume vs Efficacy')
-        plt.grid(True)
-        plt.legend()
-        if isinstance(paretoPlot, str):
-            plt.savefig(paretoPlot)
-        else:
-            plt.show()
-        plt.close()
+    print("valid number of weights: ", (~np.any(np.array(weights) < 0, axis=1)).sum() / len(weights))
 
-    return int(best_idx), volumes[best_idx], efficacies[best_idx]
+    # Plot histograms of volumes and efficacies
+    plt.figure(figsize=(12, 6))
+    # Histogram for volumes
+    plt.subplot(1, 2, 1)
+    plt.hist(volumes, bins=30, color='blue', alpha=0.7, label='Volumes')
+    plt.xlabel('Volume')
+    plt.ylabel('Frequency')
+    plt.title('Histogram of Volumes')
+    plt.grid(True)
+    plt.legend()
+
+    # Histogram for efficacies
+    plt.subplot(1, 2, 2)
+    plt.hist(efficacies, bins=30, color='green', alpha=0.7, label='Efficacies')
+    plt.xlabel('Efficacy')
+    plt.ylabel('Frequency')
+    plt.title('Histogram of Efficiencies')
+    plt.grid(True)
+    plt.legend()
+
+    plt.tight_layout()
+    plt.show()
+    # plt.savefig(os.path.join(save_dir, "volumes_efficacies_histogram.png"))
+    # plt.close()
+    return volumes, efficacies
 
 
 def compute_max_parallelotope(primary_candidates: npt.NDArray) -> tuple[int, float]:
@@ -155,16 +182,57 @@ def compute_max_parallelotope(primary_candidates: npt.NDArray) -> tuple[int, flo
     return int(best_idx), volumes[best_idx]
 
 
+def compute_max_pareto_vol_efficiency(volumes, efficacies, paretoPlot: bool | str = False) -> tuple[int, float, float]:
+    """Compute the maximum Pareto volume and efficiency of the primary candidates
+    returns the closest point to (1, 1) line
+
+    Args:
+        volumes (npt.NDArray): volumes of each primary candidate
+        efficacies (npt.NDArray): efficiacies of each primary candidate
+        paretoPlot (bool | str, optional): plots the pareto frontier. Defaults to False.
+
+    Returns:
+        tuple[int, float, float]: idx, volume, efficiency returned of the optimal candidate
+    """
+
+    # Normalize volumes and efficacies to [0, 1]
+    v_norm = (volumes - volumes.min()) / (volumes.max() - volumes.min())
+    e_norm = (efficacies - efficacies.min()) / (efficacies.max() - efficacies.min())
+    distances = np.sqrt((1 - v_norm) ** 2 + (1 - e_norm) ** 2)
+    best_idx = np.argmin(distances)
+
+    pareto_idxs = get_pareto_front(v_norm, e_norm)
+
+    if paretoPlot:
+        plt.figure(figsize=(10, 6))
+        plt.scatter(v_norm, e_norm, c=distances, cmap='viridis', label='Candidates')
+        if pareto_idxs.size > 0:
+            plt.plot(v_norm[pareto_idxs], e_norm[pareto_idxs], color='red', label='Pareto Front')
+        plt.colorbar(label='Scores')
+        plt.xlabel('Volume')
+        plt.ylabel('Efficacy')
+        plt.title('Pareto Front: Volume vs Efficacy')
+        plt.grid(True)
+        plt.legend()
+        if isinstance(paretoPlot, str):
+            plt.savefig(paretoPlot)
+        else:
+            plt.show()
+        plt.close()
+
+    return int(best_idx), volumes[best_idx], efficacies[best_idx]
+
+
 wavelengths = np.arange(400, 701, 5)
 observer_wavelengths = np.arange(380, 781, 1)
 observers = [
-    Observer.custom_observer(observer_wavelengths, dimension=3),  # standard LMS observer
-    Observer.custom_observer(observer_wavelengths, dimension=3, l_cone_peak=547),  # Cda29's kid
-    Observer.custom_observer(observer_wavelengths, dimension=3, l_cone_peak=551),  # ben-like observer
+    # Observer.custom_observer(observer_wavelengths, dimension=3),  # standard LMS observer
+    # Observer.custom_observer(observer_wavelengths, dimension=3, l_cone_peak=547),  # Cda29's kid
+    # Observer.custom_observer(observer_wavelengths, dimension=3, l_cone_peak=551),  # ben-like observer
     # most likely functional tetrachromatic observer
     Observer.custom_observer(observer_wavelengths, dimension=4, template='govardovskii'),
-    Observer.custom_observer(observer_wavelengths, q_cone_peak=551, dimension=4),  # ben-like tetrachromatic observer
-    Observer.custom_observer(observer_wavelengths, q_cone_peak=555, dimension=4)
+    # Observer.custom_observer(observer_wavelengths, q_cone_peak=551, dimension=4),  # ben-like tetrachromatic observer
+    # Observer.custom_observer(observer_wavelengths, q_cone_peak=555, dimension=4)
 ]  # ser180ala like observer
 
 # set of primaries - monochromatic, gaussian, or discrete
@@ -187,16 +255,31 @@ our_primaries = (our_primaries / np.max(our_primaries, axis=0)).T
 our_primaries = [Spectra(wavelengths=primary_wavelengths, data=spectrum) for spectrum in our_primaries]
 our_primary_peaks = [primary_wavelengths[np.argmax(spectrum.data)] for spectrum in our_primaries]
 
+
 primary_sets = [monochromatic_lights, gaussian_primaries, our_primaries]
+
+
 corresponding_peaks = [peak_wavelengths, peak_wavelengths, our_primary_peaks]
 # set of bases to project into from chromaticity
-bases = [ColorSpaceType.CHROM, ColorSpaceType.HERING_CHROM]
+# bases = [ColorSpaceType.CHROM, ColorSpaceType.HERING_CHROM, ColorSpaceType.CONE, ColorSpaceType.MAXBASIS]
+bases = [ColorSpaceType.MAXBASIS]
 
 save_dir = "./results/"
 os.makedirs(save_dir, exist_ok=True)
 
+for spectras, spectra_name in zip(primary_sets, ["monochromatic", "gaussian", "ours"]):
+    plt.figure(figsize=(10, 6))
+    for spectrum in spectras:
+        plt.plot(spectrum.wavelengths, spectrum.data, label=f"Peak {spectrum.wavelengths[np.argmax(spectrum.data)]} nm")
+    plt.xlabel("Wavelength (nm)")
+    plt.ylabel("Normalized Intensity")
+    plt.title("Our Primaries")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join(save_dir, f"{spectra_name}.png"))
+
 # Initialize an empty DataFrame to store results
-results_df = pd.DataFrame(columns=pd.Index(["Observer", "Basis", "Primary Set", "Max Volume",
+results_df = pd.DataFrame(columns=pd.Index(["Observer", "Basis", "Denom", "Primary Set", "Max Volume",
                           "Efficacy", "Corresponding Max Peaks"]))
 
 # For all possible combinations of observers, primary sets, and bases
@@ -204,28 +287,43 @@ for observer in observers:
     for pset_idx, (spds, corresponding_peak_wavelengths) in enumerate(zip(primary_sets, corresponding_peaks)):
         corresponding_primaries = list(combinations(corresponding_peak_wavelengths, observer.dimension))
         for basis in bases:
-            cs = ColorSpace(observer)
-            observed_primaries = np.array(
-                [observer.observe(primary) for primary in spds])
-            peak_combinations = np.array(list(combinations(corresponding_peak_wavelengths, observer.dimension)))
+            isPerceptual = basis in [ColorSpaceType.CONE, ColorSpaceType.MAXBASIS]
+            denoms = [1.0, 2.43, 3] if isPerceptual else [1.0]
+            for denom in denoms:
+                cs = ColorSpace(observer)
+                observed_primaries = np.array(
+                    [observer.observe(primary) for primary in spds])
+                peak_combinations = np.array(list(combinations(corresponding_peak_wavelengths, observer.dimension)))
 
-            sets_of_observed = np.array(list(combinations(observed_primaries, observer.dimension)))
-            idxs = np.array(list(combinations(range(len(observed_primaries)), observer.dimension)))
+                primary_candidates = np.array(list(combinations(observed_primaries, observer.dimension)))
+                idxs = np.array(list(combinations(range(len(observed_primaries)), observer.dimension)))
 
-            idx, volume, efficacy = compute_max_pareto_vol_efficiency(
-                cs, basis, sets_of_observed, spds)  # , paretoPlot=f"{save_dir}/{str(observer)}_{basis}_primary_set_{pset_idx}.png")
+                # compute the chromaticity of the primary candidates
+                if isPerceptual:
+                    volumes, efficacies = compute_max_perceptual_volume(
+                        cs, basis, denom, primary_candidates, spds)
+                else:
+                    efficacies = compute_efficiency(cs, primary_candidates, spds)
+                    volumes = compute_max_chromatic_vol(cs, basis, primary_candidates)
 
-            max_primaries = list(sets_of_observed)[idx]
-            corresponding_max_peaks = corresponding_primaries[idx]
-            max_primaries = np.array(max_primaries)
-            results_df = pd.concat([results_df, pd.DataFrame([{
-                "Observer": f"peak_L{observer.sensors[-1].peak}" if observer.dimension == 3 else f"peak_Q_{observer.sensors[-2].peak}",
-                "Basis": str(basis),
-                "Primary Set": pset_idx,
-                "Max Volume": volume,
-                "Efficacy": efficacy,
-                "Corresponding Max Peaks": list(corresponding_max_peaks)
-            }])], ignore_index=True)
+                idx, volume, efficacy = compute_max_pareto_vol_efficiency(
+                    volumes, efficacies, paretoPlot=f"{save_dir}/{str(observer)}_{basis}_{denom}_primary_set_{pset_idx}.png")
+
+                max_primaries = list(primary_candidates)[idx]
+                corresponding_max_peaks = corresponding_primaries[idx]
+                max_primaries = np.array(max_primaries)
+
+                print("Corresponding Peaks: ", corresponding_max_peaks)
+
+                results_df = pd.concat([results_df, pd.DataFrame([{
+                    "Observer": f"peak_L{observer.sensors[-1].peak}" if observer.dimension == 3 else f"peak_Q_{observer.sensors[-2].peak}",
+                    "Primary Set": pset_idx,
+                    "Basis": str(basis),
+                    "Denom": denom,
+                    "Max Volume": volume,
+                    "Efficacy": efficacy,
+                    "Corresponding Max Peaks": list(corresponding_max_peaks)
+                }])], ignore_index=True)
 
 
 # Save the DataFrame as a CSV file
@@ -234,7 +332,7 @@ results_df.to_csv(csv_output_file, index=False)
 
 # Save a pretty table as a JPEG image
 jpeg_output_file = os.path.join(save_dir, "all_results.jpeg")
-fig, ax = plt.subplots(figsize=(12, 8))  # Adjust size as needed
+fig, ax = plt.subplots(figsize=(12, 12))  # Adjust size as needed
 ax.axis('off')  # Turn off the axis
 tbl = table(ax, results_df, loc='center', colWidths=[0.2] * len(results_df.columns))  # Show top 20 rows
 tbl.auto_set_font_size(False)

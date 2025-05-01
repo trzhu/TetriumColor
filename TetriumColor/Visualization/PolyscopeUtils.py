@@ -7,9 +7,10 @@ import tetrapolyscope as ps
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, DisplayBasisType
 from TetriumColor.Observer.ColorSpaceTransform import GetColorSpaceTransformWODisplay
 from TetriumColor.ColorMath.GamutMath import GenerateMaximalHueSpherePoints
+from TetriumColor import ColorSpace, ColorSpaceType
 
 from .Geometry import GeometryPrimitives
-from ..Observer import Observer, MaxBasisFactory, GetHeringMatrix
+from ..Observer import Observer, ObserverFactory, MaxBasisFactory, GetHeringMatrix
 from .Animation import AnimationUtils
 from scipy.spatial import ConvexHull
 from itertools import combinations
@@ -374,6 +375,59 @@ def RenderOBS(name: str, observer: Observer, display_basis: DisplayBasisType, nu
     Render3DMesh(f"{name}", chrom_points, sRGBs)
 
 
+def RenderOBSNew(name: str, observer: Observer, display_basis: DisplayBasisType) -> None:
+    """Render Object Color Solid in Specified Basis
+
+    Args:
+        name (str): name of object to register with polyscope
+        observer (Observer): Observer object to render
+        display_basis (DisplayBasisType): Basis to render the object in
+    """
+    if ObserverFactory.get_object(observer):
+        observer = ObserverFactory.get_object(observer)
+    chrom_points, rgbs = observer.get_optimal_colors()
+    if observer.dimension > 3:
+        chrom_points = (GetHeringMatrix(observer.dimension)@chrom_points.T).T[:, 1:]
+    # cs = ColorSpace(observer)
+    # sRGBs = cs.convert(chrom_points, ColorSpaceType.CONE, ColorSpaceType.SRGB)
+
+    T = GetBasisConvert(observer, display_basis)
+    new_points = chrom_points@T.T
+    Render3DMesh(f"{name}", new_points, rgbs)
+
+
+def RenderOBSinCS(name: str, observer: Observer, color_space_type: ColorSpaceType) -> None:
+    """Render Object Color Solid in Specified Basis
+
+    Args:
+        name (str): name of object to register with polyscope
+        observer (Observer): Observer object to render
+        display_basis (DisplayBasisType): Basis to render the object in
+    """
+    chrom_points, rgbs = observer.get_optimal_colors()
+    if observer.dimension > 3:
+        chrom_points = (GetHeringMatrix(observer.dimension)@chrom_points.T).T[:, 1:]
+
+    cs = ColorSpace(observer)
+    new_points = cs.convert(chrom_points, ColorSpaceType.CONE, color_space_type)
+
+    # RenderPointCloud(f"{name}_points", new_points, rgbs, radius=0.01)
+    Render3DMesh(f"{name}", new_points, rgbs)
+
+# def RenderSRGBGamutIn(name: str, observer: Observer, color_space_type: ColorSpaceType) -> None:
+#     """Render Object Color Solid in Specified Basis
+
+#     Args:
+#         name (str): name of object to register with polyscope
+#         observer (Observer): Observer object to render
+#         display_basis (DisplayBasisType): Basis to render the object in
+#     """
+
+#     cs = ColorSpace(observer)
+#     new_points = cs.convert(chrom_points, color_space_type, ColorSpaceType.CONE)
+#     RenderNonConvexFromConvexMesh(f"{name}", chrom_points, new_points, rgbs)
+
+
 def RenderMaxBasis(name: str, observer: Observer, display_basis: DisplayBasisType = DisplayBasisType.MaxBasis) -> None:
     """Render Max Basis Objects of Points and Lines - A Luminance Projected Parallelotope.
 
@@ -389,6 +443,11 @@ def RenderMaxBasis(name: str, observer: Observer, display_basis: DisplayBasisTyp
         points = points@GetHeringMatrix(observer.dimension).T
     elif display_basis == DisplayBasisType.MaxBasis:
         points = points
+    elif display_basis == DisplayBasisType.ConeHering:
+        T = np.linalg.inv(maxbasis.GetConeToMaxBasisTransform())
+        points = points@T.T
+        T = GetBasisConvert(observer, display_basis)
+        points = points@T.T
     else:  # display_basis == DisplayBasisType.Cone
         T = np.linalg.inv(maxbasis.GetConeToMaxBasisTransform())
         points = points@T.T

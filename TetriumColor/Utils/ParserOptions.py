@@ -24,11 +24,11 @@ def AddVideoOutputArgs(parser):
     parser.add_argument("--output_filename", type=str, required=False,
                         help="Output file name. If none is specified, the video will not be saved.")
     parser.add_argument("--fps", type=int, default=30, help="Frames per second for the video")
-    parser.add_argument("--total_frames", type=int, default=200, help="Total number of frames to render")
+    parser.add_argument("--total_frames", type=int, default=180, help="Total number of frames to render")
 
 
 def AddAnimationArgs(parser):
     parser.add_argument("--position", nargs='+', type=float, default=[0, 0, 0], help="Position of the object")
     parser.add_argument("--velocity", nargs='+', type=float, default=[0, 0, 0], help="Velocity of the object")
-    parser.add_argument("--rotation_speed", type=float, default=30, help="Rotation speed of the object")
+    parser.add_argument("--rotation_speed", type=float, default=60, help="Rotation speed of the object")
     parser.add_argument("--rotation_axis", nargs='+', type=float, default=[0, 1, 0], help="Rotation axis of the object")

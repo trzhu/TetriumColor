@@ -70,7 +70,7 @@ class MaxDisplayGamut:
 
                     def conv_chromaticity(pts):
                         vecs = (transformMatrix@pts)
-                        T = GetHeringMatrix(dim)
+                        T = GetHeringMatrix(dim)  # only for plotting purposes really
                         return MaxDisplayGamut.TransformToDisplayChromaticity(vecs, T, idxs=idxs)
                     return conv_chromaticity
                 else:

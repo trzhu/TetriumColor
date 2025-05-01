@@ -96,10 +96,12 @@ class ColorSpace:
             )
 
         # Store the dimensionality of the color space
-        self.dim = self.transform.dim
+        self.dim = self.observer.dimension
 
         self.max_L = (np.linalg.inv(self.transform.hering_to_disp) @
                       np.ones(self.transform.cone_to_disp.shape[0]))[0]
+
+        self.M_Cone_To_MaxBasis = np.linalg.inv(self.transform.maxbasis_to_disp)@self.transform.cone_to_disp
 
     def _get_transform_chrom_to_metameric_dir(self) -> npt.NDArray:
         """
@@ -374,7 +376,7 @@ class ColorSpace:
         elif to_space == ColorSpaceType.HERING_CHROM:
             maxbasis_pts = self.convert(points, from_space, ColorSpaceType.MAXBASIS)
             return (GetHeringMatrix(self.transform.dim) @
-                    (maxbasis_pts.T / (np.sum(maxbasis_pts.T, axis=0) + 1e-9)))[:, 1:].T
+                    (maxbasis_pts.T / (np.sum(maxbasis_pts.T, axis=0) + 1e-9)))[1:].T
 
         # Handle the basic linear transforms
         if from_space == ColorSpaceType.VSH:
@@ -412,9 +414,12 @@ class ColorSpace:
             elif to_space == ColorSpaceType.HERING:
                 return (np.linalg.inv(self.transform.hering_to_disp) @ points.T).T
             elif to_space == ColorSpaceType.MAXBASIS:
-                return (self.transform.cone_to_disp @ points.T).T
+                return (np.linalg.inv(self.transform.maxbasis_to_disp) @ points.T).T
             elif to_space == ColorSpaceType.RGB_OCV:
                 return Conversion.Map4DTo6D(points, self.transform)
+            elif to_space == ColorSpaceType.XYZ:
+                return (np.linalg.inv(self.transform.cone_to_XYZ) @ np.linalg.inv(self.transform.cone_to_disp) @ points.T).T
+
         elif from_space == ColorSpaceType.RGB_OCV:
             display = Conversion.Map6DTo4D(points, self.transform)
             return self.convert(display, ColorSpaceType.DISP, to_space)
@@ -437,10 +442,8 @@ class ColorSpace:
         Returns:
             npt.NDArray: Converted points in "perceptual space" 
         """
-        # Convert to the basis space
-        points = self.convert(points, from_space, M_basis)
-        # Apply the non-linearity
-        return np.power(points, 1/denom_of_nonlin)
+        points = np.power(points, 1/denom_of_nonlin)
+        return self.convert(points, from_space, M_basis)
 
     def convert_to_linear(self, points: npt.NDArray,
                           to_space: str | ColorSpaceType,
@@ -450,6 +453,38 @@ class ColorSpace:
         points = np.power(points, denom_of_nonlin)
         # Convert to the basis space
         return self.convert(points, M_basis, to_space)
+
+    def compute_v_lambda(self, points: npt.NDArray,
+                         from_space: str | ColorSpaceType) -> npt.NDArray:
+        """Compute V_Lambda given the observer
+
+        Args:
+            points (npt.NDArray): points in from_space
+            from_space (str | ColorSpaceType): space of points
+
+        Returns:
+            npt.NDArray: v_lambda values
+        """
+        points = self.convert(points, from_space, ColorSpaceType.CONE)
+        efficacies = points[:, 1:].sum(
+            axis=1) / len(points[0,  1:])  # average over the longer-wavelength cones
+        return efficacies
+
+    def compute_efficiacies_per_primary(self, points: npt.NDArray,
+                                        from_space: str | ColorSpaceType) -> npt.NDArray:
+        """Compute V_Lambda given the observer
+
+        Args:
+            points (npt.NDArray): points in from_space
+            from_space (str | ColorSpaceType): space of points
+
+        Returns:
+            npt.NDArray: v_lambda values
+        """
+        points = self.convert(points, from_space, ColorSpaceType.CONE)
+        efficacies_per_primary = points[:, :, 1:].sum(
+            axis=2) / len(points[0, 0, 1:])  # average over the longer-wavelength cones
+        return efficacies_per_primary
 
     def to_tetra_color(self, vsh_points: npt.NDArray) -> List[TetraColor]:
         """
