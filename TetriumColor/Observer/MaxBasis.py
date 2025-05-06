@@ -1,3 +1,4 @@
+import hashlib
 from importlib import resources
 from itertools import combinations
 from functools import reduce
@@ -11,13 +12,14 @@ from typing import List
 
 from . import Observer, GetHeringMatrix
 from . import Spectra, Illuminant
+from ..Utils.Hash import stable_hash
 
 
 class MaxBasis:
     dim4SampleConst = 10
     dim3SampleConst = 2
 
-    def __init__(self, observer, verbose=False) -> None:
+    def __init__(self, observer: Observer, denom: float = 1, verbose: bool = False) -> None:
         self.verbose = verbose
         self.observer = observer
         self.wavelengths = observer.wavelengths
@@ -26,6 +28,7 @@ class MaxBasis:
         self.step_size = self.observer.wavelengths[1] - self.observer.wavelengths[0]
         self.dim_sample_const = self.dim4SampleConst if self.dimension == 4 else self.dim3SampleConst
 
+        self.denom = denom
         self.HMatrix = GetHeringMatrix(observer.dimension)
 
         self.__getMaximalBasis()
@@ -34,7 +37,7 @@ class MaxBasis:
         transitions = self.GetCutpointTransitions(wavelengths)
         cone_vals = np.array([np.dot(self.matrix, Spectra.from_transitions(
             x, 1 if i == 0 else 0, self.wavelengths).data) for i, x in enumerate(transitions)])
-        vol = np.abs(np.linalg.det(cone_vals))
+        vol = np.abs(np.linalg.det(np.power(cone_vals, self.denom)))
         return vol
 
     def __findMaximalCMF(self, isReverse=True):
@@ -137,7 +140,7 @@ class MaxBasis:
                 self.observer.wavelengths[0] + self.step_size, self.observer.wavelengths[-1] - self.step_size, self.dim_sample_const)
             coarse_sensors = [s.interpolate_values(coarse_wavelengths) for s in self.observer.sensors]
             coarseObserver = Observer(coarse_sensors, self.observer.illuminant)
-            coarseMaxBasis = MaxBasis(coarseObserver, verbose=self.verbose)
+            coarseMaxBasis = MaxBasis(coarseObserver, denom=self.denom, verbose=self.verbose)
             cutpoints = coarseMaxBasis.GetCutpoints()
             range = [[x - rangbd, x + rangbd] for x in cutpoints[:self.dimension-1]]
 
@@ -208,11 +211,11 @@ class MaxBasis:
         return refs, points, rgbs, lines
 
     def __hash__(self) -> int:
-        return hash(self.observer)
+        return stable_hash(self.observer)
 
     def __eq__(self, value: object) -> bool:
         if isinstance(value, MaxBasis):
-            return hash(self.observer) == hash(value.observer)
+            return stable_hash(self.observer) == stable_hash(value.observer)
         return False
 
 
@@ -240,7 +243,8 @@ class MaxBasisFactory:
         # Load existing cache or initialize it
         cache = MaxBasisFactory.load_cache()
         # Use the __hash__ of the first argument as the cache key
-        key = hash(args[0]) if args else None
+        normalize_float = f"{kwargs['denom']:.2f}"
+        key = stable_hash(args[0]) + stable_hash(normalize_float) if args or kwargs else None
         if key is None:
             raise ValueError("The first argument must be hashable to act as a key.")
 

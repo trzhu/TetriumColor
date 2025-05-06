@@ -4,18 +4,17 @@ from typing import List
 
 import tetrapolyscope as ps
 
-from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, DisplayBasisType
-from TetriumColor.Observer.DisplayObserverSensitivity import GetColorSpaceTransformWODisplay
 from TetriumColor.ColorMath.GamutMath import GenerateMaximalHueSpherePoints
+from TetriumColor import ColorSampler, ColorSpace, ColorSpaceType, PolyscopeDisplayType
 
 from .Geometry import GeometryPrimitives
-from ..Observer import Observer, MaxBasisFactory, GetHeringMatrix
+from ..Observer import Observer, MaxBasisFactory
 from .Animation import AnimationUtils
 from scipy.spatial import ConvexHull
 from itertools import combinations
 
 
-def OpenVideo(filename: str):  # dunno how to type a fd
+def OpenVideo(filename: str):
     """Open a video file for writing.
 
     Args:
@@ -37,7 +36,7 @@ def CloseVideo(fd) -> None:
     return
 
 
-def RenderVideo(fd, total_frames: int, target_fps: int = 30):
+def RenderVideo(fd, total_frames: int, target_fps: int = 30) -> None:
     """
     Renders a video by updating animations frame by frame.
 
@@ -53,22 +52,6 @@ def RenderVideo(fd, total_frames: int, target_fps: int = 30):
 
         # Render the current frame to the video
         ps.write_video_frame(fd, transparent_bg=False)
-
-
-def GetHeringMatrixLumYDir(dim: int) -> npt.NDArray:
-    """Get the Hering Matrix with the Luminance Direction as the Y direction
-
-    Args:
-        dim (int): dimension of the matrix
-
-    Returns:
-        npt.NDArray: Hering Matrix with Luminance Direction as the Y direction
-    """
-    h_mat = GetHeringMatrix(dim)
-    lum_dir = np.copy(h_mat[0])
-    h_mat[0] = h_mat[1]
-    h_mat[1] = lum_dir
-    return h_mat
 
 
 def Render2DMesh(name: str, points: npt.NDArray, rgb: npt.NDArray) -> float:
@@ -176,8 +159,8 @@ def RenderSimplexElements(name: str, dim: int, simplex_coords: npt.NDArray, simp
     # GENERATE POINTS
     if dim < 4:
         simplex_coords = np.hstack((simplex_coords, np.zeros((simplex_coords.shape[0], 1))))
-    RenderPointCloud("simplex_points", simplex_coords, simplex_colors, radius=0.1)
-    names.append(("simplex_points", "point_cloud"))
+    RenderPointCloud(f"{name}_simplex_points", simplex_coords, simplex_colors, radius=0.1)
+    names.append((f"{name}_simplex_points", "point_cloud"))
     # GENERATE EDGES
     edges = list(combinations(range(len(simplex_coords)), 2))
 
@@ -186,8 +169,8 @@ def RenderSimplexElements(name: str, dim: int, simplex_coords: npt.NDArray, simp
             color = np.sum(simplex_colors[list(edge)], axis=0)
         else:
             color = np.zeros(3)
-        Render3DLine(f'simplex_edge_{i}', simplex_coords[list(edge)], color=color)
-        names.append((f"simplex_edge_{i}", "curve_network"))
+        Render3DLine(f'{name}_simplex_edge_{i}', simplex_coords[list(edge)], color=color)
+        names.append((f"{name}_simplex_edge_{i}", "curve_network"))
 
     # GENERATE FACES
     faces = list(combinations(range(len(simplex_coords)), 3))
@@ -196,8 +179,8 @@ def RenderSimplexElements(name: str, dim: int, simplex_coords: npt.NDArray, simp
             color = np.sum(simplex_colors[list(faces[0])], axis=0)
         else:
             color = mesh_color
-        RenderTriangle(f'simplex_face', simplex_coords[list(faces[0])], color)
-        names.append((f"simplex_face", "surface_mesh"))
+        RenderTriangle(f"{name}_simplex_face", simplex_coords[list(faces[0])], color)
+        names.append((f"{name}_simplex_face", "surface_mesh"))
         ps.get_surface_mesh(f'simplex_face').set_transparency(0.4)
 
     elif dim == 4:
@@ -207,9 +190,9 @@ def RenderSimplexElements(name: str, dim: int, simplex_coords: npt.NDArray, simp
             else:
                 color = mesh_color
             color = np.sum(simplex_colors[list(face)], axis=0)
-            RenderTriangle(f'simplex_face_{i}', simplex_coords[list(face)], color)
-            ps.get_surface_mesh(f'simplex_face_{i}').set_transparency(0.4)
-            names.append((f"simplex_face_{i}", "surface_mesh"))
+            RenderTriangle(f"{name}_simplex_face_{i}", simplex_coords[list(face)], color)
+            ps.get_surface_mesh(f"{name}_simplex_face_{i}").set_transparency(0.4)
+            names.append((f"{name}_simplex_face_{i}", "surface_mesh"))
     return names
 
 
@@ -266,138 +249,50 @@ def RenderTriangle(name: str, points: npt.NDArray, color: npt.NDArray) -> None:
     ps_triangle_mesh.add_color_quantity(f"{name}_colors", colors, defined_on='vertices', enabled=True)
 
 
-def RenderMetamericDirection(name: str, observer: Observer, display_basis: DisplayBasisType,
-                             metameric_axis: int, color: npt.ArrayLike, line_alpha: float = 1, scale: float = 1) -> None:
-
+def RenderMetamericDirection(name: str, observer: Observer, display_basis: PolyscopeDisplayType,
+                             metameric_axis: int, color: npt.NDArray, line_alpha: float = 1, scale: float = 1) -> None:
     length = 1 * 0.05
     basisLMSQ = np.zeros((1, observer.dimension))
     basisLMSQ[:, metameric_axis] = 1
     basisLMSQ = basisLMSQ * length
-    if display_basis == DisplayBasisType.Cone:
-        basisLMSQ = basisLMSQ
-    elif display_basis == DisplayBasisType.MaxBasis:
-        maxbasis = MaxBasisFactory.get_object(observer)
-        T = maxbasis.GetConeToMaxBasisTransform()
-        basisLMSQ = basisLMSQ@(T.T)
-    else:  # display_basis == DisplayBasisType.Hering
-        basisLMSQ = basisLMSQ@GetHeringMatrix(observer.dimension).T
-
-    if observer.dimension > 3 and display_basis != DisplayBasisType.Hering:
-        basisLMSQ = (basisLMSQ@GetHeringMatrix(observer.dimension).T)[:, 1:]
-    elif observer.dimension > 3 and display_basis == DisplayBasisType.Hering:
-        basisLMSQ = basisLMSQ[:, 1:]
-
+    basisLMSQ = ColorSpace(observer).convert_to_polyscope(basisLMSQ, ColorSpaceType.CONE, display_basis)
     normalizedLMSQ = basisLMSQ[0] / np.linalg.norm(basisLMSQ[0]) * scale
-    Render3DLine(name, np.array([np.zeros(3), normalizedLMSQ]), color)
+    Render3DLine(name, np.array([np.zeros(3), normalizedLMSQ]), color, line_alpha)
 
 
-def RenderConeOBS(name: str, observer: Observer) -> None:
-    """Create an Object Color Solid in the Cone Basis in Polyscope
-
-    Args:
-        name (str): name of object to register with polyscope
-        observer (Observer): Observer object to render
-    """
-    chrom_points, rgbs = observer.get_optimal_colors()
-    if observer.dimension > 3:
-        chrom_points = (GetHeringMatrix(observer.dimension)@chrom_points.T).T[:, 1:]
-    elif observer.dimension == 2:
-        # First we want to get the boundary, and then get the max pt along the saturation
-
-        # then we want to color in the rest of the solid. We should do this using subspace intersection
-
-        raise NotImplementedError("2D Observer not supported")
-    Render3DMesh(f"{name}", chrom_points, rgbs)
-
-
-def RenderOBSTransform(name: str, observer: Observer, T: npt.NDArray) -> None:
-    """Render an Object Color Solid by transforming points before.
-
-    Args:
-        name (str): name of object to register with polyscope
-        observer (Observer): Observer object to render
-        T (npt.NDArray): Transformation matrix to apply to the points
-    """
-    chrom_points, rgbs = observer.get_optimal_colors()
-    chrom_points = chrom_points@T.T
-
-    if observer.dimension > 3:
-        chrom_points = (GetHeringMatrix(observer.dimension)@chrom_points.T).T[:, 1:]
-
-    Render3DMesh(f"{name}", chrom_points, rgbs)
-
-
-def RenderMaxBasisOBS(name: str, observer: Observer) -> None:
-    """Render Object Color Solid in Max Basis
-
-    Args:
-        name (str): name of object to register with polyscope
-        observer (Observer): Observer object to render
-    """
-    maxbasis = MaxBasisFactory.get_object(observer)
-    T = maxbasis.GetConeToMaxBasisTransform()
-    RenderOBSTransform(name, observer, T)
-
-
-def RenderHeringBasisOBS(name: str, observer: Observer) -> None:
-    """Render Object Color Solid in Hering Basis
-
-    Args:
-        name (str): name of object to register with polyscope
-        observer (Observer): Observer object to render
-    """
-    maxbasis = MaxBasisFactory.get_object(observer)
-    T = maxbasis.GetConeToMaxBasisTransform()
-    if observer.dimension > 3:  # will be transformed either way in next function call
-        T = np.identity(observer.dimension)
-    else:
-        T = GetHeringMatrixLumYDir(observer.dimension)@T
-    RenderOBSTransform(name, observer, T)
-
-
-def RenderOBS(name: str, observer: Observer, display_basis: DisplayBasisType, num_samples=10000) -> None:
+def RenderOBS(name: str, observer: Observer, display_basis: PolyscopeDisplayType, num_samples=10000) -> None:
     """Render Object Color Solid in Specified Basis
 
     Args:
         name (str): name of object to register with polyscope
         observer (Observer): Observer object to render
-        display_basis (DisplayBasisType): Basis to render the object in
+        display_basis (PolyscopeDisplayType): Basis to render the object in
     """
-    color_space_transform: ColorSpaceTransform = GetColorSpaceTransformWODisplay(observer)
+    cst = ColorSpace(observer)
+    if observer.dimension == 4:
+        csampler = ColorSampler(cst, cubemap_size=128)
+        boundary_points = csampler.sample_full_colors(num_samples)
+        cones = cst.convert(boundary_points, ColorSpaceType.HERING, ColorSpaceType.CONE)
+        sRGBs = np.clip(cst.convert(cones, ColorSpaceType.CONE, ColorSpaceType.SRGB), 0, 1)
+    else:
+        boundary_points, sRGBs = observer.get_optimal_colors()
 
-    boundary_points = GenerateMaximalHueSpherePoints(num_samples, color_space_transform, observer)
-    cones = boundary_points@color_space_transform.hering_to_cone.T
-    sRGBs = np.clip(cones@color_space_transform.cone_to_sRGB.T, 0, 1)
-
-    T = GetBasisConvert(observer, display_basis)
-    chrom_points = cones@T.T
-    Render3DMesh(f"{name}", chrom_points, sRGBs)
+    new_points = cst.convert_to_polyscope(boundary_points, ColorSpaceType.CONE, display_basis)
+    Render3DMesh(f"{name}", new_points, sRGBs)
 
 
-def RenderMaxBasis(name: str, observer: Observer, display_basis: DisplayBasisType = DisplayBasisType.MaxBasis) -> None:
+def RenderMaxBasis(name: str, observer: Observer, display_basis: PolyscopeDisplayType) -> None:
     """Render Max Basis Objects of Points and Lines - A Luminance Projected Parallelotope.
 
     Args:
         name (str): name of object to register with polyscope
         observer (Observer): Observer object to render
-        display_basis (DisplayBasisType, optional): Display Basis to Render in. Defaults to DisplayBasisType.MaxBasis.
+        display_basis (PolyscopeDisplayType, optional): Display Basis to Render in. Defaults to PolyscopeDisplayType.MaxBasis.
     """
     maxbasis = MaxBasisFactory.get_object(observer)
     _, points, rgbs, lines = maxbasis.GetDiscreteRepresentation()
     # go into hering if dim is > 3
-    if display_basis == DisplayBasisType.Hering:
-        points = points@GetHeringMatrix(observer.dimension).T
-    elif display_basis == DisplayBasisType.MaxBasis:
-        points = points
-    else:  # display_basis == DisplayBasisType.Cone
-        T = np.linalg.inv(maxbasis.GetConeToMaxBasisTransform())
-        points = points@T.T
-
-    if observer.dimension > 3 and display_basis != DisplayBasisType.Hering:
-        points = points@GetHeringMatrix(observer.dimension).T[:, 1:]
-    elif observer.dimension > 3 and display_basis == DisplayBasisType.Hering:
-        points = points[:, 1:]
-
+    points = ColorSpace(observer).convert_to_polyscope(points, ColorSpaceType.MAXBASIS, display_basis)
     mesh = GeometryPrimitives.CreateMaxBasis(points, rgbs, lines)
     GeometryPrimitives.ConvertTriangleMeshToPolyscope(name, mesh)
 
@@ -415,133 +310,6 @@ def RenderDisplayGamut(name: str, basis_vectors: npt.NDArray, T: npt.NDArray = n
 
     two_mesh = GeometryPrimitives.CollapseMeshObjects([gamut_edges, gamut])
     GeometryPrimitives.ConvertTriangleMeshToPolyscope(name, two_mesh)
-
-
-def GetBasisConvert(observer: Observer, display_basis: DisplayBasisType) -> npt.NDArray:
-    """Convert 4D points to the basis specified.
-
-    Args:
-        observer (Observer): observer object
-        display_basis (DisplayBasisType): basis to display points in.
-
-    Returns:
-        npt.NDArray: _description_
-    """
-    T = np.eye(observer.dimension)
-    if display_basis == DisplayBasisType.Cone:
-        pass
-    elif display_basis == DisplayBasisType.MaxBasis:
-        maxbasis = MaxBasisFactory.get_object(observer)
-        T = maxbasis.GetConeToMaxBasisTransform()@T
-    elif display_basis == DisplayBasisType.Hering:
-        maxbasis = MaxBasisFactory.get_object(observer)
-        T = maxbasis.GetConeToMaxBasisTransform()@T
-        if observer.dimension < 4:
-            T = GetHeringMatrixLumYDir(observer.dimension)@T
-    elif display_basis == DisplayBasisType.ConeHering:
-        if observer.dimension < 4:
-            T = GetHeringMatrixLumYDir(observer.dimension)@T
-    if observer.dimension > 3:
-        T = GetHeringMatrix(observer.dimension)[1:]@T
-    return T
-
-
-def ConvertPointsToBasis(points: npt.NDArray, observer: Observer, display_basis: DisplayBasisType) -> npt.NDArray:
-    """Convert 4D points to the basis specified.
-
-    Args:
-        points (npt.NDArray): points Nx4
-        observer (Observer): observer object
-        display_basis (DisplayBasisType): basis to display points in.
-
-    Returns:
-        npt.NDArray: _description_
-    """
-    if display_basis == DisplayBasisType.Cone:
-        points = points
-    elif display_basis == DisplayBasisType.MaxBasis:
-        maxbasis = MaxBasisFactory.get_object(observer)
-        T = maxbasis.GetConeToMaxBasisTransform()
-        points = points@T.T
-    elif display_basis == DisplayBasisType.Hering:
-        maxbasis = MaxBasisFactory.get_object(observer)
-        T = maxbasis.GetConeToMaxBasisTransform()
-        if observer.dimension < 4:
-            T = GetHeringMatrixLumYDir(observer.dimension)@T
-        points = points@T.T
-        # projected anyways in the next step
-    elif display_basis == DisplayBasisType.ConeHering:
-        if observer.dimension < 4:
-            points = points@GetHeringMatrixLumYDir(observer.dimension).T
-
-    if observer.dimension > 3:
-        return points@GetHeringMatrix(observer.dimension).T[:, 1:]
-    elif observer.dimension == 2:  # fill all points with zeroes
-        return np.hstack((points, np.zeros((points.shape[0], 1))))
-    else:
-        return points
-
-
-def ConvertMaxBasisToDisplayBasis(points: npt.NDArray, observer: Observer, display_basis: DisplayBasisType) -> npt.NDArray:
-    if display_basis == DisplayBasisType.Cone:
-        maxbasis = MaxBasisFactory.get_object(observer)
-        T = maxbasis.GetConeToMaxBasisTransform()
-        points = points@np.linalg.inv(T).T
-    elif display_basis == DisplayBasisType.MaxBasis:
-        points = points
-    elif display_basis == DisplayBasisType.Hering:
-        if observer.dimension < 4:
-            T = GetHeringMatrixLumYDir(observer.dimension)@T
-        points = points@T.T
-        # projected anyways in the next step
-    elif display_basis == DisplayBasisType.ConeHering:
-        if observer.dimension < 4:
-            points = points@GetHeringMatrixLumYDir(observer.dimension).T
-
-    if observer.dimension > 3:
-        return points@GetHeringMatrix(observer.dimension).T[:, 1:]
-    elif observer.dimension == 2:  # fill all points with zeroes
-        return np.hstack((points, np.zeros((points.shape[0], 1))))
-    else:
-        return points
-
-
-def ConvertPointsToChromaticity(points: npt.NDArray, observer: Observer, idxs: List[int]) -> npt.NDArray:
-    """Transform coordinates into display chromaticity coordinates
-
-    Args:
-        points (npt.NDArray): points to transform (most likely spectral locus)
-        observer (Observer): Observer object
-        display_basis (DisplayBasisType): displayBasis to transform to before projecting
-        idxs (List[int]): indices of the dimension to return
-
-    Returns:
-        npt.NDArray: chromaticity points
-    """
-    maxbasis = MaxBasisFactory.get_object(observer)
-    T = maxbasis.GetConeToMaxBasisTransform()
-    basis_points = points@T.T
-    return (GetHeringMatrix(observer.dimension)@(basis_points.T / (np.sum(basis_points.T, axis=0) + 1e-9)))[idxs].T
-
-
-def ConvertMaxBasisPointsToChromaticity(points: npt.NDArray, observer: Observer, idxs: List[int]) -> npt.NDArray:
-    return (GetHeringMatrix(observer.dimension)@(points.T / (np.sum(points.T, axis=0) + 1e-9)))[idxs].T
-
-
-def Render4DPointCloud(name: str, points: npt.NDArray, observer: Observer,
-                       display_basis: DisplayBasisType = DisplayBasisType.MaxBasis,
-                       rgb: npt.NDArray | None = None) -> None:
-    """Render a point cloud in Polyscope
-
-    Args:
-        name (str): Name of the point cloud
-        points (npt.Array): N x 4 array of vertices
-        rgb (npt.NDArray | None, optional): N x 3 array of RGB colors. Defaults to None.
-    """
-    points = ConvertPointsToBasis(points, observer, display_basis)
-    pcl = ps.register_point_cloud(name, points)
-    if rgb is not None:
-        pcl.add_color_quantity(f"{name}_colors", rgb, enabled=True)
 
 
 def RenderPointCloud(name: str, points: npt.NDArray, rgb: npt.NDArray | None = None, radius: float = 0.01) -> None:

@@ -4,7 +4,7 @@ from typing import List
 from TetriumColor.Utils.CustomTypes import ColorTestResult
 from TetriumColor.Observer import *
 from TetriumColor.TetraColorPicker import ColorGenerator, ConeLuminanceNoiseGenerator
-from TetriumColor.PsychoPhys.IshiharaPlate import IshiharaPlate
+from TetriumColor.PsychoPhys.IshiharaPlate import IshiharaPlateGenerator
 from TetriumColor.TetraColorPicker import BackgroundNoiseGenerator, LuminanceNoiseGenerator, NoiseGenerator
 from TetriumColor.Observer.DisplayObserverSensitivity import GetAllObservers, GetColorSpaceTransformsOverObservers
 from TetriumColor.ColorMath.GamutMath import GetMaximalMetamerPointsOnGrid, GetMaxMetamerOverGridSample
@@ -68,7 +68,7 @@ class PseudoIsochromaticPlateGenerator:
         """
         self.seed: int = seed
         self.color_generator: ColorGenerator = color_generator
-        self.current_plate: IshiharaPlate = IshiharaPlate(seed=self.seed)
+        self.current_plate: IshiharaPlateGenerator = IshiharaPlateGenerator(seed=self.seed)
 
     # must be called before GetPlate
     def NewPlate(self, filename_RGB: str, filename_OCV: str, hidden_number: int):

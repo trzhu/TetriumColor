@@ -10,11 +10,10 @@ class ColorTestResult(Enum):
     Failure = 0
 
 
-class DisplayBasisType(Enum):
-    Cone = 0
-    MaxBasis = 1
-    Hering = 2
-    ConeHering = 3
+class CSTDisplayType(Enum):
+    LED = 0
+    SRGB = 1
+    NONE = 2
 
     def __str__(self):
         return self.name
@@ -72,9 +71,11 @@ class ColorSpaceTransform:
     dim: int
     cone_to_disp: npt.NDArray
     maxbasis_to_disp: npt.NDArray
+    maxbasis_243_to_disp: npt.NDArray
+    maxbasis_3_to_disp: npt.NDArray
     hering_to_disp: npt.NDArray
     hering_to_cone: npt.NDArray
     metameric_axis: int
-    display_basis: List[int]
+    led_mapping: List[int]
     white_weights: npt.NDArray
-    cone_to_sRGB: npt.NDArray
+    cone_to_XYZ: npt.NDArray

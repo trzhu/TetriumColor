@@ -1,5 +1,4 @@
 from importlib import resources
-from itertools import combinations
 from typing import List, Union, Optional
 from scipy.spatial import ConvexHull
 from colour import XYZ_to_RGB, wavelength_to_XYZ, MSDS_CMFS, MultiSpectralDistributions
@@ -13,6 +12,37 @@ from tqdm import tqdm
 
 from .Spectra import Spectra, Illuminant
 from .Zonotope import getReflectance, getZonotopePoints
+from ..Utils.Hash import stable_hash
+
+
+def GetHeringMatrix(dim) -> npt.NDArray:
+    """
+    Get Hering Matrix for a given dimension
+    """
+    if dim == 2:
+        return np.array([[1/np.sqrt(2), 1/np.sqrt(2)], [1/np.sqrt(2), -(1/np.sqrt(2))]])
+    elif dim == 3:
+        return np.array([[1/np.sqrt(3), 1/np.sqrt(3), 1/np.sqrt(3)], [np.sqrt(2/3), -(1/np.sqrt(6)), -(1/np.sqrt(6))], [0, 1/np.sqrt(2), -(1/np.sqrt(2))]])
+    elif dim == 4:
+        return np.array([[1/2, 1/2, 1/2, 1/2], [np.sqrt(3)/2, -(1/(2 * np.sqrt(3))), -(1/(2 * np.sqrt(3))), -(1/(2 * np.sqrt(3)))], [0, np.sqrt(2/3), -(1/np.sqrt(6)), -(1/np.sqrt(6))], [0, 0, 1/np.sqrt(2), -(1/np.sqrt(2))]])
+    else:
+        raise Exception("Can't implement orthogonalize without hardcoding")
+
+
+def GetHeringMatrixLumYDir(dim: int) -> npt.NDArray:
+    """Get the Hering Matrix with the Luminance Direction as the Y direction
+
+    Args:
+        dim (int): dimension of the matrix
+
+    Returns:
+        npt.NDArray: Hering Matrix with Luminance Direction as the Y direction
+    """
+    h_mat = GetHeringMatrix(dim)
+    lum_dir = np.copy(h_mat[0])
+    h_mat[0] = h_mat[1]
+    h_mat[1] = lum_dir
+    return h_mat
 
 
 def BaylorNomogram(wls, lambdaMax: int):
@@ -319,6 +349,9 @@ class Observer:
         self.sensors = sensors
         self.sensor_matrix = self.get_sensor_matrix(total_wavelengths)
 
+        # take the average of non S-cone sensors
+        self.v_lambda = self.sensor_matrix[1:].sum(axis=0) / (len(self.sensors) - 1)
+
         if illuminant is not None:
             illuminant = illuminant.interpolate_values(self.wavelengths)
         else:
@@ -339,7 +372,7 @@ class Observer:
             (self.wavelengths == other.wavelengths).all() and self.dimension == other.dimension
 
     def __hash__(self):
-        return hash((tuple(tuple([s.peak, s.od, s.lens, s.macular]) for s in self.sensors), tuple(self.wavelengths), self.dimension))
+        return stable_hash((tuple(tuple([s.peak, s.od, s.lens, s.macular]) for s in self.sensors), tuple(self.wavelengths), self.dimension))
 
     def __str__(self):
         return f"Observer({[[s.peak, s.od, s.lens, s.macular] for s in self.sensors]})"
@@ -455,6 +488,52 @@ class Observer:
             all_cones += [Cone(reflectances).interpolate_values(wavelengths)]
         return Observer(all_cones, illuminant=illuminant, verbose=verbose)
 
+    @staticmethod
+    def custom_observer(wavelengths: npt.NDArray,
+                        od: float = 0.5,
+                        dimension: int = 4,
+                        s_cone_peak: float = 419,
+                        m_cone_peak: float = 530,
+                        q_cone_peak: float = 547,
+                        l_cone_peak: float = 559,
+                        macular: float = 1,
+                        lens: float = 1,
+                        template: str = "neitz",
+                        illuminant: Spectra | None = None,
+                        verbose: bool = False, subset: List[int] = [0, 1, 3]):
+        """Given specific parameters, return an observer model with Q cone peaked at 547
+
+        Args:
+            wavelengths (_type_): Array of wavelengths
+            od (float, optional): optical density of photopigment. Defaults to 0.5.
+            m_cone_peak (int, optional): peak of the M-cone. Defaults to 530.
+            l_cone_peak (int, optional): peak of the L-cone. Defaults to 560.
+            template (str, optional): cone template function. Defaults to "neitz".
+
+        Returns:
+            _type_: Observer of specified paramters and 4 cone types
+        """
+
+        l_cone = Cone.cone(l_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
+        l_cone_555 = Cone.cone(555, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
+        l_cone_551 = Cone.cone(551, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
+        l_cone_547 = Cone.cone(547, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
+        q_cone = Cone.cone(q_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
+        m_cone = Cone.cone(m_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
+        s_cone = Cone.cone(s_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
+        # s_cone = Cone.s_cone(wavelengths=wavelengths)
+        if dimension == 3:
+            set_cones = [s_cone, m_cone, q_cone, l_cone]
+            return Observer([set_cones[i] for i in subset], verbose=verbose, illuminant=illuminant)
+        elif dimension == 2:
+            return Observer([s_cone, m_cone], verbose=verbose)
+        elif dimension == 4:
+            return Observer([s_cone, m_cone, q_cone, l_cone], verbose=verbose)
+        elif dimension == 6:
+            return Observer([s_cone, m_cone, l_cone_547, l_cone_551, l_cone_555, l_cone], verbose=verbose)
+        else:
+            raise NotImplementedError
+
     def get_whitepoint(self, wavelengths: Optional[npt.NDArray] = None):
         sensor_matrix = self.get_sensor_matrix(wavelengths)
 
@@ -531,6 +610,32 @@ class Observer:
 
         return np.matmul(self.normalized_sensor_matrix, data)
 
+    def observe_spectras(self, spectras: List[Spectra]) -> npt.NDArray:
+        """Observe the list of spectras 
+
+        Args:
+            spectras (List[Spectra]): List of spectras to observe
+
+        Returns:
+            npt.NDArray: A n-dimensional array of the observed colors
+        """
+        primary_intensities = np.array(
+            [self.observe_normalized(s) for s in spectras])
+        return primary_intensities
+
+    def observer_v_lambda(self, data: npt.NDArray | Spectra) -> npt.NDArray:
+        """_summary_
+
+        Args:
+            data (npt.NDArray | Spectra): _description_
+
+        Returns:
+            npt.NDArray: _description_
+        """
+        if isinstance(data, Spectra):
+            data = data.interpolate_values(self.wavelengths).data
+        return np.matmul(self.v_lambda, data)
+
     def dist(self, color1: Union[npt.NDArray, Spectra], color2: Union[npt.NDArray, Spectra]):
         return np.linalg.norm(self.observe(color1) - self.observe(color2))
 
@@ -539,9 +644,7 @@ class Observer:
         for cuts, start in self.facet_ids:
             ref = getReflectance(
                 cuts, start, self.normalized_sensor_matrix, self.dimension)
-            ref = np.concatenate(
-                [self.wavelengths[:, np.newaxis], ref[:, np.newaxis]], axis=1)
-            spectras += [Spectra(ref, illuminant=self.illuminant)]
+            spectras += [Spectra(wavelengths=self.wavelengths, data=ref)]
         return spectras
 
     def get_optimal_rgbs(self) -> npt.NDArray:
@@ -608,6 +711,7 @@ class Observer:
         chrom_points = transformToChromaticity(self.point_cloud)
         hull = ConvexHull(chrom_points)  # chromaticity coordinates now
         self._full_indices = hull.vertices
+        ObserverFactory.save_object(self)
         return chrom_points[self._full_indices], np.array(self.rgbs)[self._full_indices]
 
     def get_full_colors_in_activations(self) -> Union[npt.NDArray, npt.NDArray]:
@@ -627,16 +731,6 @@ class Observer:
     def get_trans_ref_from_idx(self, index: int) -> npt.NDArray:
         cuts, start = self.getFacetIdxFromIdx(index)
         return getReflectance(cuts, start, self.get_sensor_matrix(), self.dimension)
-
-    # @staticmethod
-    # def save_observer(observer: 'Observer', filename: str):
-    #     with open(filename, 'wb') as file:
-    #         pickle.dump(observer, file)
-
-    # @staticmethod
-    # def load_observer(filename: str) -> 'Observer':
-    #     with open(filename, 'rb') as file:
-    #         return pickle.load(file)
 
 
 class ObserverFactory:
@@ -659,24 +753,25 @@ class ObserverFactory:
                 pickle.dump(cache, f)
 
     @staticmethod
-    def save_object(obj: Observer):
-        # Load existing cache or initialize it
+    def save_object(obs: Observer):
+        key = stable_hash(obs)
         cache = ObserverFactory.load_cache()
-        # Use the __hash__ of the object as the cache key
-        key = hash(obj)
-        # Save the object into the cache
-        cache[key] = obj
+        cache[key] = obs
+        # Save the cache to disk
         ObserverFactory.save_cache(cache)
 
     @staticmethod
-    def get_object(obj: Observer):
+    def get_object(*args, **kwargs) -> Observer:
         # Load existing cache or initialize it
         cache = ObserverFactory.load_cache()
+        obs = Observer(*args)
         # Use the __hash__ of the first argument as the cache key
-        key = hash(obj)
+        key = stable_hash(obs)
+
         # Check if object exists in the cache
         if key not in cache:
-            return obj
+            cache[key] = obs
+            ObserverFactory.save_cache(cache)
 
         # Return the cached object
         return cache[key]
@@ -713,17 +808,3 @@ def transformToDisplayChromaticity(matrix, T, idxs=None) -> npt.NDArray:
     Transform Coordinates (dim x n_rows) into Display Chromaticity Coordinates (divide by Luminance)
     """
     return (T@(matrix / np.sum(matrix, axis=0)))[idxs]
-
-
-def GetHeringMatrix(dim) -> npt.NDArray:
-    """
-    Get Hering Matrix for a given dimension
-    """
-    if dim == 2:
-        return np.array([[1/np.sqrt(2), 1/np.sqrt(2)], [1/np.sqrt(2), -(1/np.sqrt(2))]])
-    elif dim == 3:
-        return np.array([[1/np.sqrt(3), 1/np.sqrt(3), 1/np.sqrt(3)], [np.sqrt(2/3), -(1/np.sqrt(6)), -(1/np.sqrt(6))], [0, 1/np.sqrt(2), -(1/np.sqrt(2))]])
-    elif dim == 4:
-        return np.array([[1/2, 1/2, 1/2, 1/2], [np.sqrt(3)/2, -(1/(2 * np.sqrt(3))), -(1/(2 * np.sqrt(3))), -(1/(2 * np.sqrt(3)))], [0, np.sqrt(2/3), -(1/np.sqrt(6)), -(1/np.sqrt(6))], [0, 0, 1/np.sqrt(2), -(1/np.sqrt(2))]])
-    else:
-        raise Exception("Can't implement orthogonalize without hardcoding")

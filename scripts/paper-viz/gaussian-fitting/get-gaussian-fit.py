@@ -5,7 +5,7 @@ from scipy.spatial import ConvexHull
 from colour.notation import RGB_to_HEX
 
 from TetriumColor.Measurement.MeasurementRoutines import GetGaussianFit
-from TetriumColor.Observer import GetCustomObserver, GetsRGBfromWavelength, convert_refs_to_spectras, GetDisplayToCone
+from TetriumColor.Observer import GetCustomObserver, GetsRGBfromWavelength, convert_refs_to_spectras
 import TetriumColor.Visualization as viz
 from TetriumColor.Utils.ParserOptions import *
 from TetriumColor.ColorMath.Geometry import GetSimplexBarycentricCoords
