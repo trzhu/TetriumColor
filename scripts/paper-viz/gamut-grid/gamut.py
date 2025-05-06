@@ -5,7 +5,6 @@ from pandas._config import display
 import tetrapolyscope as ps
 
 from TetriumColor.Observer import GetCustomObserver, ObserverFactory, GetParalleletopeBasis, convert_refs_to_spectras
-from TetriumColor.Utils.CustomTypes import DisplayBasisType
 import TetriumColor.Visualization as viz
 from TetriumColor.Utils.ParserOptions import *
 from TetriumColor.Measurement import LoadPrimaries, GaussianSmoothPrimaries

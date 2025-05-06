@@ -1,15 +1,13 @@
-from re import I
-from colour.colorimetry import XYZ_ColourMatchingFunctions
 import numpy as np
 import numpy.typing as npt
 from typing import List
 from enum import Enum
 
-from TetriumColor.Observer import Observer, GetHeringMatrix
+from TetriumColor.Observer import Observer, GetHeringMatrix, GetHeringMatrixLumYDir
 from TetriumColor.Observer.Spectra import Spectra
-from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, TetraColor, PlateColor
+from TetriumColor.Utils.CustomTypes import TetraColor, PlateColor
 from TetriumColor.Observer.ColorSpaceTransform import (
-    GetColorSpaceTransform, GetColorSpaceTransformTosRGB, GetColorSpaceTransformWODisplay, GetMaxBasisToDisplayTransform
+    GetColorSpaceTransform, CSTDisplayType, GetMaxBasisToDisplayTransform
 )
 
 from colour.models import RGB_COLOURSPACE_BT709
@@ -33,11 +31,16 @@ M_XYZ_to_RGB = RGB_COLOURSPACE_BT709.matrix_XYZ_to_RGB
 
 
 class ColorSpaceType(Enum):
+    """ColorSpaceType is the core of the color space system. It defines the different types of color spaces
+    that can be used in the system. Each color space type is represented by a string value.
+    """
     VSH = "vsh"  # Value-Saturation-Hue
     HERING = "hering"  # Hering opponent color space
     MAXBASIS = "maxbasis"  # Display space (RYGB)
+    MAXBASIS_PERCEPTUAL_243 = "maxbasis_perceptual_243"  # Perceptual space w denom 3
+    MAXBASIS_PERCEPTUAL_3 = "maxbasis_perceptual_3"  # Perceptual space w denom 2.43
     CONE = "cone"  # Cone responses (SMQL)
-    RGB_OCV = "rgb_ocv"  # RGB/OCV 6D representation
+    DISP_6P = "disp_6p"  # RGO/BGO 6D representation
     DISP = "disp"  # Display space (RGBO)
     SRGB = "srgb"  # sRGB display
     XYZ = "xyz"  # CIE XYZ color space
@@ -49,6 +52,23 @@ class ColorSpaceType(Enum):
         return self.value
 
 
+class PolyscopeDisplayType(Enum):
+    """To display in polyscope, we only allow a subset of the ColorSpaceType Enum to be displayed.
+    """
+    # this is because it makes no sense to display DISP_6P
+    MAXBASIS = ColorSpaceType.MAXBASIS
+    MAXBASIS_PERCEPTUAL_243 = ColorSpaceType.MAXBASIS_PERCEPTUAL_243
+    MAXBASIS_PERCEPTUAL_3 = ColorSpaceType.MAXBASIS_PERCEPTUAL_3
+    CONE = ColorSpaceType.CONE
+    DISP = ColorSpaceType.DISP
+
+    HERING_MAXBASIS = ColorSpaceType.HERING  # this is HERING_MAXBASIS
+    HERING_MAXBASIS_PERCEPTUAL_243 = "hering_maxbasis_perceptual_243"
+    HERING_MAXBASIS_PERCEPTUAL_3 = "hering_maxbasis_perceptual_3"
+    HERING_DISP = "hering_disp"
+    HERING_CONE = "hering_cone"
+
+
 class ColorSpace:
     """
     A class that represents a color space, combining an observer model with a display.
@@ -58,10 +78,10 @@ class ColorSpace:
     """
 
     def __init__(self, observer: Observer,
-                 display: List[Spectra] | str | None = None,
-                 scaling_factor: float = 1000,
+                 cst_display_type: CSTDisplayType | str = CSTDisplayType.NONE,
+                 display_primaries: List[Spectra] | None = None,
                  metameric_axis: int = 2,
-                 subset_leds: List[int] | None = None):
+                 led_mapping: List[int] | None = [0, 1, 3, 2, 1, 3]):
         """
         Initialize a ColorSpace with an observer and optional display.
 
@@ -71,47 +91,22 @@ class ColorSpace:
                                                     a string identifying a predefined display
             scaling_factor (float, optional): Scaling factor for the display primaries
             metameric_axis (int, optional): Axis to be metameric over
-            subset_leds (List[int], optional): Subset of LEDs to use
+            subset_leds (List[int], optional):
         """
         self.observer = observer
         self.metameric_axis = metameric_axis
-        self.subset_leds = subset_leds or [0, 1, 2, 3]
+        self.led_mapping = led_mapping
 
-        if display is None:
-            # Create a default display transformation without specific primaries
-            self.transform: ColorSpaceTransform = GetColorSpaceTransformWODisplay(observer, metameric_axis)
-        elif isinstance(display, str):
-            # Handle predefined displays
-            if display.lower() == 'srgb':
-                if observer.dimension != 3:
-                    raise ValueError("sRGB display only supported for 3D observers")
-                self.transform: ColorSpaceTransform = GetColorSpaceTransformTosRGB(
-                    observer, metameric_axis, self.subset_leds)
-            else:
-                raise ValueError(f"Unknown predefined display: {display}")
-        else:
-            # Display primaries provided
-            self.transform: ColorSpaceTransform = GetColorSpaceTransform(
-                observer, display, scaling_factor, metameric_axis, self.subset_leds
-            )
+        if isinstance(cst_display_type, str):
+            cst_display_type = CSTDisplayType[cst_display_type.upper()]
 
+        self.transform = GetColorSpaceTransform(observer, cst_display_type, display_primaries,
+                                                metameric_axis, led_mapping)
         # Store the dimensionality of the color space
         self.dim = self.observer.dimension
 
         self.max_L = (np.linalg.inv(self.transform.hering_to_disp) @
                       np.ones(self.transform.cone_to_disp.shape[0]))[0]
-
-        self.M_Cone_To_MaxBasis = np.linalg.inv(self.transform.maxbasis_to_disp)@self.transform.cone_to_disp
-
-    def _get_transform_chrom_to_metameric_dir(self) -> npt.NDArray:
-        """
-        Get the transformation matrix from chromatic coordinates to metameric direction.
-
-        Returns:
-            npt.NDArray: Transformation matrix
-        """
-        normalized_direction = self.get_metameric_axis_in(ColorSpaceType.HERING)
-        return Geometry.RotateToZAxis(normalized_direction[1:])
 
     def get_metameric_axis_in(self, color_space_type: ColorSpaceType) -> npt.NDArray:
         """
@@ -323,7 +318,7 @@ class ColorSpace:
             npt.NDArray: Boolean array indicating if each point is in gamut
         """
         # Get the remapped points
-        display_basis = self.convert(points, color_space_type, ColorSpaceType.RGB_OCV)
+        display_basis = self.convert(points, color_space_type, ColorSpaceType.DISP_6P)
         in_gamut = np.all((display_basis >= 0) & (display_basis <= 1), axis=1)
 
         return in_gamut
@@ -344,9 +339,9 @@ class ColorSpace:
         """
         # Convert string to enum if necessary
         if isinstance(from_space, str):
-            from_space = ColorSpaceType(from_space)
+            from_space = ColorSpaceType(from_space.lower())
         if isinstance(to_space, str):
-            to_space = ColorSpaceType(to_space)
+            to_space = ColorSpaceType(to_space.lower())
 
         # If source and target are the same, return the input
         if from_space == to_space:
@@ -404,6 +399,12 @@ class ColorSpace:
         elif from_space == ColorSpaceType.MAXBASIS:
             disp_points = self.transform.maxbasis_to_disp @ points.T
             return self.convert(disp_points.T, ColorSpaceType.DISP, to_space)
+        elif from_space == ColorSpaceType.MAXBASIS_PERCEPTUAL_243:
+            disp_points = self.transform.maxbasis_243_to_disp @ points.T
+            return self.convert(disp_points.T, ColorSpaceType.DISP, to_space)
+        elif from_space == ColorSpaceType.MAXBASIS_PERCEPTUAL_3:
+            disp_points = self.transform.maxbasis_3_to_disp @ points.T
+            return self.convert(disp_points.T, ColorSpaceType.DISP, to_space)
         elif from_space == ColorSpaceType.CONE:
             disp_points = self.transform.cone_to_disp @ points.T
             return self.convert(disp_points.T, ColorSpaceType.DISP, to_space)
@@ -415,17 +416,57 @@ class ColorSpace:
                 return (np.linalg.inv(self.transform.hering_to_disp) @ points.T).T
             elif to_space == ColorSpaceType.MAXBASIS:
                 return (np.linalg.inv(self.transform.maxbasis_to_disp) @ points.T).T
-            elif to_space == ColorSpaceType.RGB_OCV:
+            elif to_space == ColorSpaceType.MAXBASIS_PERCEPTUAL_243:
+                return (np.linalg.inv(self.transform.maxbasis_243_to_disp) @ points.T).T
+            elif to_space == ColorSpaceType.MAXBASIS_PERCEPTUAL_3:
+                return (np.linalg.inv(self.transform.maxbasis_3_to_disp) @ points.T).T
+            elif to_space == ColorSpaceType.CONE:
+                return (np.linalg.inv(self.transform.cone_to_disp) @ points.T).T
+            elif to_space == ColorSpaceType.DISP_6P:
                 return Conversion.Map4DTo6D(points, self.transform)
             elif to_space == ColorSpaceType.XYZ:
-                return (np.linalg.inv(self.transform.cone_to_XYZ) @ np.linalg.inv(self.transform.cone_to_disp) @ points.T).T
+                M_DISP_TO_CONE = np.linalg.inv(self.transform.cone_to_disp)
+                M_CONE_TO_XYZ = self.transform.cone_to_XYZ
+                if self.dim == 3:
+                    M_DISP_TO_XYZ = M_CONE_TO_XYZ @ M_DISP_TO_CONE
+                else:
+                    M_DISP_TO_XYZ = M_CONE_TO_XYZ @ M_DISP_TO_CONE[[
+                        i for i in range(self.dim) if i != self.metameric_axis]]
 
-        elif from_space == ColorSpaceType.RGB_OCV:
+                return points @ M_DISP_TO_XYZ.T
+
+        elif from_space == ColorSpaceType.DISP_6P:
             display = Conversion.Map6DTo4D(points, self.transform)
             return self.convert(display, ColorSpaceType.DISP, to_space)
 
         # If we reach here, the transformation is not defined
         raise ValueError(f"Transformation from {from_space} to {to_space} not implemented")
+
+    def convert_to_polyscope(self, points: npt.NDArray,
+                             from_space: str | ColorSpaceType,
+                             to_space: PolyscopeDisplayType | str) -> npt.NDArray:
+        """Convert from ColorSpaceType to a PolyscopeDisplayType to vastly simplify display basis type
+
+        Args:
+            points (npt.NDArray): points in from_space
+            from_space (str | ColorSpaceType): basis defined in ColorSpaceType
+            to_space (PolyscopeDisplayType): basis defined in PolyscopeDisplayType
+
+        Returns:
+            npt.NDArray: array of points in the given PolyscopeDisplayType
+        """
+        if isinstance(to_space, str):
+            to_space = PolyscopeDisplayType[to_space]
+        if to_space.name.split("_")[0] == 'HERING':
+            inter_space = to_space.name.split("_")[1]
+            # what if from space is HERING? I think it's fine, bc inter_space is always a ColorSpaceType
+            points = self.convert(points, from_space, inter_space)
+            if self.dim == 3:
+                return points@GetHeringMatrixLumYDir(self.transform.dim).T
+            else:
+                return points@GetHeringMatrix(self.transform.dim).T[1:]
+        else:
+            return self.convert(points, from_space, to_space.name)
 
     def convert_to_perceptual(self, points: npt.NDArray,
                               from_space: str | ColorSpaceType,
@@ -440,10 +481,21 @@ class ColorSpace:
             denom_of_nonlin (float): denominator for the non-linearity
 
         Returns:
-            npt.NDArray: Converted points in "perceptual space" 
+            npt.NDArray: Converted points in "perceptual space"
         """
         points = np.power(points, 1/denom_of_nonlin)
         return self.convert(points, from_space, M_basis)
+
+    def convert_to_hering(self, points: npt.NDArray):
+        """Convert points to Hering space -- make it easier to display
+
+        Args:
+            points (npt.NDArray): input points in from_space, that will be converted to to_space
+
+        Returns:
+            npt.NDArray: Converted points in Hering space
+        """
+        return points@GetHeringMatrix(self.transform.dim).T
 
     def convert_to_linear(self, points: npt.NDArray,
                           to_space: str | ColorSpaceType,
@@ -453,38 +505,6 @@ class ColorSpace:
         points = np.power(points, denom_of_nonlin)
         # Convert to the basis space
         return self.convert(points, M_basis, to_space)
-
-    def compute_v_lambda(self, points: npt.NDArray,
-                         from_space: str | ColorSpaceType) -> npt.NDArray:
-        """Compute V_Lambda given the observer
-
-        Args:
-            points (npt.NDArray): points in from_space
-            from_space (str | ColorSpaceType): space of points
-
-        Returns:
-            npt.NDArray: v_lambda values
-        """
-        points = self.convert(points, from_space, ColorSpaceType.CONE)
-        efficacies = points[:, 1:].sum(
-            axis=1) / len(points[0,  1:])  # average over the longer-wavelength cones
-        return efficacies
-
-    def compute_efficiacies_per_primary(self, points: npt.NDArray,
-                                        from_space: str | ColorSpaceType) -> npt.NDArray:
-        """Compute V_Lambda given the observer
-
-        Args:
-            points (npt.NDArray): points in from_space
-            from_space (str | ColorSpaceType): space of points
-
-        Returns:
-            npt.NDArray: v_lambda values
-        """
-        points = self.convert(points, from_space, ColorSpaceType.CONE)
-        efficacies_per_primary = points[:, :, 1:].sum(
-            axis=2) / len(points[0, 0, 1:])  # average over the longer-wavelength cones
-        return efficacies_per_primary
 
     def to_tetra_color(self, vsh_points: npt.NDArray) -> List[TetraColor]:
         """
@@ -497,7 +517,7 @@ class ColorSpace:
             List[TetraColor]: List of TetraColor objects
         """
         # Convert to RGB_OCV space
-        six_d_color = self.convert(vsh_points, ColorSpaceType.VSH, ColorSpaceType.RGB_OCV)
+        six_d_color = self.convert(vsh_points, ColorSpaceType.VSH, ColorSpaceType.DISP_6P)
 
         # Create TetraColor objects
         return [TetraColor(six_d_color[i, :3], six_d_color[i, 3:])
@@ -519,7 +539,7 @@ class ColorSpace:
 
         # Convert both points to RGB_OCV
         points = np.vstack([vsh_point, background_vsh])
-        six_d_colors = self.convert(points, ColorSpaceType.VSH, ColorSpaceType.RGB_OCV)
+        six_d_colors = self.convert(points, ColorSpaceType.VSH, ColorSpaceType.DISP_6P)
 
         # Create TetraColor objects for foreground and background
         foreground = TetraColor(six_d_colors[0, :3], six_d_colors[0, 3:])
@@ -528,7 +548,7 @@ class ColorSpace:
         # Return the PlateColor
         return PlateColor(foreground, background)
 
-    def get_RYGB_to_RGBOCV(self):
+    def get_RYGB_to_DISP_6P(self):
         """
         Get the transformation matrix from RYGB to RGB/OCV
 
@@ -564,7 +584,7 @@ class ColorSpace:
 
             # Display Properties
             f"metameric_axis:{self.metameric_axis}",
-            f"subset_leds:{self.subset_leds}",
+            f"subset_leds:{self.led_mapping}",
         ]
         # Join all components with a separator
         return "|".join(components)

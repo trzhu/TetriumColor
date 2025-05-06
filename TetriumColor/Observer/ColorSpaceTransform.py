@@ -7,15 +7,7 @@ from colour.models import RGB_COLOURSPACE_BT709
 from colour import XYZ_to_RGB, wavelength_to_XYZ, SpectralShape
 
 from . import Observer, Spectra, MaxBasisFactory, Illuminant
-from TetriumColor.Utils.CustomTypes import ColorSpaceTransform
-
-
-def GetParalleletopeBasis(observer: Observer, led_spectrums: List[Spectra]):
-    disp = observer.observe_spectras(led_spectrums)
-    intensities = disp.T
-    white_pt = observer.observe_normalized(np.ones_like(observer.wavelengths))
-    white_weights = np.linalg.inv(intensities)@white_pt
-    return (intensities@np.diag(white_weights)).T
+from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, CSTDisplayType
 
 
 def GetsRGBfromWavelength(wavelength):
@@ -30,7 +22,16 @@ def GetConeTosRGBPrimaries(observer: Observer, metameric_axis: int = 2):
     return M_XYZ_to_RGB@GetConeToXYZPrimaries(observer, metameric_axis)
 
 
-def GetConeToXYZPrimaries(observer: Observer, metameric_axis: int = 2):
+def GetConeToXYZPrimaries(observer: Observer, metameric_axis: int = 2) -> npt.NDArray:
+    """Get the 3xobserver.dim matrix that transforms from cone space to XYZ space
+
+    Args:
+        observer (Observer): Observer to transform from
+        metameric_axis (int, optional): the dimension to drop to transform to XYZ. Use the idxs of the non LMS cones. Defaults to 2.
+
+    Returns:
+        npt.NDArray: the transformation matrix from cone space to XYZ space
+    """
     subset = list(range(observer.dimension))
     if observer.dimension > 3:
         subset = [i for i in range(4) if i != metameric_axis]
@@ -38,17 +39,13 @@ def GetConeToXYZPrimaries(observer: Observer, metameric_axis: int = 2):
     shape = SpectralShape(min(observer.wavelengths), max(observer.wavelengths),
                           int(observer.wavelengths[1] - observer.wavelengths[0]))
     xyz_cmfs = MSDS_CMFS_STANDARD_OBSERVER['CIE 1931 2 Degree Standard Observer'].copy().align(shape).values
-    # white_pt = np.diag(observer.get_whitepoint(wavelengths=observer.wavelengths)[subset])
-
-    # M_Cone_To_XYZ = (xyz_cmfs.T@np.linalg.pinv(observer.sensor_matrix[subset]) @ white_pt / 100)
-
-    # lms_d65 = observer.get_whitepoint(wavelengths=observer.wavelengths)[subset]
     xyz_d65 = xyz_cmfs.T @ Illuminant.get("D65").to_colour().align(shape).values
     xyz_d65 = xyz_d65/xyz_d65[1]
 
     # 1. Calculate initial transformation matrix
     # (using pseudoinverse with your sample colors)
     M_initial = xyz_cmfs.T @ np.linalg.pinv(observer.normalized_sensor_matrix[subset])
+    # SML -> XYZ
 
     # 2. Apply to D65 white point
     xyz_d65_transformed = M_initial @ np.ones(len(subset))
@@ -61,126 +58,85 @@ def GetConeToXYZPrimaries(observer: Observer, metameric_axis: int = 2):
     M_scaled = np.diag(scaling_factors) @ M_initial
     return M_scaled
 
-#    if observer.dimension > 3:
-#         M_Cone_To_XYZ = np.insert(M_Cone_To_XYZ, metameric_axis, 0, axis=1)
-#     return M_Cone_To_XYZ
 
-
-def GetColorSpaceTransformTosRGB(observer: Observer, metameric_axis: int = 2,
-                                 subset_leds: List[int] = [0, 1, 2, 3]) -> ColorSpaceTransform:
-    """ONLY WORKS FOR 3D OBSERVERS. ColorSpaceTransform Object for Observer to sRGB
-
-    Args:
-        observer (Observer): observer object
-        metameric_axis (int, optional): axis along metamers. Defaults to 2.
-        subset_leds (List[int], optional): subset_led. Defaults to [0, 1, 2, 3].
-
-    Returns:
-        ColorSpaceTransform: ColorSpaceTransform object
-    """
-    # ONLY WORKS FOR 3D in general because that transform is only defined for 3 dimensions
-    max_basis = MaxBasisFactory.get_object(observer, verbose=False)
-
-    M_Cone_To_sRGB = GetConeTosRGBPrimaries(observer, metameric_axis)
-    M_Cone_to_XYZ = GetConeToXYZPrimaries(observer, metameric_axis)
-
-    M_PrimariesToCone = np.linalg.inv(M_Cone_To_sRGB)
-    M_ConeToMaxBasis = max_basis.cone_to_maxbasis
-    M_MaxBasisToHering = max_basis.HMatrix
-
-    M_ConeToHering = M_MaxBasisToHering@M_ConeToMaxBasis
-    M_PrimariesToMaxBasis = M_ConeToMaxBasis@M_PrimariesToCone
-    M_PrimariesToHering = M_MaxBasisToHering@M_PrimariesToMaxBasis
-
-    return ColorSpaceTransform(
-        observer.dimension,
-        M_Cone_To_sRGB,
-        np.linalg.inv(M_PrimariesToMaxBasis),
-        np.linalg.inv(M_PrimariesToHering),
-        np.linalg.inv(M_ConeToHering),
-        metameric_axis,
-        subset_leds,
-        np.ones(observer.dimension),
-        M_Cone_to_XYZ,
-    )
-
-
-def GetColorSpaceTransformWODisplay(observer: Observer, metameric_axis: int = 2) -> ColorSpaceTransform:
-    """Given an observer and display primaries, return the ColorSpaceTransform
+def GetColorSpaceTransform(observer: Observer, display_basis: CSTDisplayType,
+                           display_primaries: List[Spectra] | None = None,
+                           metameric_axis: int = 2,
+                           led_mapping: List[int] | None = [0, 1, 3, 2, 1, 3],
+                           scaling_factor: float = 10000) -> ColorSpaceTransform:
+    """Get ColorSpaceTransform for the observer
 
     Args:
-        observer (Observer): Observer object
-        metameric_axis: axis to be metameric over
-    Returns:
-         ColorSpaceTransform
-    """
-    max_basis = MaxBasisFactory.get_object(observer, verbose=False)
+        observer (Observer): Observer  
+        display_basis (CSTDisplayType): display_basis type for CST
+        display_primaries (List[Spectra] | None, optional): display primaries. Defaults to None.
+        metameric_axis (int, optional): metameric axis for which cone to "drop". Defaults to 2.
+        led_mapping (List[int] | None, optional): based on the idxs of dispaly_primaries,
+            how to fill in the 6p even-odd display. Defaults to [0, 1, 3, 2, 1, 3], which is the RGO/BGO display on an input of RGBO.
+        scaling_factor (float, optional): scale the measurements of the display for better linalg. Defaults to 1000.
 
-    M_Cone_To_Primaries = np.eye(observer.dimension)  # dummy matrix
+    Raises:
+        ValueError: Display primaries and led_mapping must be provided for LED display basis together.
+        ValueError: Observer dimension must be 3 for sRGB display basis.
+
+    Returns:
+        ColorSpaceTransform: the ColorSpaceTransform object that represents all transform matrices of the observer to display basis
+    """
+    # Set M_Cone_To_Primaries and white_weights according to the display type wanted
+    if display_basis == CSTDisplayType.LED:
+        if display_primaries is None or led_mapping is None:
+            raise ValueError("Display primaries and led_mapping must be provided for LED display basis together.")
+        disp = observer.observe_spectras(display_primaries)
+        intensities = disp.T * scaling_factor
+        white_pt = observer.observe_normalized(np.ones_like(observer.wavelengths))
+        white_weights = np.linalg.inv(intensities)@white_pt
+        new_intensities = intensities * white_weights
+        M_Cone_To_Primaries = np.linalg.inv(new_intensities)  # something is fucked
+
+        # scaling that needs to be applied after for 4p -> 6p display
+        rescaled_white_weights = white_weights / np.max(white_weights)
+    else:
+        rescaled_white_weights = np.ones(observer.dimension)
+        led_mapping = [i for i in range(observer.dimension)]
+        if display_basis == CSTDisplayType.NONE:
+            M_Cone_To_Primaries = np.eye(observer.dimension)
+        elif display_basis == CSTDisplayType.SRGB:
+            if observer.dimension != 3:
+                raise ValueError("Observer dimension must be 3 for sRGB display basis.")
+            M_Cone_To_Primaries = GetConeTosRGBPrimaries(observer, metameric_axis)
+
+    # Get all of the max_basis that we will use -> at most these many
+    max_basis = MaxBasisFactory.get_object(observer, denom=1, verbose=False)
+    max_basis_243 = MaxBasisFactory.get_object(observer, denom=2.43, verbose=False)
+    max_basis_3 = MaxBasisFactory.get_object(observer, denom=3, verbose=False)
+
+    # Get all transforms from cone to maxbasis to hering
     M_PrimariesToCone = np.linalg.inv(M_Cone_To_Primaries)
     M_ConeToMaxBasis = max_basis.cone_to_maxbasis
+    M_ConeToMaxBasis243 = max_basis_243.cone_to_maxbasis
+    M_ConeToMaxBasis3 = max_basis_3.cone_to_maxbasis
     M_MaxBasisToHering = max_basis.HMatrix
 
+    # transform the cone to the disp basis
     M_ConeToHering = M_MaxBasisToHering@M_ConeToMaxBasis
     M_PrimariesToMaxBasis = M_ConeToMaxBasis@M_PrimariesToCone
+    M_PrimariesToMaxBasis243 = M_ConeToMaxBasis243@M_PrimariesToCone
+    M_PrimariesToMaxBasis3 = M_ConeToMaxBasis3@M_PrimariesToCone
     M_PrimariesToHering = M_MaxBasisToHering@M_PrimariesToMaxBasis
 
+    # Get the cone to XYZ matrix
     M_Cone_to_XYZ = GetConeToXYZPrimaries(observer, metameric_axis)
 
     return ColorSpaceTransform(
         observer.dimension,
         M_Cone_To_Primaries,
         np.linalg.inv(M_PrimariesToMaxBasis),
+        np.linalg.inv(M_PrimariesToMaxBasis243),
+        np.linalg.inv(M_PrimariesToMaxBasis3),
         np.linalg.inv(M_PrimariesToHering),
         np.linalg.inv(M_ConeToHering),
         metameric_axis,
-        [i for i in range(observer.dimension)],  # dummy LEDs
-        np.ones(observer.dimension),  # dummy white point
-        M_Cone_to_XYZ
-    )
-
-
-def GetColorSpaceTransform(observer: Observer, display_primaries: List[Spectra] | npt.NDArray,
-                           scaling_factor: float = 1000, metameric_axis: int = 2,
-                           subset_leds: List[int] = [0, 1, 2, 3]) -> ColorSpaceTransform:
-    """Given an observer and display primaries, return the ColorSpaceTransform
-
-    Args:
-        observer (Observer): Observer object
-        display_primaries (List[Spectra]): List of Spectra objects representing the display primaries
-        scaling_factor (float, optional): factor to scale the display primaries by -- they are pretty low by default. Defaults to 1000.
-
-    Returns:
-        _type_: ColorSpaceTransform
-    """
-    max_basis = MaxBasisFactory.get_object(observer, verbose=False)
-    disp = observer.observe_spectras(display_primaries)
-
-    intensities = disp.T * scaling_factor
-    white_pt = observer.observe_normalized(np.ones_like(observer.wavelengths))
-    white_weights = np.linalg.inv(intensities)@white_pt
-    rescaled_white_weights = white_weights / np.max(white_weights)
-    new_intensities = intensities * white_weights
-
-    M_Cone_To_Primaries = np.linalg.inv(new_intensities)  # something is fucked
-    M_PrimariesToCone = np.linalg.inv(M_Cone_To_Primaries)
-    M_ConeToMaxBasis = max_basis.cone_to_maxbasis
-    M_MaxBasisToHering = max_basis.HMatrix
-
-    M_ConeToHering = M_MaxBasisToHering@M_ConeToMaxBasis
-    M_PrimariesToMaxBasis = M_ConeToMaxBasis@M_PrimariesToCone
-    M_PrimariesToHering = M_MaxBasisToHering@M_PrimariesToMaxBasis
-
-    M_Cone_to_XYZ = GetConeToXYZPrimaries(observer, metameric_axis)
-
-    return ColorSpaceTransform(
-        observer.dimension,
-        M_Cone_To_Primaries,
-        np.linalg.inv(M_PrimariesToMaxBasis),
-        np.linalg.inv(M_PrimariesToHering),
-        np.linalg.inv(M_ConeToHering),
-        metameric_axis,
-        subset_leds,
+        led_mapping,
         rescaled_white_weights,
         M_Cone_to_XYZ
     )
@@ -196,14 +152,15 @@ def GetMaxBasisToDisplayTransform(color_space_transform: ColorSpaceTransform) ->
     Returns:
         tuple[npt.NDArray, npt.NDArray]: a tuple of 4x3 matrices that converts from max basis to display primaries
     """
+    # We want to now go from RYGB to RGO / BGO
     disp_weights = np.identity(4) * color_space_transform.white_weights
     # go from bgyr to rygb
-    rygb_to_rgbo = disp_weights @ np.flip(color_space_transform.maxbasis_to_disp, axis=1)
+    rygb_to_disp = disp_weights @ np.flip(color_space_transform.maxbasis_to_disp, axis=1)
 
-    rygb_to_rgb = np.zeros((3, 4))
-    rygb_to_rgb = rygb_to_rgbo[:3]
+    rygb_to_disp1 = np.zeros((3, 4))
+    rygb_to_disp1 = rygb_to_disp[color_space_transform.led_mapping[:3]]
 
-    rygb_to_ocv = np.zeros((3, 4))
-    rygb_to_ocv[0] = rygb_to_rgbo[3:]
+    rygb_to_disp2 = np.zeros((3, 4))
+    rygb_to_disp2 = rygb_to_disp[color_space_transform.led_mapping[3:]]
 
-    return rygb_to_rgb.T, rygb_to_ocv.T
+    return rygb_to_disp1.T, rygb_to_disp2.T

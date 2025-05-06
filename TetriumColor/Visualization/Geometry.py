@@ -8,8 +8,6 @@ from itertools import combinations
 import tetrapolyscope as ps
 from scipy.spatial import ConvexHull
 
-from TetriumColor.Utils.CustomTypes import DisplayBasisType
-
 
 def GetCylinderTransform(endpoints: List | tuple | npt.NDArray) -> glm.mat4:
     a = endpoints[1]-endpoints[0]

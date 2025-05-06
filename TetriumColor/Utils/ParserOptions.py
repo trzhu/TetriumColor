@@ -1,11 +1,12 @@
 import argparse
-from .CustomTypes import DisplayBasisType
 from ..Observer import Cone
+from ..ColorSpace import PolyscopeDisplayType
 
 
 def AddObserverArgs(parser):
 
-    parser.add_argument('--display_basis', type=lambda choice: DisplayBasisType[choice], choices=list(DisplayBasisType))
+    parser.add_argument('--display_basis',
+                        type=lambda choice: PolyscopeDisplayType[choice], choices=[x.name for x in PolyscopeDisplayType])
     parser.add_argument('--od', type=float, required=False, default=0.5, help='Optical Density')
     parser.add_argument('--dimension', type=int, required=False, default=4)
     parser.add_argument('--s_cone_peak', type=int, required=False, default=419, help='S cone peak')

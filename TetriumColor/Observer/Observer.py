@@ -1,5 +1,4 @@
 from importlib import resources
-from itertools import combinations
 from typing import List, Union, Optional
 from scipy.spatial import ConvexHull
 from colour import XYZ_to_RGB, wavelength_to_XYZ, MSDS_CMFS, MultiSpectralDistributions
@@ -13,6 +12,37 @@ from tqdm import tqdm
 
 from .Spectra import Spectra, Illuminant
 from .Zonotope import getReflectance, getZonotopePoints
+from ..Utils.Hash import stable_hash
+
+
+def GetHeringMatrix(dim) -> npt.NDArray:
+    """
+    Get Hering Matrix for a given dimension
+    """
+    if dim == 2:
+        return np.array([[1/np.sqrt(2), 1/np.sqrt(2)], [1/np.sqrt(2), -(1/np.sqrt(2))]])
+    elif dim == 3:
+        return np.array([[1/np.sqrt(3), 1/np.sqrt(3), 1/np.sqrt(3)], [np.sqrt(2/3), -(1/np.sqrt(6)), -(1/np.sqrt(6))], [0, 1/np.sqrt(2), -(1/np.sqrt(2))]])
+    elif dim == 4:
+        return np.array([[1/2, 1/2, 1/2, 1/2], [np.sqrt(3)/2, -(1/(2 * np.sqrt(3))), -(1/(2 * np.sqrt(3))), -(1/(2 * np.sqrt(3)))], [0, np.sqrt(2/3), -(1/np.sqrt(6)), -(1/np.sqrt(6))], [0, 0, 1/np.sqrt(2), -(1/np.sqrt(2))]])
+    else:
+        raise Exception("Can't implement orthogonalize without hardcoding")
+
+
+def GetHeringMatrixLumYDir(dim: int) -> npt.NDArray:
+    """Get the Hering Matrix with the Luminance Direction as the Y direction
+
+    Args:
+        dim (int): dimension of the matrix
+
+    Returns:
+        npt.NDArray: Hering Matrix with Luminance Direction as the Y direction
+    """
+    h_mat = GetHeringMatrix(dim)
+    lum_dir = np.copy(h_mat[0])
+    h_mat[0] = h_mat[1]
+    h_mat[1] = lum_dir
+    return h_mat
 
 
 def BaylorNomogram(wls, lambdaMax: int):
@@ -342,7 +372,7 @@ class Observer:
             (self.wavelengths == other.wavelengths).all() and self.dimension == other.dimension
 
     def __hash__(self):
-        return hash((tuple(tuple([s.peak, s.od, s.lens, s.macular]) for s in self.sensors), tuple(self.wavelengths), self.dimension))
+        return stable_hash((tuple(tuple([s.peak, s.od, s.lens, s.macular]) for s in self.sensors), tuple(self.wavelengths), self.dimension))
 
     def __str__(self):
         return f"Observer({[[s.peak, s.od, s.lens, s.macular] for s in self.sensors]})"
@@ -681,6 +711,7 @@ class Observer:
         chrom_points = transformToChromaticity(self.point_cloud)
         hull = ConvexHull(chrom_points)  # chromaticity coordinates now
         self._full_indices = hull.vertices
+        ObserverFactory.save_object(self)
         return chrom_points[self._full_indices], np.array(self.rgbs)[self._full_indices]
 
     def get_full_colors_in_activations(self) -> Union[npt.NDArray, npt.NDArray]:
@@ -722,24 +753,25 @@ class ObserverFactory:
                 pickle.dump(cache, f)
 
     @staticmethod
-    def save_object(obj: Observer):
-        # Load existing cache or initialize it
+    def save_object(obs: Observer):
+        key = stable_hash(obs)
         cache = ObserverFactory.load_cache()
-        # Use the __hash__ of the object as the cache key
-        key = hash(obj)
-        # Save the object into the cache
-        cache[key] = obj
+        cache[key] = obs
+        # Save the cache to disk
         ObserverFactory.save_cache(cache)
 
     @staticmethod
-    def get_object(obj: Observer):
+    def get_object(*args, **kwargs) -> Observer:
         # Load existing cache or initialize it
         cache = ObserverFactory.load_cache()
+        obs = Observer(*args)
         # Use the __hash__ of the first argument as the cache key
-        key = hash(obj)
+        key = stable_hash(obs)
+
         # Check if object exists in the cache
         if key not in cache:
-            return obj
+            cache[key] = obs
+            ObserverFactory.save_cache(cache)
 
         # Return the cached object
         return cache[key]
@@ -776,17 +808,3 @@ def transformToDisplayChromaticity(matrix, T, idxs=None) -> npt.NDArray:
     Transform Coordinates (dim x n_rows) into Display Chromaticity Coordinates (divide by Luminance)
     """
     return (T@(matrix / np.sum(matrix, axis=0)))[idxs]
-
-
-def GetHeringMatrix(dim) -> npt.NDArray:
-    """
-    Get Hering Matrix for a given dimension
-    """
-    if dim == 2:
-        return np.array([[1/np.sqrt(2), 1/np.sqrt(2)], [1/np.sqrt(2), -(1/np.sqrt(2))]])
-    elif dim == 3:
-        return np.array([[1/np.sqrt(3), 1/np.sqrt(3), 1/np.sqrt(3)], [np.sqrt(2/3), -(1/np.sqrt(6)), -(1/np.sqrt(6))], [0, 1/np.sqrt(2), -(1/np.sqrt(2))]])
-    elif dim == 4:
-        return np.array([[1/2, 1/2, 1/2, 1/2], [np.sqrt(3)/2, -(1/(2 * np.sqrt(3))), -(1/(2 * np.sqrt(3))), -(1/(2 * np.sqrt(3)))], [0, np.sqrt(2/3), -(1/np.sqrt(6)), -(1/np.sqrt(6))], [0, 0, 1/np.sqrt(2), -(1/np.sqrt(2))]])
-    else:
-        raise Exception("Can't implement orthogonalize without hardcoding")

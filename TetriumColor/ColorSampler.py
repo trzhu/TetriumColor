@@ -11,6 +11,8 @@ from importlib import resources
 from TetriumColor.ColorSpace import ColorSpace, ColorSpaceType
 from TetriumColor.Utils.CustomTypes import TetraColor, PlateColor
 import TetriumColor.ColorMath.Geometry as Geometry
+from TetriumColor.ColorMath.SubSpaceIntersection import FindMaximalSaturation, FindMaximumIn1DimDirection
+from TetriumColor.ColorMath import GamutMath
 
 
 class ColorSampler:
@@ -446,6 +448,32 @@ class ColorSampler:
 
         return vshh
 
+    # need to write an equivalent function for sampling the boundary of the OBS solid
+    def sample_full_colors(self, num_points=10000) -> npt.NDArray:
+        """Generate the Full Colors Boundary of the Object Color Solid
+
+        Args:
+            num_points (int, optional): number of points to generate the boundary of. Defaults to 10000.
+
+        Returns:
+            npt.NDArray: Array of full colors in Hering Space
+        """
+        # for every hue
+        vshh: npt.NDArray = self.sample_hue_manifold(1, 0.5, num_points)
+        all_disp_points = self.color_space.convert(vshh, ColorSpaceType.VSH, ColorSpaceType.DISP)
+
+        # For every point, find the reflectance of maximum saturation
+        generating_vecs = self.color_space.observer.get_normalized_sensor_matrix(wavelengths=np.arange(360, 831, 1)).T
+        pts = []
+        for pt in tqdm(all_disp_points):
+            res = FindMaximalSaturation(pt, generating_vecs=generating_vecs)
+            if res is not None:
+                pts += [res]
+        max_sat_cartesian_per_angle = np.array(pts)
+
+        # return point of max saturation for every hue
+        return self.color_space.convert(max_sat_cartesian_per_angle, ColorSpaceType.DISP, ColorSpaceType.HERING)
+
     @staticmethod
     def _concatenate_cubemap(faces):
         """
@@ -508,8 +536,9 @@ class ColorSampler:
             xyz = Geometry.ConvertCubeUVToXYZ(i, cube_u, cube_v, 1).reshape(-1, 3)
             xyz = np.dot(invMetamericDirMat, xyz.T).T
 
-            max_saturations = np.array(self._gamut_cubemap[i]).reshape(-1, 3)[:, 1]
-            normalized_saturations = (max_saturations + self._sat_range[0]) / (self._sat_range[1] - self._sat_range[0])
+            max_saturations = np.array(self._gamut_cubemap[i]).reshape(-1, 3)[:, 1]/255
+            normalized_saturations = (
+                max_saturations * (self._sat_range[1] - self._sat_range[0])) + self._sat_range[0]
 
             # Create hering coordinates with unit luminance
             lum_vector = np.ones(self._cubemap_size * self._cubemap_size) * luminance
@@ -543,7 +572,7 @@ class ColorSampler:
             List[TetraColor]: List of TetraColor objects
         """
         # Convert to RGB_OCV space
-        six_d_color = self.color_space.convert(vsh_points, ColorSpaceType.VSH, ColorSpaceType.RGB_OCV)
+        six_d_color = self.color_space.convert(vsh_points, ColorSpaceType.VSH, ColorSpaceType.DISP_6P)
 
         # Create TetraColor objects
         return [TetraColor(six_d_color[i, :3], six_d_color[i, 3:])
@@ -565,7 +594,7 @@ class ColorSampler:
 
         # Convert both points to RGB_OCV
         points = np.vstack([vsh_point, background_vsh])
-        six_d_colors = self.color_space.convert(points, ColorSpaceType.VSH, ColorSpaceType.RGB_OCV)
+        six_d_colors = self.color_space.convert(points, ColorSpaceType.VSH, ColorSpaceType.DISP_6P)
 
         # Create TetraColor objects for foreground and background
         foreground = TetraColor(six_d_colors[0, :3], six_d_colors[0, 3:])

@@ -18,7 +18,7 @@ def generate_tetrium_matrices(observer, primaries):
 
     cs = ColorSpace(observer, primaries, metameric_axis=2)
 
-    rygb_to_rgb, rygb_to_ocv = cs.get_RYGB_to_RGBOCV()
+    rygb_to_rgb, rygb_to_ocv = cs.get_RYGB_to_DISP_6P()
 
     print_glm_format(rygb_to_rgb)
 
