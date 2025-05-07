@@ -508,7 +508,7 @@ class ColorSampler:
         return cubemap_image
 
     def generate_cubemap(self, luminance: float, saturation: float,
-                         display_color_space: ColorSpaceType = ColorSpaceType.SRGB) -> Image.Image:
+                         display_color_space: ColorSpaceType = ColorSpaceType.SRGB) -> List[Image.Image]:
         """Generate a cubemap within the gamut boundaries
 
         Args:
@@ -559,7 +559,60 @@ class ColorSampler:
             # Create an image from the array
             cubemap_images += [Image.fromarray(corresponding_colors, 'RGB')]
 
+        return cubemap_images
+
+    def generate_concatenated_cubemap(self, luminance: float, saturation: float,
+                                      display_color_space: ColorSpaceType = ColorSpaceType.SRGB) -> Image.Image:
+        """Generate a cubemap and return it concatenated"""
+
+        cubemap_images = self.generate_cubemap(luminance, saturation, display_color_space)
         return self._concatenate_cubemap(cubemap_images)
+
+    def output_cubemap_values(self, luminance: float, saturation: float,
+                              display_color_space: ColorSpaceType = ColorSpaceType.SRGB) -> List[npt.NDArray]:
+        """Generate a cubemap within the gamut boundaries
+
+        Args:
+            luminance (float): luminance
+            saturation (float): saturation
+            display_color_space (ColorSpaceType, optional): color space that you want to transform to. Defaults to ColorSpaceType.SRGB.
+
+        Returns:
+            PIL.Image.Image: Image of the cubemap
+        """
+
+        # Generate grid of UV coordinates
+        all_us = (np.arange(self._cubemap_size) + 0.5) / self._cubemap_size
+        all_vs = (np.arange(self._cubemap_size) + 0.5) / self._cubemap_size
+        cube_u, cube_v = np.meshgrid(all_us, all_vs)
+
+        # Get metameric direction matrix
+        metamericDirMat = self._get_transform_chrom_to_metameric_dir()
+        invMetamericDirMat = np.linalg.inv(metamericDirMat)
+
+        # Process each face of the cube
+        colors = []
+        for i in tqdm(range(6), desc="Generating cubemap"):
+            # Convert UV to XYZ coordinates for this cube face
+            xyz = Geometry.ConvertCubeUVToXYZ(i, cube_u, cube_v, 1).reshape(-1, 3)
+            xyz = np.dot(invMetamericDirMat, xyz.T).T
+
+            max_saturations = np.array(self._gamut_cubemap[i]).reshape(-1, 3)[:, 1]/255
+            normalized_saturations = (
+                max_saturations * (self._sat_range[1] - self._sat_range[0])) + self._sat_range[0]
+
+            # Create hering coordinates with unit luminance
+            lum_vector = np.ones(self._cubemap_size * self._cubemap_size) * luminance
+            vxyz = np.hstack((lum_vector[np.newaxis, :].T, xyz))
+
+            # Convert to VSH space
+            vshh = self.color_space.convert(vxyz, ColorSpaceType.HERING, ColorSpaceType.VSH)
+            vshh[:, 1] = np.min(
+                np.vstack((np.full(normalized_saturations.shape, saturation), normalized_saturations)), axis=0)
+            remapped_points = self.remap_to_gamut(vshh)
+            colors += [self.color_space.convert(remapped_points, ColorSpaceType.VSH, display_color_space)]
+
+        return colors
 
     def to_tetra_color(self, vsh_points: npt.NDArray) -> List[TetraColor]:
         """

@@ -4,7 +4,7 @@ from typing import List
 import numpy as np
 from TetriumColor import ColorSpace
 from TetriumColor.Observer import Spectra, Observer
-from TetriumColor.Measurement import LoadPrimaries, GaussianSmoothPrimaries
+from TetriumColor.Measurement import load_primaries_from_csv
 
 
 def print_glm_format(matrix: np.ndarray):
@@ -16,24 +16,26 @@ def print_glm_format(matrix: np.ndarray):
 
 def generate_tetrium_matrices(observer, primaries):
 
-    cs = ColorSpace(observer, primaries, metameric_axis=2)
+    cs = ColorSpace(observer, cst_display_type='led', display_primaries=primaries, metameric_axis=2)
 
     rygb_to_rgb, rygb_to_ocv = cs.get_RYGB_to_DISP_6P()
+
+    print(rygb_to_rgb.T)
+    print(rygb_to_ocv.T)
 
     print_glm_format(rygb_to_rgb)
 
     print_glm_format(rygb_to_ocv)
 
-    rygb_to_sRGB = np.flip(cs.get_RYGB_to_sRGB().T, axis=0)
+    # rygb_to_sRGB = np.flip(cs.get_RYGB_to_sRGB().T, axis=0)
 
-    print_glm_format(rygb_to_sRGB)
+    # print_glm_format(rygb_to_sRGB)
 
 
 if __name__ == "__main__":
     np.set_printoptions(precision=8)
     wavelengths = np.arange(360, 831, 1)
     observer = Observer.custom_observer(wavelengths, od=0.5, m_cone_peak=530, l_cone_peak=559, template="neitz")
-    primaries: List[Spectra] = LoadPrimaries("../../measurements/2024-12-06/primaries")
-    gaussian_smooth_primaries: List[Spectra] = GaussianSmoothPrimaries(primaries)
 
-    generate_tetrium_matrices(observer, gaussian_smooth_primaries)
+    primaries: List[Spectra] = load_primaries_from_csv("../../measurements/2025-05-06/")
+    generate_tetrium_matrices(observer, primaries)
