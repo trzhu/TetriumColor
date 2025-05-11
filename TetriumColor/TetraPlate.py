@@ -3,57 +3,10 @@ from typing import List
 
 from TetriumColor.Utils.CustomTypes import ColorTestResult
 from TetriumColor.Observer import *
-from TetriumColor.TetraColorPicker import ColorGenerator, ConeLuminanceNoiseGenerator
-from TetriumColor.PsychoPhys.IshiharaPlate import IshiharaPlateGenerator
-from TetriumColor.TetraColorPicker import BackgroundNoiseGenerator, LuminanceNoiseGenerator, NoiseGenerator
-from TetriumColor.Observer.DisplayObserverSensitivity import GetAllObservers, GetColorSpaceTransformsOverObservers
-from TetriumColor.ColorMath.GamutMath import GetMaximalMetamerPointsOnGrid, GetMaxMetamerOverGridSample
-import pickle
-
+from TetriumColor import ColorSpace, ColorSpaceType, ColorSampler, TetraColor, PlateColor
+from TetriumColor.PsychoPhys.IshiharaPlate import generate_ishihara_plate
 
 # Control Test
-def GetControlTest(observer: Observer, primaries: List[Spectra], metameric_axis: int,
-                   luminance: float, saturation: float, lum_noise: float, grid_indices: tuple,
-                   grid_size: int = 5, cube_idx: int = 4) -> tuple[npt.NDArray, NoiseGenerator | None]:
-
-    avg_obs_cst = GetColorSpaceTransform(observer, primaries, metameric_axis=metameric_axis)
-    disp_points, cone_diff = GetMaximalMetamerPointsOnGrid(luminance, saturation, cube_idx, grid_size, avg_obs_cst)
-    disp_point = disp_points[
-        grid_indices[0]][grid_indices[1]]
-    # cone_diff = cone_diff[grid_indices[0]][grid_indices[1]]
-    # set them equal to each other
-    disp_point[1] = disp_point[0]
-    noise_generator = LuminanceNoiseGenerator(avg_obs_cst, lum_noise)
-    return disp_point, 0, noise_generator
-
-
-def GetConeIdentifyingTest(observer: Observer, primaries: List[Spectra], metameric_axis: int,
-                           luminance: float, saturation: float, grid_indices: tuple, noise_division: float = 1,
-                           grid_size: int = 5, cube_idx: int = 4) -> tuple[npt.NDArray, NoiseGenerator]:
-
-    cst = GetColorSpaceTransform(observer, primaries, metameric_axis=metameric_axis)
-    points_disp = GetMaxMetamerOverGridSample(luminance, saturation, cube_idx, grid_size, cst)
-
-    all_observers = GetAllObservers()
-    color_space_transforms = GetColorSpaceTransformsOverObservers(
-        all_observers, primaries, metameric_axis=metameric_axis)
-
-    noise_generator = BackgroundNoiseGenerator(color_space_transforms, noise_division)
-
-    return points_disp, noise_generator
-
-
-def GetObserverIdentifyingTest(observer: Observer, primaries: List[Spectra], metameric_axis: int,
-                               luminance: float, lum_noise: float, saturation: float, grid_indices: tuple,
-                               grid_size: int = 5, cube_idx: int = 4) -> tuple[npt.NDArray, npt.NDArray, NoiseGenerator]:
-
-    cst = GetColorSpaceTransform(observer, primaries, metameric_axis=metameric_axis)
-    points_disps, cone_diffs = GetMaximalMetamerPointsOnGrid(luminance, saturation, cube_idx, grid_size, cst)
-    points_disp = points_disps[grid_indices[0]][grid_indices[1]]
-    cone_diff = cone_diffs[grid_indices[0]][grid_indices[1]]
-    # noise_generator = LuminanceNoiseGenerator(cst, lum_noise)
-    noise_generator = ConeLuminanceNoiseGenerator(cst, lum_noise)
-    return points_disp, cone_diff, noise_generator
 
 
 class PseudoIsochromaticPlateGenerator:

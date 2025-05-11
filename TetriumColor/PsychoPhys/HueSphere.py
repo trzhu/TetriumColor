@@ -11,7 +11,7 @@ from TetriumColor.ColorMath import Geometry
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, PlateColor, TetraColor
 import TetriumColor.ColorMath.GamutMath as GamutMath
 from TetriumColor.ColorMath.Geometry import ConvertCubeUVToXYZ, ConvertPolarToCartesian, ExportGeometryToObjFile, GenerateGeometryFromVertices
-from TetriumColor.PsychoPhys.IshiharaPlate import IshiharaPlateGenerator
+from TetriumColor.PsychoPhys.IshiharaPlate import generate_ishihara_plate
 
 
 def GetSphereGeometry(luminance: float, saturation: float, num_points: int, filename: str, color_space_transform: ColorSpaceTransform):
@@ -39,7 +39,7 @@ def GetSphereGeometry(luminance: float, saturation: float, num_points: int, file
     return vertices, triangles, normals, uv_coords, rgb_colors
 
 
-def CreatePaddedGrid(image_files, grid_size=None, padding=10, bg_color=(0, 0, 0)):
+def CreatePaddedGrid(images: List[str] | List[Image.Image], grid_size=None, padding=10, bg_color=(0, 0, 0)):
     """
     Create a padded grid of images from a list of image files.
 
@@ -54,7 +54,8 @@ def CreatePaddedGrid(image_files, grid_size=None, padding=10, bg_color=(0, 0, 0)
         Image: The grid as a Pillow Image object.
     """
     # Load all images
-    images = [Image.open(file) for file in image_files]
+    if isinstance(images[0], str):
+        images = [Image.open(file) for file in images]
 
     # Ensure all images are the same size
     max_width = max(img.width for img in images)

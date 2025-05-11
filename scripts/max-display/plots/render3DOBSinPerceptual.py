@@ -1,11 +1,13 @@
 import argparse
 import numpy as np
+from scipy.sparse import construct
 import tetrapolyscope as ps
 
-from TetriumColor.Observer import Observer
+from TetriumColor.Observer import Observer, MaxBasisFactory
 import TetriumColor.Visualization as viz
 from TetriumColor import ColorSpace, ColorSpaceType
 from TetriumColor.Utils.ParserOptions import *
+from TetriumColor.Utils.BasisMath import get_transform_to_angle_basis
 
 
 def main():
@@ -32,10 +34,40 @@ def main():
     ps.set_SSAA_factor(2)
     ps.set_window_size(720, 720)
 
-    viz.RenderOBS("observer", observer, PolyscopeDisplayType.HERING_MAXBASIS_PERCEPTUAL_3)
-    ps.get_surface_mesh("observer").set_transparency(0.8)
+    cst = ColorSpace(observer,  luminance_per_channel=[1/np.sqrt(3), 1/np.sqrt(3), 1/np.sqrt(3)],
+                     chromas_per_channel=[np.sqrt(2/3)/2, np.sqrt(2/3)/4, np.sqrt(2/3)/4])
 
-    ps.set_automatically_compute_scene_extents(False)
+    viz.RenderOBS("oklab", cst, PolyscopeDisplayType.OKLAB)
+    viz.RenderMaxBasis("oklab_maxbasis", cst, PolyscopeDisplayType.OKLAB)
+    ps.get_surface_mesh("oklab").set_transparency(0.8)
+
+    # viz.RenderOBS("observer_no_hering_cone_perceptual", cst, PolyscopeDisplayType.CONE_PERCEPTUAL_243)
+    # viz.RenderMaxBasis("maxbasis_no_hering_cone_perceptual", cst, PolyscopeDisplayType.CONE_PERCEPTUAL_243)
+    # ps.get_surface_mesh("observer_no_hering_cone_perceptual").set_transparency(0.8)
+
+    viz.RenderOBS("observer_cone_perceptual", cst, PolyscopeDisplayType.HERING_CONE_PERCEPTUAL_243)
+    viz.RenderMaxBasis("maxbasis_cone_perceptual", cst, PolyscopeDisplayType.HERING_CONE_PERCEPTUAL_243)
+    ps.get_surface_mesh("observer_cone_perceptual").set_transparency(0.8)
+
+    # Actually, we need to transform into Hering first, and then apply the transform matrices
+
+    viz.RenderOBS("observer_maxbasis_perceptual", cst, PolyscopeDisplayType.HERING_MAXBASIS_PERCEPTUAL_243)
+    viz.RenderMaxBasis("maxbasis_maxbasis_perceptual", cst, PolyscopeDisplayType.HERING_MAXBASIS_PERCEPTUAL_243)
+    ps.get_surface_mesh("observer_maxbasis_perceptual").set_transparency(0.8)
+
+    viz.RenderOBS("observer_maxbasis243_perceptual243", cst, PolyscopeDisplayType.HERING_MAXBASIS243_PERCEPTUAL_243)
+    viz.RenderMaxBasis("maxbasis_maxbasis243_perceptual243", cst,
+                       PolyscopeDisplayType.HERING_MAXBASIS243_PERCEPTUAL_243)
+    ps.get_surface_mesh("observer_maxbasis243_perceptual243").set_transparency(0.8)
+
+    # maxbasis = MaxBasisFactory.get_object(observer, denom=2.43)
+    # refs, _, rgbs, lines = maxbasis.GetDiscreteRepresentation()
+    # cones = observer.observe_spectras(refs)
+    # mat = get_transform_to_angle_basis(cones[1:4], [1/np.sqrt(3), 2/np.sqrt(3),
+    #                                    3/(2 * np.sqrt(3))], [np.sqrt(2/3) / 2, np.sqrt(2/3) / 2, np.sqrt(2/3)])
+    # vecs = cones[1:4]@mat.T
+    # viz.RenderBasisArrows("basis_arrows", vecs.tolist() + [np.ones(3)], np.eye(3).tolist() + [np.zeros(3)], radius=0.01)
+    # ps.set_automatically_compute_scene_extents(False)
 
     if args.output_filename:
         fd = viz.OpenVideo(args.output_filename)

@@ -188,7 +188,8 @@ def generate_ishihara_plate(
     gradient: bool = False,
     noise_generator: Optional[Callable[[], npt.NDArray]] = None,
     corner_label: Optional[str] = None,
-    corner_color: npt.ArrayLike = np.array([255/2, 255/2, 255/2, 255/2, 0, 0]).astype(int)
+    corner_color: npt.ArrayLike = np.array([255/2, 255/2, 255/2, 255/2, 0, 0]).astype(int),
+    background_color: TetraColor = TetraColor(RGB=np.array([0, 0, 0]), OCV=np.array([0, 0, 0]))
 ) -> Tuple[Image.Image, Image.Image]:
     """
     Generate an Ishihara Plate with specified properties.
@@ -252,8 +253,11 @@ def generate_ishihara_plate(
         circles, secret_img, image_size, num_samples, noise, gradient
     )
 
+    backgrounds = [tuple((background_color.RGB * 255).astype(np.uint8)),
+                   tuple((background_color.OCV * 255).astype(np.uint8))]
     # Create images
-    channels: List[Image.Image] = [Image.new(mode='RGB', size=(image_size, image_size)) for _ in range(2)]
+    channels: List[Image.Image] = [Image.new(mode='RGB', size=(
+        image_size, image_size), color=backgrounds[i]) for i in range(2)]
     channel_draws = [ImageDraw.Draw(ch) for ch in channels]
 
     # Draw plate

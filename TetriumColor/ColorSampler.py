@@ -9,6 +9,7 @@ import hashlib
 
 from importlib import resources
 from TetriumColor.ColorSpace import ColorSpace, ColorSpaceType
+from TetriumColor.PsychoPhys.IshiharaPlate import generate_ishihara_plate
 from TetriumColor.Utils.CustomTypes import TetraColor, PlateColor
 import TetriumColor.ColorMath.Geometry as Geometry
 from TetriumColor.ColorMath.SubSpaceIntersection import FindMaximalSaturation, FindMaximumIn1DimDirection
@@ -613,6 +614,90 @@ class ColorSampler:
             colors += [self.color_space.convert(remapped_points, ColorSpaceType.VSH, display_color_space)]
 
         return colors
+
+    def get_metameric_grid_plates(self, luminance: float, saturation: float, cube_idx: int, secrets: Optional[List[int]] = None) -> List[Tuple[Image.Image, Image.Image]]:
+        """ Get the metamer points for a given luminance and cube index
+        Args:
+            luminance (float): luminance value
+            saturation (float): saturation value
+            cube_idx (int): cube index
+            grid_size (int): grid size
+            color_space_transform (ColorSpaceTransform): color space transform object
+
+        Returns:
+            npt.NDArray: The metamer points
+        """
+        disp_points = self.output_cubemap_values(luminance, saturation, ColorSpaceType.DISP)[cube_idx]
+        metamer_dir_in_disp = self.color_space.get_metameric_axis_in(ColorSpaceType.DISP)
+        if secrets is None:
+            secrets = np.random.randint(10, 100, size=len(disp_points)).tolist()
+
+        vec = np.zeros(self.color_space.dim)
+        vec[0] = luminance
+        background = self.color_space.to_tetra_color(np.array([vec]), from_space=ColorSpaceType.VSH)[0]
+
+        metamers_in_disp = np.zeros((disp_points.shape[0], 2, self.color_space.dim))
+        plates = []
+        for i in tqdm(range(metamers_in_disp.shape[0]), desc="Generating plates"):
+            # points in contention in disp space, bounded by unit cube scaled by vectors, direction is the metameric axis
+            metamers_in_disp[i] = np.array(FindMaximumIn1DimDirection(
+                disp_points[i], metamer_dir_in_disp, np.eye(self.color_space.dim)))
+
+            plate_color = self.color_space.to_plate_color(disp_points[i],
+                                                          metamers_in_disp[i], from_space=ColorSpaceType.DISP)
+            plates += [generate_ishihara_plate(plate_color, secrets[i], background_color=background)]
+
+        # Convert to cone space
+
+        # print((metamers_in_disp.reshape(-1, self.color_space.dim)
+        #       * self.color_space.transform.white_weights * 255).astype(np.uint8))
+
+        # disp_6p = self.color_space.convert(metamers_in_disp.reshape(-1, self.color_space.dim),
+        #                                    ColorSpaceType.DISP, ColorSpaceType.DISP_6P)
+
+        # print((disp_6p * 255).astype(np.uint8))
+
+        # cones = self.color_space.convert(metamers_in_disp.reshape(-1, self.color_space.dim),
+        #                                  ColorSpaceType.DISP, ColorSpaceType.CONE)
+        # print(cones)
+        # Convert to RGBO
+
+        return plates
+
+    def get_metameric_grid_plate(self, luminance: float, saturation: float,
+                                 cube_idx: int, grid_idx: tuple[int, int],
+                                 secret: Optional[int] = None) -> Tuple[Image.Image, Image.Image]:
+        """ Get the metamer points for a given luminance and cube index
+        Args:
+            luminance (float): luminance value
+            saturation (float): saturation value
+            cube_idx (int): cube index
+            grid_size (int): grid size
+            color_space_transform (ColorSpaceTransform): color space transform object
+
+        Returns:
+            npt.NDArray: The metamer points
+        """
+        disp_points = self.output_cubemap_values(luminance, saturation, ColorSpaceType.DISP)[cube_idx]
+        metamer_dir_in_disp = self.color_space.get_metameric_axis_in(ColorSpaceType.DISP)
+        if secret is None:
+            secret = np.random.randint(10, 100)
+
+        vec = np.zeros(self.color_space.dim)
+        vec[0] = luminance
+        background = self.color_space.convert(vec, ColorSpaceType.VSH, ColorSpaceType.DISP_6P)
+
+        metamers_in_disp = np.zeros((disp_points.shape[0], 2, self.color_space.dim))
+        plates = []
+        i = grid_idx[0] * self._cubemap_size + grid_idx[1]
+
+        metamers_in_disp[i] = np.array(FindMaximumIn1DimDirection(
+            disp_points[i], metamer_dir_in_disp, np.eye(self.color_space.dim)))
+
+        plate_color = self.color_space.to_plate_color(disp_points[i],
+                                                      metamers_in_disp[i], from_space=ColorSpaceType.DISP)
+
+        return generate_ishihara_plate(plate_color, secret)
 
     def to_tetra_color(self, vsh_points: npt.NDArray) -> List[TetraColor]:
         """

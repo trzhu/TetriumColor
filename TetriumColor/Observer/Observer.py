@@ -45,6 +45,21 @@ def GetHeringMatrixLumYDir(dim: int) -> npt.NDArray:
     return h_mat
 
 
+def GetPerceptualHering(dim: int, isLumY=False) -> npt.NDArray:
+    if dim == 2:
+        return np.array([[0, 1], [1/np.sqrt(2), -(1/np.sqrt(2))]])  # B Y
+    elif dim == 3:
+        # lum_vec = np.array([1/np.sqrt(2) / 8, 1/np.sqrt(2), 1/np.sqrt(2)])
+        lum_vec = np.array([0, 1/np.sqrt(2), 1/np.sqrt(2)])
+        mat = np.array([lum_vec/np.linalg.norm(lum_vec), [np.sqrt(2/3), -(1/np.sqrt(6)),
+                       -(1/np.sqrt(6))], [0, 1/np.sqrt(2), -(1/np.sqrt(2))]])  # B G R
+        return mat[[1, 0, 2]] if isLumY else mat
+    elif dim == 4:
+        return np.array([[0, 1/np.sqrt(3), 1/np.sqrt(3), 1/np.sqrt(3)], [np.sqrt(3)/2, -(1/(2 * np.sqrt(3))), -(1/(2 * np.sqrt(3))), -(1/(2 * np.sqrt(3)))], [0, np.sqrt(2/3), -(1/np.sqrt(6)), -(1/np.sqrt(6))], [0, 0, 1/np.sqrt(2), -(1/np.sqrt(2))]])
+    else:
+        raise Exception("Can't implement orthogonalize without hardcoding")
+
+
 def BaylorNomogram(wls, lambdaMax: int):
     """
     Baylor, Nunn, and Schnapf, 1987.
@@ -281,7 +296,7 @@ class Cone(Spectra):
         attrs["data"] = od_data
         return self.__class__(**attrs)
 
-    def with_preceptoral(self, od: float = 0.35, lens: float = 1, macular: float = 1):
+    def with_preceptoral(self, od: float = 0.5, lens: float = 1, macular: float = 1):
         # There are other lens and macular pigment data sources,
         # which can be found in the cones/ subfolder.
         if not self.quantal:
@@ -314,14 +329,14 @@ class Cone(Spectra):
         if template is None:
             reflectances = Cone.ss_data.iloc[:, [0, 1]].to_numpy()
             return Cone(reflectances).interpolate_values(wavelengths)
-        return Cone.cone(559, template=template, od=0.35, wavelengths=wavelengths)
+        return Cone.cone(559, template=template, od=0.50, wavelengths=wavelengths)
 
     @staticmethod
     def m_cone(wavelengths=None, template=None):
         if template is None:
             reflectances = Cone.ss_data.iloc[:, [0, 2]].to_numpy()
             return Cone(reflectances).interpolate_values(wavelengths)
-        return Cone.cone(530, template=template, od=0.15, wavelengths=wavelengths)
+        return Cone.cone(530, template=template, od=0.5, wavelengths=wavelengths)
 
     @staticmethod
     def s_cone(wavelengths=None, template=None):
@@ -330,16 +345,16 @@ class Cone(Spectra):
             return Cone(reflectances).interpolate_values(wavelengths)
         # http://www.cvrl.org/database/text/intros/introod.htm
         # "There are no good estimates of pigment optical densities for the S-cones."
-        return Cone.cone(419, template=template, od=0.5, wavelengths=wavelengths)
+        return Cone.cone(419, template=template, od=0.4, wavelengths=wavelengths)
 
     @staticmethod
     def q_cone(wavelengths=None, template="neitz"):
         # 545 per nathan & merbs 92
-        return Cone.cone(545, template=template, od=0.35, wavelengths=wavelengths)
+        return Cone.cone(545, template=template, od=0.5, wavelengths=wavelengths)
 
 
 class Observer:
-    def __init__(self, sensors: List[Cone], illuminant: Optional[Spectra] = None, verbose: bool = False):
+    def __init__(self, sensors: List[Cone], illuminant: Optional[Spectra] = Illuminant.get('D65'), verbose: bool = False):
         self.dimension = len(sensors)
         self.sensors = sensors
 
@@ -355,6 +370,7 @@ class Observer:
         if illuminant is not None:
             illuminant = illuminant.interpolate_values(self.wavelengths)
         else:
+            print("No illuminant provided, using Illuminant E")
             illuminant = Illuminant(
                 np.vstack([self.wavelengths, np.ones_like(self.wavelengths)]).T)
 
@@ -407,11 +423,11 @@ class Observer:
         # Cone.cone(555, wavelengths=wavelengths, template="neitz", od=0.35)
         l_cone = Cone.l_cone(wavelengths)
         q_cone = Cone.cone(545, wavelengths=wavelengths,
-                           template="neitz", od=0.35)
+                           template="neitz", od=0.5)
         # Cone.cone(530, wavelengths=wavelengths, template="neitz", od=0.35)
-        m_cone = Cone.m_cone(wavelengths)
+        m_cone = Cone.m_cone(wavelengths, od=0.5)
         # Cone.s_cone(wavelengths=wavelengths)
-        s_cone = Cone.s_cone(wavelengths)
+        s_cone = Cone.s_cone(wavelengths, od=0.4)
         return Observer([s_cone, m_cone, q_cone, l_cone], illuminant=illuminant, verbose=verbose)
 
     @staticmethod
@@ -520,7 +536,8 @@ class Observer:
         l_cone_547 = Cone.cone(547, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
         q_cone = Cone.cone(q_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
         m_cone = Cone.cone(m_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
-        s_cone = Cone.cone(s_cone_peak, wavelengths=wavelengths, template=template, od=od, macular=macular, lens=lens)
+        s_cone = Cone.cone(s_cone_peak, wavelengths=wavelengths, template=template,
+                           od=0.8 * od, macular=macular, lens=lens)
         # s_cone = Cone.s_cone(wavelengths=wavelengths)
         if dimension == 3:
             set_cones = [s_cone, m_cone, q_cone, l_cone]

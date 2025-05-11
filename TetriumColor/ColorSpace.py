@@ -3,7 +3,7 @@ import numpy.typing as npt
 from typing import List
 from enum import Enum
 
-from TetriumColor.Observer import Observer, GetHeringMatrix, GetHeringMatrixLumYDir
+from TetriumColor.Observer import Observer, MaxBasisFactory, GetHeringMatrix, GetPerceptualHering
 from TetriumColor.Observer.Spectra import Spectra
 from TetriumColor.Utils.CustomTypes import TetraColor, PlateColor
 from TetriumColor.Observer.ColorSpaceTransform import (
@@ -37,16 +37,27 @@ class ColorSpaceType(Enum):
     VSH = "vsh"  # Value-Saturation-Hue
     HERING = "hering"  # Hering opponent color space
     MAXBASIS = "maxbasis"  # Display space (RYGB)
+
+    MAXBASIS243 = "maxbasis243"  # Perceptual space w denom 3
+    MAXBASIS300 = "maxbasis300"  # Perceptual space w denom 2.43
     MAXBASIS_PERCEPTUAL_243 = "maxbasis_perceptual_243"  # Perceptual space w denom 3
-    MAXBASIS_PERCEPTUAL_3 = "maxbasis_perceptual_3"  # Perceptual space w denom 2.43
+    MAXBASIS_PERCEPTUAL_300 = "maxbasis_perceptual_300"  # Perceptual space w denom 2.43
+    MAXBASIS243_PERCEPTUAL_243 = "maxbasis243_perceptual_243"  # Perceptual space w denom 3
+    MAXBASIS300_PERCEPTUAL_300 = "maxbasis300_perceptual_300"  # Perceptual space w denom 2.43
+
     CONE = "cone"  # Cone responses (SMQL)
+    CONE_PERCEPTUAL_243 = "cone_perceptual_243"  # Perceptual space w denom 3
+    CONE_PERCEPTUAL_300 = "cone_perceptual_300"  # Perceptual space w denom 2.43
+
     DISP_6P = "disp_6p"  # RGO/BGO 6D representation
     DISP = "disp"  # Display space (RGBO)
+
     SRGB = "srgb"  # sRGB display
     XYZ = "xyz"  # CIE XYZ color space
+    OKLAB = 'oklab'
+
     CHROM = "chrom"  # Chromaticity space
     HERING_CHROM = "hering_chrom"  # Hering chromaticity space
-    OKLAB = 'oklab'
 
     def __str__(self):
         return self.value
@@ -58,15 +69,26 @@ class PolyscopeDisplayType(Enum):
     # this is because it makes no sense to display DISP_6P
     MAXBASIS = ColorSpaceType.MAXBASIS
     MAXBASIS_PERCEPTUAL_243 = ColorSpaceType.MAXBASIS_PERCEPTUAL_243
-    MAXBASIS_PERCEPTUAL_3 = ColorSpaceType.MAXBASIS_PERCEPTUAL_3
+    MAXBASIS_PERCEPTUAL_300 = ColorSpaceType.MAXBASIS_PERCEPTUAL_300
+    MAXBASIS243_PERCEPTUAL_243 = ColorSpaceType.MAXBASIS243_PERCEPTUAL_243
+    MAXBASIS300_PERCEPTUAL_300 = ColorSpaceType.MAXBASIS300_PERCEPTUAL_300
+
     CONE = ColorSpaceType.CONE
+    CONE_PERCEPTUAL_243 = ColorSpaceType.CONE_PERCEPTUAL_243
+    CONE_PERCEPTUAL_300 = ColorSpaceType.CONE_PERCEPTUAL_300
     DISP = ColorSpaceType.DISP
+    OKLAB = ColorSpaceType.OKLAB
 
     HERING_MAXBASIS = ColorSpaceType.HERING  # this is HERING_MAXBASIS
     HERING_MAXBASIS_PERCEPTUAL_243 = "hering_maxbasis_perceptual_243"
-    HERING_MAXBASIS_PERCEPTUAL_3 = "hering_maxbasis_perceptual_3"
+    HERING_MAXBASIS_PERCEPTUAL_300 = "hering_maxbasis_perceptual_300"
+    HERING_MAXBASIS243_PERCEPTUAL_243 = "hering_maxbasis243_perceptual_243"
+    HERING_MAXBASIS300_PERCEPTUAL_3 = "hering_maxbasis300_perceptual_300"
+
     HERING_DISP = "hering_disp"
     HERING_CONE = "hering_cone"
+    HERING_CONE_PERCEPTUAL_243 = "hering_cone_perceptual_243"
+    HERING_CONE_PERCEPTUAL_300 = "hering_cone_perceptual_300"
 
 
 class ColorSpace:
@@ -81,6 +103,8 @@ class ColorSpace:
                  cst_display_type: CSTDisplayType | str = CSTDisplayType.NONE,
                  display_primaries: List[Spectra] | None = None,
                  metameric_axis: int = 2,
+                 luminance_per_channel: List[float] = [1/np.sqrt(3)] * 3,
+                 chromas_per_channel: List[float] = [np.sqrt(2/3)] * 3,
                  led_mapping: List[int] | None = [0, 1, 3, 2, 1, 3]):
         """
         Initialize a ColorSpace with an observer and optional display.
@@ -96,12 +120,14 @@ class ColorSpace:
         self.observer = observer
         self.metameric_axis = metameric_axis
         self.led_mapping = led_mapping
+        self.lums_per_channel = luminance_per_channel
+        self.chromas_per_channel = chromas_per_channel
 
         if isinstance(cst_display_type, str):
             cst_display_type = CSTDisplayType[cst_display_type.upper()]
 
         self.transform = GetColorSpaceTransform(observer, cst_display_type, display_primaries,
-                                                metameric_axis, led_mapping)
+                                                metameric_axis, led_mapping, luminance_per_channel, chromas_per_channel)
         # Store the dimensionality of the color space
         self.dim = self.observer.dimension
 
@@ -323,11 +349,21 @@ class ColorSpace:
 
         return in_gamut
 
+    @staticmethod
+    def _remove_perceptual_name(name: str):
+        name_split = name.split("_")
+        if "PERCEPTUAL" in name_split:
+            index = name_split.index("PERCEPTUAL")
+            new_name = "".join(name_split[:index]).lower()
+            return ColorSpaceType(new_name)
+        else:
+            return ColorSpaceType(name.lower())
+
     def convert(self, points: npt.NDArray,
                 from_space: str | ColorSpaceType,
                 to_space: str | ColorSpaceType) -> npt.NDArray:
         """
-        Transform points from one color space to another.
+        Transform points from one color space to another. --> only handles linear conversions. For perceptual, use convert_to_perceptual
 
         Parameters:
             points (npt.NDArray): Points to transform
@@ -347,7 +383,12 @@ class ColorSpace:
         if from_space == to_space:
             return points
 
+        # handle only the linear portions of perceptual spaces --> basically if it's cone_perceptual, just convert it to cone.
+        from_space = self._remove_perceptual_name(from_space.name)
+        to_space = self._remove_perceptual_name(to_space.name)
+
         # Handle 3D only points separately -- only one directional
+
         if to_space == ColorSpaceType.SRGB:
             # Convert to cone space first, then to sRGB
             cone_points = self.convert(points, from_space, ColorSpaceType.XYZ)
@@ -399,10 +440,10 @@ class ColorSpace:
         elif from_space == ColorSpaceType.MAXBASIS:
             disp_points = self.transform.maxbasis_to_disp @ points.T
             return self.convert(disp_points.T, ColorSpaceType.DISP, to_space)
-        elif from_space == ColorSpaceType.MAXBASIS_PERCEPTUAL_243:
+        elif from_space == ColorSpaceType.MAXBASIS243:
             disp_points = self.transform.maxbasis_243_to_disp @ points.T
             return self.convert(disp_points.T, ColorSpaceType.DISP, to_space)
-        elif from_space == ColorSpaceType.MAXBASIS_PERCEPTUAL_3:
+        elif from_space == ColorSpaceType.MAXBASIS300:
             disp_points = self.transform.maxbasis_3_to_disp @ points.T
             return self.convert(disp_points.T, ColorSpaceType.DISP, to_space)
         elif from_space == ColorSpaceType.CONE:
@@ -416,9 +457,9 @@ class ColorSpace:
                 return (np.linalg.inv(self.transform.hering_to_disp) @ points.T).T
             elif to_space == ColorSpaceType.MAXBASIS:
                 return (np.linalg.inv(self.transform.maxbasis_to_disp) @ points.T).T
-            elif to_space == ColorSpaceType.MAXBASIS_PERCEPTUAL_243:
+            elif to_space == ColorSpaceType.MAXBASIS243:
                 return (np.linalg.inv(self.transform.maxbasis_243_to_disp) @ points.T).T
-            elif to_space == ColorSpaceType.MAXBASIS_PERCEPTUAL_3:
+            elif to_space == ColorSpaceType.MAXBASIS300:
                 return (np.linalg.inv(self.transform.maxbasis_3_to_disp) @ points.T).T
             elif to_space == ColorSpaceType.CONE:
                 return (np.linalg.inv(self.transform.cone_to_disp) @ points.T).T
@@ -455,18 +496,57 @@ class ColorSpace:
         Returns:
             npt.NDArray: array of points in the given PolyscopeDisplayType
         """
+        white_point = np.array([1, 1, 1])  # in cone space
         if isinstance(to_space, str):
             to_space = PolyscopeDisplayType[to_space]
-        if to_space.name.split("_")[0] == 'HERING':
-            inter_space = to_space.name.split("_")[1]
-            # what if from space is HERING? I think it's fine, bc inter_space is always a ColorSpaceType
-            points = self.convert(points, from_space, inter_space)
-            if self.dim == 3:
-                return points@GetHeringMatrixLumYDir(self.transform.dim).T
-            else:
-                return points@GetHeringMatrix(self.transform.dim).T[1:]
+        # split the name into two - if it's hering, add a flag, and remove it. Otherwise, take the rest of the name
+        name_split = to_space.name.split("_")
+        isHering = True if name_split[0] == 'HERING' else False
+        name_split = name_split[1:] if isHering else name_split
+
+        # just apply the non-linearity first, then do all the basis transforms manually here
+        if len(name_split) > 1 and name_split[1] == 'PERCEPTUAL':
+            denom = float(name_split[2]) / 100
+            points = self.convert_to_perceptual(points, from_space, ColorSpaceType.CONE, denom_of_nonlin=denom)
+            name_split = name_split[:-2]
+
+        if isHering:
+            mat = GetPerceptualHering(self.transform.dim, isLumY=True)
+            points = points@mat.T
         else:
-            return self.convert(points, from_space, to_space.name)
+            if to_space == PolyscopeDisplayType.OKLAB:
+                points = points[:, [1, 0, 2]]
+
+        # # First check if it's perceptual - to see if we need to take a cubic-like root to all of the values
+        # if len(name_split) > 1 and name_split[1] == 'PERCEPTUAL':
+        #     denom = float(name_split[2]) / 100
+        #     points = self.convert_to_perceptual(points, from_space, "_".join(name_split[:-2]), denom_of_nonlin=denom)
+        #     white_point = self.convert_to_perceptual(
+        #         white_point, from_space, "_".join(name_split[:-2]), denom_of_nonlin=denom)
+        # else:
+        points = self.convert(points, from_space, "_".join(name_split))
+        # white_point = self.convert(white_point, from_space, "_".join(name_split))
+        return points
+
+    def get_maxbasis_parallelepiped(self, display_basis: PolyscopeDisplayType) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray]:
+        """Get the maxbasis parallelepiped for the given display basis
+
+        Args:
+            display_basis (PolyscopeDisplayType):
+
+        Returns:
+            tuple[npt.NDArray, npt.NDArray, npt.NDArray]: _description_
+        """
+
+        display_name = display_basis.name.split("_")
+        denom = 1 if len(display_name) < 2 or display_name[-2] != "PERCEPTUAL" else float(display_name[-1])/100
+        maxbasis = MaxBasisFactory.get_object(
+            self.observer, denom=denom, lums_per_channel=self.lums_per_channel, chromas_per_channel=self.chromas_per_channel)
+        refs, _, rgbs, lines = maxbasis.GetDiscreteRepresentation()
+
+        cones = self.observer.observe_spectras(refs)
+        points = self.convert_to_polyscope(cones, ColorSpaceType.CONE, display_basis)
+        return points, rgbs, lines
 
     def convert_to_perceptual(self, points: npt.NDArray,
                               from_space: str | ColorSpaceType,
@@ -506,7 +586,7 @@ class ColorSpace:
         # Convert to the basis space
         return self.convert(points, M_basis, to_space)
 
-    def to_tetra_color(self, vsh_points: npt.NDArray) -> List[TetraColor]:
+    def to_tetra_color(self, points: npt.NDArray, from_space: ColorSpaceType) -> List[TetraColor]:
         """
         Convert VSH points to TetraColor objects.
 
@@ -517,13 +597,13 @@ class ColorSpace:
             List[TetraColor]: List of TetraColor objects
         """
         # Convert to RGB_OCV space
-        six_d_color = self.convert(vsh_points, ColorSpaceType.VSH, ColorSpaceType.DISP_6P)
+        six_d_color = self.convert(points, ColorSpaceType.VSH, ColorSpaceType.DISP_6P)
 
         # Create TetraColor objects
         return [TetraColor(six_d_color[i, :3], six_d_color[i, 3:])
                 for i in range(six_d_color.shape[0])]
 
-    def to_plate_color(self, vsh_point: npt.NDArray, background_luminance: float = 0.5) -> PlateColor:
+    def to_plate_color(self, foreground: npt.NDArray, background: npt.NDArray, from_space: ColorSpaceType) -> PlateColor:
         """
         Create a PlateColor object from a VSH point and a background luminance.
 
@@ -534,19 +614,17 @@ class ColorSpace:
         Returns:
             PlateColor: PlateColor object with foreground and background
         """
-        # Create a background point with the same hue but different luminance
-        background_vsh = np.array([background_luminance, 0.0, *vsh_point[2:]])
 
         # Convert both points to RGB_OCV
-        points = np.vstack([vsh_point, background_vsh])
-        six_d_colors = self.convert(points, ColorSpaceType.VSH, ColorSpaceType.DISP_6P)
+        points = np.vstack([foreground, background])
+        six_d_colors = self.convert(points, from_space, ColorSpaceType.DISP_6P)
 
         # Create TetraColor objects for foreground and background
-        foreground = TetraColor(six_d_colors[0, :3], six_d_colors[0, 3:])
-        background = TetraColor(six_d_colors[1, :3], six_d_colors[1, 3:])
+        front = TetraColor(six_d_colors[0, :3], six_d_colors[0, 3:])
+        back = TetraColor(six_d_colors[1, :3], six_d_colors[1, 3:])
 
         # Return the PlateColor
-        return PlateColor(foreground, background)
+        return PlateColor(front, back)
 
     def get_RYGB_to_DISP_6P(self):
         """
@@ -568,6 +646,12 @@ class ColorSpace:
         max_to_sRGB = M_XYZ_to_RGB @ self.transform.cone_to_XYZ @ max_to_cone
         print(max_to_sRGB)
         return max_to_sRGB
+
+    def get_background(self, luminance):
+
+        vec = np.zeros(self.dim)
+        vec[0] = luminance
+        return self.to_tetra_color(np.array([vec]), from_space=ColorSpaceType.VSH)[0]
 
     def __str__(self) -> str:
         """

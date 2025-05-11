@@ -1,6 +1,6 @@
 import hashlib
 from importlib import resources
-from itertools import combinations
+from itertools import combinations, product
 from functools import reduce
 from tqdm import tqdm
 
@@ -13,13 +13,38 @@ from typing import List
 from . import Observer, GetHeringMatrix
 from . import Spectra, Illuminant
 from ..Utils.Hash import stable_hash
+from ..Utils.BasisMath import get_transform_to_angle_basis, rotation_and_scale_to_point
+from scipy.spatial import ConvexHull
+
+
+def generate_parallelepiped(vectors):
+    """
+    Given d vectors in d-dimensional space, return the 2^d vertices of the parallelepiped.
+    """
+    vectors = np.array(vectors)  # Shape (d, d)
+    d = vectors.shape[0]
+
+    # All binary combinations of 0 and 1, for 2^d corners
+    coeffs = np.array(list(product([0, 1], repeat=d)))  # Shape (2^d, d)
+
+    # Multiply each coefficient vector with the matrix of vectors
+    corners = coeffs @ vectors  # Shape (2^d, d)
+    return corners
 
 
 class MaxBasis:
     dim4SampleConst = 10
     dim3SampleConst = 2
 
-    def __init__(self, observer: Observer, denom: float = 1, verbose: bool = False) -> None:
+    def __init__(self, observer: Observer, denom: float = 1,
+                 lums_per_channel: List[float] = [1/np.sqrt(3)] * 3,
+                 chromas_per_channel: List[float] = [np.sqrt(2/3)] * 3,
+                 verbose: bool = False) -> None:
+        # perceptual points
+        self.lums_per_channel = lums_per_channel
+        self.chromas_per_channel = chromas_per_channel
+        self.denom = denom
+
         self.verbose = verbose
         self.observer = observer
         self.wavelengths = observer.wavelengths
@@ -28,7 +53,6 @@ class MaxBasis:
         self.step_size = self.observer.wavelengths[1] - self.observer.wavelengths[0]
         self.dim_sample_const = self.dim4SampleConst if self.dimension == 4 else self.dim3SampleConst
 
-        self.denom = denom
         self.HMatrix = GetHeringMatrix(observer.dimension)
 
         self.__getMaximalBasis()
@@ -37,7 +61,16 @@ class MaxBasis:
         transitions = self.GetCutpointTransitions(wavelengths)
         cone_vals = np.array([np.dot(self.matrix, Spectra.from_transitions(
             x, 1 if i == 0 else 0, self.wavelengths).data) for i, x in enumerate(transitions)])
-        vol = np.abs(np.linalg.det(np.power(cone_vals, self.denom)))
+        if self.denom > 1:
+            cone_vals = np.power(cone_vals, 1/self.denom)
+            corners = generate_parallelepiped(cone_vals)
+            try:
+                vol = ConvexHull(corners).volume
+            except:
+                vol = 0
+        else:
+            vol = np.abs(np.linalg.det(cone_vals))
+
         return vol
 
     def __findMaximalCMF(self, isReverse=True):
@@ -50,8 +83,16 @@ class MaxBasis:
         else:
             refs = np.array([Spectra.from_transitions(x, 1 if i == 0 else 0,
                             self.wavelengths).data for i, x in enumerate(transitions)])
+        white_point = np.power(np.dot(self.matrix, np.ones(len(self.wavelengths))), 1/self.denom)
         self.refs = refs
-        self.cone_to_maxbasis = np.linalg.inv(np.dot(self.matrix, refs.T))
+        basis_vectors = np.power(np.dot(self.matrix, refs.T), 1/self.denom)
+        # self.cone_to_maxbasis = rotation_and_scale_to_point(
+        # self.cone_to_maxbasis@white_point, np.ones(self.dimension))@self.cone_to_maxbasis
+        self.cone_to_maxbasis = np.linalg.inv(basis_vectors)  # goes to the cube basis
+
+        self.cone_to_hering = get_transform_to_angle_basis(
+            basis_vectors, white_point, self.lums_per_channel, self.chromas_per_channel)
+
         self.maximal_matrix = np.dot(self.cone_to_maxbasis, self.matrix)
 
         self.maximal_sensors = []
@@ -140,7 +181,8 @@ class MaxBasis:
                 self.observer.wavelengths[0] + self.step_size, self.observer.wavelengths[-1] - self.step_size, self.dim_sample_const)
             coarse_sensors = [s.interpolate_values(coarse_wavelengths) for s in self.observer.sensors]
             coarseObserver = Observer(coarse_sensors, self.observer.illuminant)
-            coarseMaxBasis = MaxBasis(coarseObserver, denom=self.denom, verbose=self.verbose)
+            coarseMaxBasis = MaxBasis(coarseObserver, denom=self.denom, lums_per_channel=self.lums_per_channel,
+                                      chromas_per_channel=self.chromas_per_channel, verbose=self.verbose)
             cutpoints = coarseMaxBasis.GetCutpoints()
             range = [[x - rangbd, x + rangbd] for x in cutpoints[:self.dimension-1]]
 
@@ -203,10 +245,11 @@ class MaxBasis:
                 madeupof = list(combinations(x, len(x)-1))
                 lines += [[alllines.index(elem) + 1, i + 1] for elem in madeupof]  # connected to each elem
         refs = [Spectra.from_transitions(x, final_start[i], self.wavelengths) for i, x in enumerate(final_combos)]
-        if reverse:
-            points = np.array([self.maximal_matrix[::-1] @ ref.data for ref in refs])
-        else:
-            points = np.array([self.maximal_matrix @ ref.data for ref in refs])
+        cones = self.observer.observe_spectras(refs)
+        power_cones = np.power(cones, 1/self.denom)
+        points = power_cones@self.cone_to_maxbasis.T
+        if reverse:  # need to reverse this..?
+            points = points[::-1]
         rgbs = np.array([s.to_rgb(illuminant=Illuminant.get("E")) for s in refs])
         return refs, points, rgbs, lines
 
@@ -244,7 +287,10 @@ class MaxBasisFactory:
         cache = MaxBasisFactory.load_cache()
         # Use the __hash__ of the first argument as the cache key
         normalize_float = f"{kwargs['denom']:.2f}"
-        key = stable_hash(args[0]) + stable_hash(normalize_float) if args or kwargs else None
+        join_lums_and_chromas = "".join(
+            [f"{x:.2f}" for x in kwargs['lums_per_channel'] + kwargs['chromas_per_channel']])
+        key = stable_hash(args[0]) + stable_hash(normalize_float) + \
+            stable_hash(join_lums_and_chromas) if args or kwargs else None
         if key is None:
             raise ValueError("The first argument must be hashable to act as a key.")
 

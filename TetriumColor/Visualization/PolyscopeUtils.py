@@ -260,7 +260,7 @@ def RenderMetamericDirection(name: str, observer: Observer, display_basis: Polys
     Render3DLine(name, np.array([np.zeros(3), normalizedLMSQ]), color, line_alpha)
 
 
-def RenderOBS(name: str, observer: Observer, display_basis: PolyscopeDisplayType, num_samples=10000) -> None:
+def RenderOBS(name: str, cst: ColorSpace, display_basis: PolyscopeDisplayType, num_samples=10000) -> None:
     """Render Object Color Solid in Specified Basis
 
     Args:
@@ -268,20 +268,19 @@ def RenderOBS(name: str, observer: Observer, display_basis: PolyscopeDisplayType
         observer (Observer): Observer object to render
         display_basis (PolyscopeDisplayType): Basis to render the object in
     """
-    cst = ColorSpace(observer)
-    if observer.dimension == 4:
+    if cst.observer.dimension == 4:
         csampler = ColorSampler(cst, cubemap_size=128)
         boundary_points = csampler.sample_full_colors(num_samples)
         cones = cst.convert(boundary_points, ColorSpaceType.HERING, ColorSpaceType.CONE)
         sRGBs = np.clip(cst.convert(cones, ColorSpaceType.CONE, ColorSpaceType.SRGB), 0, 1)
     else:
-        boundary_points, sRGBs = observer.get_optimal_colors()
+        boundary_points, sRGBs = cst.observer.get_optimal_colors()
 
     new_points = cst.convert_to_polyscope(boundary_points, ColorSpaceType.CONE, display_basis)
     Render3DMesh(f"{name}", new_points, sRGBs)
 
 
-def RenderMaxBasis(name: str, observer: Observer, display_basis: PolyscopeDisplayType) -> None:
+def RenderMaxBasis(name: str, cst: ColorSpace, display_basis: PolyscopeDisplayType) -> None:
     """Render Max Basis Objects of Points and Lines - A Luminance Projected Parallelotope.
 
     Args:
@@ -289,10 +288,7 @@ def RenderMaxBasis(name: str, observer: Observer, display_basis: PolyscopeDispla
         observer (Observer): Observer object to render
         display_basis (PolyscopeDisplayType, optional): Display Basis to Render in. Defaults to PolyscopeDisplayType.MaxBasis.
     """
-    maxbasis = MaxBasisFactory.get_object(observer)
-    _, points, rgbs, lines = maxbasis.GetDiscreteRepresentation()
-    # go into hering if dim is > 3
-    points = ColorSpace(observer).convert_to_polyscope(points, ColorSpaceType.MAXBASIS, display_basis)
+    points, rgbs, lines = cst.get_maxbasis_parallelepiped(display_basis)
     mesh = GeometryPrimitives.CreateMaxBasis(points, rgbs, lines)
     GeometryPrimitives.ConvertTriangleMeshToPolyscope(name, mesh)
 
