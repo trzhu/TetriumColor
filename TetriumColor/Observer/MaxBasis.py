@@ -37,12 +37,8 @@ class MaxBasis:
     dim3SampleConst = 2
 
     def __init__(self, observer: Observer, denom: float = 1,
-                 lums_per_channel: List[float] = [1/np.sqrt(3)] * 3,
-                 chromas_per_channel: List[float] = [np.sqrt(2/3)] * 3,
                  verbose: bool = False) -> None:
         # perceptual points
-        self.lums_per_channel = lums_per_channel
-        self.chromas_per_channel = chromas_per_channel
         self.denom = denom
 
         self.verbose = verbose
@@ -53,6 +49,8 @@ class MaxBasis:
         self.step_size = self.observer.wavelengths[1] - self.observer.wavelengths[0]
         self.dim_sample_const = self.dim4SampleConst if self.dimension == 4 else self.dim3SampleConst
 
+        grid_axes = [np.linspace(0, 1, 50) for _ in range(self.dimension)]
+        self.hypercube_points = np.array(list(product(*grid_axes)))
         self.HMatrix = GetHeringMatrix(observer.dimension)
 
         self.__getMaximalBasis()
@@ -61,17 +59,62 @@ class MaxBasis:
         transitions = self.GetCutpointTransitions(wavelengths)
         cone_vals = np.array([np.dot(self.matrix, Spectra.from_transitions(
             x, 1 if i == 0 else 0, self.wavelengths).data) for i, x in enumerate(transitions)])
+        corners = generate_parallelepiped(cone_vals)
+
         if self.denom > 1:
-            cone_vals = np.power(cone_vals, 1/self.denom)
-            corners = generate_parallelepiped(cone_vals)
-            try:
-                vol = ConvexHull(corners).volume
-            except:
-                vol = 0
+            corners = np.power(corners, 1/self.denom)
+            # try:
+            #     vol = ConvexHull(corners).volume
+            # except:
+            #     vol = 0
+            vol = self.__computeVolumeViaPointCloudEstimation(wavelengths)
         else:
             vol = np.abs(np.linalg.det(cone_vals))
 
         return vol
+
+    def __computeVolumeViaPointCloudEstimation(self, wavelengths):
+        transitions = self.GetCutpointTransitions(wavelengths)
+        cone_vals = np.array([np.dot(self.matrix, Spectra.from_transitions(
+            x, 1 if i == 0 else 0, self.wavelengths).data) for i, x in enumerate(transitions)])
+        # Generate a hypercube of points in [0, 1]^d
+
+        all_points = cone_vals@self.hypercube_points.T
+        # raise to the power
+        transformed_points = np.power(all_points, 1/self.denom)
+
+        # Find the bounding box of the transformed points
+        min_coords = np.min(transformed_points, axis=1)
+        max_coords = np.max(transformed_points, axis=1)
+
+        # Generate random points in the bounding box
+        num_samples = 100000
+        random_points = np.random.uniform(
+            min_coords[:, np.newaxis],
+            max_coords[:, np.newaxis],
+            (self.dimension, num_samples)
+        )
+
+        # To check if a point is inside the transformed parallelepiped,
+        # we transform it back and check if it's in the original unit hypercube
+        inv_points = np.power(random_points, self.denom)
+
+        # Solve the linear system to find if they're in the original unit hypercube
+        try:
+            # Solve cone_vals * x = inv_points to find the coordinates in the original space
+            coefficients = np.linalg.solve(cone_vals, inv_points)
+            # Check if all coefficients are in [0,1] (within the unit hypercube)
+            inside_mask = np.all((0 <= coefficients) & (coefficients <= 1), axis=0)
+            points_inside = np.sum(inside_mask)
+
+            # Calculate the volume
+            bounding_box_volume = np.prod(max_coords - min_coords)
+            volume = bounding_box_volume * (points_inside / num_samples)
+        except np.linalg.LinAlgError:
+            # Handle singular matrix case
+            volume = 0
+
+        return volume
 
     def __findMaximalCMF(self, isReverse=True):
         sortedCutpoints = self.cutpoints[:self.dimension - 1]
@@ -89,9 +132,6 @@ class MaxBasis:
         # self.cone_to_maxbasis = rotation_and_scale_to_point(
         # self.cone_to_maxbasis@white_point, np.ones(self.dimension))@self.cone_to_maxbasis
         self.cone_to_maxbasis = np.linalg.inv(basis_vectors)  # goes to the cube basis
-
-        self.cone_to_hering = get_transform_to_angle_basis(
-            basis_vectors, white_point, self.lums_per_channel, self.chromas_per_channel)
 
         self.maximal_matrix = np.dot(self.cone_to_maxbasis, self.matrix)
 
@@ -111,7 +151,7 @@ class MaxBasis:
             Xidx = np.meshgrid(X)[0]
             Zidx = np.zeros_like(Xidx, dtype=float)
 
-            for i in tqdm(range(len(X)), disable=not self.verbose):
+            for i in tqdm(range(len(X)), desc="Max Basis Calculation"):
                 wavelength = [Xidx[i]]
                 Zidx[i] = self.__computeVolume(wavelength)
             self.listvol = [Xidx, Zidx]
@@ -181,8 +221,7 @@ class MaxBasis:
                 self.observer.wavelengths[0] + self.step_size, self.observer.wavelengths[-1] - self.step_size, self.dim_sample_const)
             coarse_sensors = [s.interpolate_values(coarse_wavelengths) for s in self.observer.sensors]
             coarseObserver = Observer(coarse_sensors, self.observer.illuminant)
-            coarseMaxBasis = MaxBasis(coarseObserver, denom=self.denom, lums_per_channel=self.lums_per_channel,
-                                      chromas_per_channel=self.chromas_per_channel, verbose=self.verbose)
+            coarseMaxBasis = MaxBasis(coarseObserver, denom=self.denom, verbose=self.verbose)
             cutpoints = coarseMaxBasis.GetCutpoints()
             range = [[x - rangbd, x + rangbd] for x in cutpoints[:self.dimension-1]]
 
@@ -287,10 +326,10 @@ class MaxBasisFactory:
         cache = MaxBasisFactory.load_cache()
         # Use the __hash__ of the first argument as the cache key
         normalize_float = f"{kwargs['denom']:.2f}"
-        join_lums_and_chromas = "".join(
-            [f"{x:.2f}" for x in kwargs['lums_per_channel'] + kwargs['chromas_per_channel']])
-        key = stable_hash(args[0]) + stable_hash(normalize_float) + \
-            stable_hash(join_lums_and_chromas) if args or kwargs else None
+        # join_lums_and_chromas = "".join(
+        #     [f"{x:.2f}" for x in kwargs['lums_per_channel'] + kwargs['chromas_per_channel']])
+        key = stable_hash(args[0]) + stable_hash(normalize_float)
+        # stable_hash(join_lums_and_chromas) if args or kwargs else None
         if key is None:
             raise ValueError("The first argument must be hashable to act as a key.")
 

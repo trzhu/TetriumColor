@@ -63,8 +63,6 @@ def GetColorSpaceTransform(observer: Observer, display_basis: CSTDisplayType,
                            display_primaries: List[Spectra] | None = None,
                            metameric_axis: int = 2,
                            led_mapping: List[int] | None = [0, 1, 3, 2, 1, 3],
-                           luminance_per_channel: List[float] = [1/np.sqrt(3)] * 3,
-                           chromas_per_channel: List[float] = [np.sqrt(2/3)] * 3,
                            scaling_factor: float = 10000) -> ColorSpaceTransform:
     """Get ColorSpaceTransform for the observer
 
@@ -108,12 +106,9 @@ def GetColorSpaceTransform(observer: Observer, display_basis: CSTDisplayType,
             M_Cone_To_Primaries = GetConeTosRGBPrimaries(observer, metameric_axis)
 
     # Get all of the max_basis that we will use -> at most these many
-    max_basis = MaxBasisFactory.get_object(
-        observer, denom=1, lums_per_channel=luminance_per_channel, chromas_per_channel=chromas_per_channel, verbose=False)
-    max_basis_243 = MaxBasisFactory.get_object(
-        observer, denom=2.43, lums_per_channel=luminance_per_channel, chromas_per_channel=chromas_per_channel, verbose=False)
-    max_basis_3 = MaxBasisFactory.get_object(
-        observer, denom=3, lums_per_channel=luminance_per_channel, chromas_per_channel=chromas_per_channel, verbose=False)
+    max_basis = MaxBasisFactory.get_object(observer, denom=1, verbose=False)
+    max_basis_243 = MaxBasisFactory.get_object(observer, denom=2.43, verbose=False)
+    max_basis_3 = MaxBasisFactory.get_object(observer, denom=3, verbose=False)
 
     # Get all transforms from cone to maxbasis to hering
     M_PrimariesToCone = np.linalg.inv(M_Cone_To_Primaries)
