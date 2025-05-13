@@ -51,8 +51,10 @@ def GetPerceptualHering(dim: int, isLumY=False) -> npt.NDArray:
     elif dim == 3:
         # lum_vec = np.array([1/np.sqrt(2) / 8, 1/np.sqrt(2), 1/np.sqrt(2)])
         lum_vec = np.array([0, 1/np.sqrt(2), 1/np.sqrt(2)])
-        mat = np.array([lum_vec/np.linalg.norm(lum_vec), [np.sqrt(2/3), -(1/np.sqrt(6)),
-                       -(1/np.sqrt(6))], [0, 1/np.sqrt(2), -(1/np.sqrt(2))]])  # B G R
+        # blue_vec = np.array([-np.sqrt(2/3),  (1/np.sqrt(6)), (1/np.sqrt(6))])
+        blue_vec = np.array([-1/np.sqrt(2), 1/np.sqrt(2), 0])
+        mat = np.array([lum_vec/np.linalg.norm(lum_vec), [0, -1/np.sqrt(2), (1/np.sqrt(2))],
+                       blue_vec / np.linalg.norm(blue_vec)])  # B G R
         return mat[[1, 0, 2]] if isLumY else mat
     elif dim == 4:
         return np.array([[0, 1/np.sqrt(3), 1/np.sqrt(3), 1/np.sqrt(3)], [np.sqrt(3)/2, -(1/(2 * np.sqrt(3))), -(1/(2 * np.sqrt(3))), -(1/(2 * np.sqrt(3)))], [0, np.sqrt(2/3), -(1/np.sqrt(6)), -(1/np.sqrt(6))], [0, 0, 1/np.sqrt(2), -(1/np.sqrt(2))]])
@@ -370,9 +372,11 @@ class Observer:
         if illuminant is not None:
             illuminant = illuminant.interpolate_values(self.wavelengths)
         else:
-            print("No illuminant provided, using Illuminant E")
-            illuminant = Illuminant(
-                np.vstack([self.wavelengths, np.ones_like(self.wavelengths)]).T)
+            print("No illuminant provided, using Illuminant D65")
+            # illuminant = Illuminant.get('E').interpolate_values(self.wavelengths)
+            illuminant = Illuminant.get('D65').interpolate_values(self.wavelengths)
+            # illuminant = Illuminant(
+            # np.vstack([self.wavelengths, np.ones_like(self.wavelengths)]).T)
 
         self.illuminant = illuminant
         self.normalized_sensor_matrix = self.get_normalized_sensor_matrix(

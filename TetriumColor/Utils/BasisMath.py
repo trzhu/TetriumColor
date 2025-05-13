@@ -1,6 +1,130 @@
 import numpy as np
 import numpy.typing as npt
 from typing import List
+from scipy.optimize import minimize
+import matplotlib.pyplot as plt
+
+
+def stretch_matrix_along_direction(d, scale):
+    d = d / np.linalg.norm(d)
+    P = np.outer(d, d)        # projection matrix onto d
+    I = np.eye(3)
+    S = I + (scale - 1) * P   # stretch along d by 'scale'
+    return S
+
+
+def yz_plane_equiangular_error(vectors):
+    """
+    Given a list of 3D vectors, compute how evenly spaced they are in the YZ-plane.
+    Assumes vectors are originating from the same point.
+
+    Parameters:
+    - vectors: np.ndarray of shape (n, 3)
+
+    Returns:
+    - angular_error: float (lower is better, 0 is perfect)
+    """
+    # Project to YZ-plane
+    yz_vectors = vectors[:, 1:3]
+
+    # Normalize to unit vectors (in YZ-plane)
+    norms = np.linalg.norm(yz_vectors, axis=1, keepdims=True)
+    yz_unit_vectors = yz_vectors / np.clip(norms, 1e-8, None)
+
+    # Compute angles in YZ-plane (atan2 gives angle from Y axis)
+    angles = np.arctan2(yz_unit_vectors[:, 1], yz_unit_vectors[:, 0])  # angle from Y (y=0) counter-clockwise
+    angles = np.mod(angles, 2 * np.pi)  # Wrap to [0, 2pi)
+
+    # Sort angles
+    angles = np.sort(angles)
+
+    # Compute angle differences between adjacent vectors
+    angle_diffs = np.diff(np.concatenate([angles, [angles[0] + 2 * np.pi]]))  # Close the circle
+
+    # Ideal angle spacing
+    n = len(vectors)
+    ideal_angle = 2 * np.pi / n
+
+    # Total squared deviation from ideal spacing
+    error = np.sum((angle_diffs - ideal_angle) ** 2)
+
+    return error
+
+
+def solve_transformation_matrix(source_points, target_points):
+    """
+    Solve for a transformation matrix that maps source points to target points
+    while ensuring (1,0,0) maps to (1,0,0) and preserving angular relationships.
+
+    Parameters:
+    - source_points: numpy array of shape (n, 3), each row is a source point
+    - target_points: numpy array of shape (n, 3), each row is a target point
+
+    Returns:
+    - transformation_matrix: numpy array of shape (3, 3)
+    - error: final optimization error
+    """
+    # Initial guess for the 6 free parameters (a12, a13, a22, a23, a32, a33)
+    initial_guess = np.zeros(6)
+
+    def objective_function(params):
+        a12, a13, a22, a23, a32, a33 = params
+
+        # Build matrix A where (1,0,0) stays fixed
+        A = np.array([
+            [1.0, a12, a13],
+            [0.0, a22, a23],
+            [0.0, a32, a33]
+        ])
+
+        transformed_points = np.array([A @ p for p in source_points])
+        error = np.mean(np.sum((transformed_points - target_points) ** 2))
+        luminance_error = np.mean(np.sum((source_points[:, 0] - transformed_points[:, 0])**2))
+
+        # compute the perpendicular distance from the line (1, 0, 0)
+        # Compute the perpendicular distance from the line (1, 0, 0)
+        chromas = np.linalg.norm(transformed_points[:, 1:], axis=1)  # distance from (0, 0)
+        actual_chromas = np.linalg.norm(target_points[:, 1:], axis=1)
+        print("Actual chromas: ", actual_chromas)
+        print("Derived chromas: ", chromas)
+        chroma_error = np.mean((actual_chromas - chromas) ** 2)
+
+        # Compute the y-z angle between vectors
+        should_be_low = yz_plane_equiangular_error(target_points)
+        angular_error = yz_plane_equiangular_error(transformed_points)
+        print("Should be low: ", should_be_low)
+        print("Actual error: ", angular_error)
+
+        print(
+            f"Current params: {params}, Error: {error:.4f}, Luminance error: {luminance_error:.4f}, Chroma error: {chroma_error:.4f}")
+        combined_error = error + angular_error + 10 * chroma_error
+        return combined_error * 100
+    # # Solve the optimization problems
+    # result = minimize(objective_function, initial_guess, method='BFGS', options={'maxiter': 100000})
+
+    from scipy.optimize import differential_evolution
+
+    bounds = [(-2, 2)] * 6  # Reasonable bounds for a12, a13, a22, ..., a33
+    result = differential_evolution(objective_function, bounds, strategy='best1bin',
+                                    maxiter=10000, polish=True, disp=True)
+
+    # Extract the optimized parameters
+    a12, a13, a22, a23, a32, a33 = result.x
+
+    # Construct the final transformation matrix
+    transformation_matrix = np.array([
+        [1.0, a12, a13],
+        [0.0, a22, a23],
+        [0.0, a32, a33]
+    ])
+
+    print("Optimization result status:", result.message)
+    print("Optimization error:", result.fun)
+
+    # Validate the transformation
+    # validate_transformation(source_points, target_points, transformation_matrix)
+
+    return transformation_matrix, result.fun
 
 
 def find_interpolated_vector(v, h, c, projection_vector=np.ones(3)):
@@ -68,6 +192,54 @@ def construct_angle_basis(dim: int, white_point: npt.NDArray, heights: List[floa
     for i in range(dim):
         basis[i] = find_interpolated_vector(canonical_basis[i], heights[i], chromas[i], projection_vector=white_point)
     return basis
+
+
+def generate_max_angle_points(luminances, chromas, seed=42):
+    """
+    Places points on a cone in 3D space as far apart in angle as possible,
+    constrained by luminance and chroma values.
+
+    Parameters:
+        luminances (np.ndarray): Projection onto (1, 0, 0), between 0 and 1.
+        chromas (np.ndarray): Distance from the x-axis in 3D space.
+        seed (int): For reproducibility.
+
+    Returns:
+        np.ndarray: Nx3 array of points on the unit sphere satisfying constraints.
+    """
+    np.random.seed(seed)
+    luminances = np.asarray(luminances)
+    chromas = np.asarray(chromas)
+    # assert np.allclose(luminances**2 + chromas**2, 1.0, atol=1e-6), \
+    #     "Each point must lie on the unit sphere: L^2 + C^2 = 1"
+
+    N = len(luminances)
+    points = np.zeros((N, 3))
+
+    # Start with a random orthonormal frame for the plane orthogonal to (1,0,0)
+    def random_orthonormal_basis():
+        a = np.array([0, 1, 0])
+        b = np.cross((1, 0, 0), a)
+        b = b / np.linalg.norm(b)
+        c = np.cross((1, 0, 0), b)
+        return b, c
+
+    y_dir, z_dir = random_orthonormal_basis()
+
+    # Greedily assign angles that maximize angular spread
+    angles = np.linspace(0, 2*np.pi, N, endpoint=False)
+    np.random.shuffle(angles)  # randomness for better spreading
+
+    for i in range(N):
+        x = luminances[i]
+        r = chromas[i]
+        y = r * np.cos(angles[i])
+        z = r * np.sin(angles[i])
+        point = x * np.array([1.0, 0, 0]) + y * y_dir + z * z_dir
+        point /= np.linalg.norm(point)  # ensure on unit sphere
+        points[i] = point
+
+    return points
 
 
 def find_transformation_matrix(source_points, target_points):
@@ -379,24 +551,68 @@ def rotation_and_scale_to_point(source_point, target_point=(1, 1, 1)):
     return transform_matrix
 
 
+def visualize_transformation(source_points, target_points, transformed_points):
+    """Visualize the original points, target points, and transformed points."""
+    fig = plt.figure(figsize=(12, 8))
+    ax = fig.add_subplot(111, projection='3d')
+
+    # Plot original points in red
+    ax.scatter(source_points[:, 0], source_points[:, 1], source_points[:, 2],
+               color='red', s=100, label='Source Points')
+
+    # Plot target points in blue
+    ax.scatter(target_points[:, 0], target_points[:, 1], target_points[:, 2],
+               color='blue', s=100, label='Target Points')
+
+    # Plot transformed points in green
+    ax.scatter(transformed_points[:, 0], transformed_points[:, 1], transformed_points[:, 2],
+               color='green', s=50, alpha=0.7, label='Transformed Points')
+
+    # Draw lines connecting source to transformed
+    for src, trans in zip(source_points, transformed_points):
+        ax.plot([src[0], trans[0]], [src[1], trans[1]], [src[2], trans[2]],
+                color='gray', linestyle='--', alpha=0.5)
+
+    # Draw lines connecting transformed to target
+    for trans, tgt in zip(transformed_points, target_points):
+        ax.plot([trans[0], tgt[0]], [trans[1], tgt[1]], [trans[2], tgt[2]],
+                color='black', linestyle=':', alpha=0.5)
+
+    # Highlight the (1,0,0) point
+    ax.scatter([1], [0], [0], color='yellow', s=200, edgecolor='black', label='(1,0,0)')
+
+    # Add labels and legend
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+    ax.legend()
+    ax.set_title('Visualization of Transformation')
+
+    plt.tight_layout()
+    plt.show()
+
+
 if __name__ == "__main__":
     # Example usage
     np.set_printoptions(suppress=True, precision=3)
 
-    dim = 4
+    dim = 3
     basis_vectors = np.eye(dim)
     vec = np.zeros(dim)
     vec[0] = 1
     mat = rotation_and_scale_to_point_nd(np.ones(dim), vec)
 
-    heights = [0.577, 0.577, 0.577, 0.577]
-    chromas = [0.816, 0.816, 0.816, 0.816]
+    heights = [0.577/2, 0.577, 0.577]
+    chromas = [0.816, 0.816/4, 0.816/4]
 
     print("basis", basis_vectors@mat.T)
     print("ones", np.ones(dim)@mat.T)
 
     new_basis = construct_angle_basis(
         basis_vectors.shape[1], mat@np.ones(dim), heights, chromas)
+
+    # new_basis = generate_max_angle_points(heights, chromas)
+    # print("new_basis", new_basis)
 
     transform = get_transform_to_angle_basis(basis_vectors@mat.T, np.ones(dim)@mat.T, heights, chromas)
 
