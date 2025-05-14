@@ -645,7 +645,7 @@ class ColorSpace:
         np.set_printoptions(precision=3, suppress=True)
         display_name = display_basis.name.split("_")
         denom = 1 if len(display_name) < 2 or display_name[-2] != "PERCEPTUAL" else float(display_name[-1])/100
-        maxbasis = MaxBasisFactory.get_object(self.observer, denom=1)  # , denom=denom)
+        maxbasis = MaxBasisFactory.get_object(self.observer, denom=denom)  # , denom=denom)
         refs, _, rgbs, lines = maxbasis.GetDiscreteRepresentation()
 
         if "OKLAB" in display_name or "CIELAB" in display_name:
@@ -685,7 +685,7 @@ class ColorSpace:
             npt.NDArray: Converted points in "perceptual space"
         """
         # convert points
-        max_basis = MaxBasisFactory.get_object(self.observer, denom=1)
+        max_basis = MaxBasisFactory.get_object(self.observer, denom=denom_of_nonlin)
         refs, _, _, _ = max_basis.GetDiscreteRepresentation()
         maxbasis_points = self.observer.observe_spectras([refs[x] for x in [1, 2, 3]])
 
@@ -707,42 +707,42 @@ class ColorSpace:
 
         # normalized_maxbasis = maxbasis_points / np.linalg.norm(maxbasis_points, axis=1)[:, np.newaxis]
 
-        lums = maxbasis_points[:, 0].tolist()  # luminance value
+        # lums = maxbasis_points[:, 0].tolist()  # luminance value
         # lums = [lums[0], lums[1], lums[2]]
         # old_chromas = np.ones(3) * np.sqrt(2/3) * np.array([1.0, 0.5, 0.5])  # chromas as fractions of a basis
         # chromas = [np.sqrt(2/3)] * 3
         vshh = self.convert(maxbasis_points, ColorSpaceType.MAXBASIS, ColorSpaceType.VSH)
-        chromas = vshh[:, 1].tolist()
+        lums = vshh[:, 0].tolist()
+        # chromas = vshh[:, 1].tolist()
+        lums = [lums[0] * 1.3, lums[1], lums[2] * 0.5]  # red is the same as green
+        chromas = [np.sqrt(2/3) * 0.5, np.sqrt(2/3) * 0.7, np.sqrt(2/3)]  # vshh[:, 1].tolist()
+        print("lums & chromas: ", lums, chromas)
         # vshh[:, 0] = lums
         # vshh[:, 1] = chromas
         angle_basis = BasisMath.construct_angle_basis(
             maxbasis_points.shape[1], np.ones(self.dim), lums, chromas)
 
-        # target_points = BasisMath.construct_angle_basis(self.dim, np.ones(self.dim), , chromas)
+        # TODO: Recheck angle_basis, it's not really working as I'd like - i.e., it's not returning 120 degree separated angles.
+        # once this works, it will work perfectly, I'm pretty sure.
 
         # two column vectors transformed into each other can be right applied
         M3 = ((angle_basis.T)@np.linalg.inv(maxbasis_points.T))
 
-        # try 1 renormalize
+        # try 1 renormalize, or reorient
         new_white_pt = M3@np.ones(self.dim)
         M3 = np.diag(1/new_white_pt)@M3
         points = (M3@points.T).T
 
-        # transformed_maxbasis = (M3@maxbasis_points.T).T
-        # print(transformed_maxbasis)
-        # import pdb
-        # pdb.set_trace()
-
         # import matplotlib.pyplot as plt
-
         # fig = plt.figure()
         # ax = fig.add_subplot(111, projection='3d')
         # # Plot the angle_basis points as vectors
         # for vector in angle_basis:
         #     ax.quiver(0, 0, 0, vector[0], vector[1], vector[2], color='r', label='Angle Basis Vector')
 
-        # ax.scatter(transformed_maxbasis[:, 0], transformed_maxbasis[:, 1],
-        #            transformed_maxbasis[:, 2], c='g', label='Max Basis Points')
+        # trans_maxbasis = maxbasis_points @ M3.T
+        # ax.scatter(trans_maxbasis[:, 0], trans_maxbasis[:, 1],
+        #            trans_maxbasis[:, 2], c='g', label='Transformed Maxbasis Points')
         # ax.scatter(points[:, 0], points[:, 1], points[:, 2], c='y', label='Transformed Points')
 
         # # Plot the (1, 1, 1) vector
@@ -756,15 +756,11 @@ class ColorSpace:
         # ax.set_ylim([-0.1, 1])
         # ax.set_zlim([-0.1, 1])
         # ax.set_title('3D Plot of Angle Basis')
-
-        # # Add legend
         # ax.legend()
-
-        # # Show the plot
         # plt.show()
 
-        # import pdb
-        # pdb.set_trace()
+        # transformed_maxbasis = (M3@maxbasis_points.T).T
+        # print(transformed_maxbasis)
 
         # reorient white to (1, 1, 1)
         # M4 = BasisMath.rotation_and_scale_to_point_nd(M3@np.ones(self.dim), np.ones(self.dim))
@@ -777,40 +773,40 @@ class ColorSpace:
         # print(OKLAB_M2)
 
         # # BasisMath.rotation_and_scale_to_point_nd()
-        points = (M@points.T).T / np.sqrt(2)
+        points = (M@points.T).T / np.sqrt(3)
         # maxbasis_points = (M2@maxbasis_points.T).T
 
         # # # Become Equiangular - only transform that keeps (1, 0, 0) mapped to the right point
 
-        # # Create a rotation matrix for 60 degrees around the (1, 0, 0) axis
-        # angle = np.radians(50)
-        # axis = np.array([1, 0, 0])
-        # axis = axis / np.linalg.norm(axis)  # Normalize the axis
-        # cos_angle = np.cos(angle)
-        # sin_angle = np.sin(angle)
-        # one_minus_cos = 1 - cos_angle
+        # Create a rotation matrix for 60 degrees around the (1, 0, 0) axis
+        angle = np.radians(40)
+        axis = np.array([1, 0, 0])
+        axis = axis / np.linalg.norm(axis)  # Normalize the axis
+        cos_angle = np.cos(angle)
+        sin_angle = np.sin(angle)
+        one_minus_cos = 1 - cos_angle
 
-        # # Compute the rotation matrix using the Rodrigues' rotation formula
-        # rotation_matrix = np.array([
-        #     [
-        #         cos_angle + axis[0] * axis[0] * one_minus_cos,
-        #         axis[0] * axis[1] * one_minus_cos - axis[2] * sin_angle,
-        #         axis[0] * axis[2] * one_minus_cos + axis[1] * sin_angle
-        #     ],
-        #     [
-        #         axis[1] * axis[0] * one_minus_cos + axis[2] * sin_angle,
-        #         cos_angle + axis[1] * axis[1] * one_minus_cos,
-        #         axis[1] * axis[2] * one_minus_cos - axis[0] * sin_angle
-        #     ],
-        #     [
-        #         axis[2] * axis[0] * one_minus_cos - axis[1] * sin_angle,
-        #         axis[2] * axis[1] * one_minus_cos + axis[0] * sin_angle,
-        #         cos_angle + axis[2] * axis[2] * one_minus_cos
-        #     ]
-        # ])
+        # Compute the rotation matrix using the Rodrigues' rotation formula
+        rotation_matrix = np.array([
+            [
+                cos_angle + axis[0] * axis[0] * one_minus_cos,
+                axis[0] * axis[1] * one_minus_cos - axis[2] * sin_angle,
+                axis[0] * axis[2] * one_minus_cos + axis[1] * sin_angle
+            ],
+            [
+                axis[1] * axis[0] * one_minus_cos + axis[2] * sin_angle,
+                cos_angle + axis[1] * axis[1] * one_minus_cos,
+                axis[1] * axis[2] * one_minus_cos - axis[0] * sin_angle
+            ],
+            [
+                axis[2] * axis[0] * one_minus_cos - axis[1] * sin_angle,
+                axis[2] * axis[1] * one_minus_cos + axis[0] * sin_angle,
+                cos_angle + axis[2] * axis[2] * one_minus_cos
+            ]
+        ])
 
-        # # Apply the rotation matrix to the points
-        # points = points @ rotation_matrix.T
+        # Apply the rotation matrix to the points
+        points = points @ rotation_matrix.T
         # return points
         return points[:, [1, 0, 2]]
 

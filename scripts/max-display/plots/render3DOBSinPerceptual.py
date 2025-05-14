@@ -41,8 +41,8 @@ def main():
     viz.RenderMaxBasis("oklab_maxbasis", cst, PolyscopeDisplayType.OKLAB_PERCEPTUAL_243)
     ps.get_surface_mesh("oklab").set_transparency(0.8)
 
-    viz.RenderOBS("oklabm1", cst, PolyscopeDisplayType.OKLABM1)
-    ps.get_surface_mesh("oklabm1").set_transparency(0.8)
+    # viz.RenderOBS("oklabm1", cst, PolyscopeDisplayType.OKLABM1)
+    # ps.get_surface_mesh("oklabm1").set_transparency(0.8)
 
     # viz.RenderOBS("CIELAB", cst, PolyscopeDisplayType.CIELAB)
     # viz.RenderMaxBasis("cielab_maxbasis", cst, PolyscopeDisplayType.CIELAB_PERCEPTUAL_243)
