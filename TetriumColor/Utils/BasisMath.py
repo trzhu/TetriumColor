@@ -1,3 +1,4 @@
+from colour.models.rgb.datasets import canon_cinema_gamut
 import numpy as np
 import numpy.typing as npt
 from typing import List
@@ -123,6 +124,7 @@ def solve_transformation_matrix(source_points, target_points):
 
     # Validate the transformation
     # validate_transformation(source_points, target_points, transformation_matrix)
+    visualize_transformation(source_points, target_points, source_points @ transformation_matrix.T)
 
     return transformation_matrix, result.fun
 
@@ -184,11 +186,13 @@ def construct_angle_basis(dim: int, white_point: npt.NDArray, heights: List[floa
         npt.NDArray: the constructed basis vectors
     """
     basis = np.zeros((dim, dim))
-    vec = np.zeros(dim)
-    vec[0] = 1
-    mat = rotation_and_scale_to_point_nd(np.ones(dim), vec)
+    # vec = np.zeros(dim)
+    # vec[0] = 1
+    # mat = rotation_and_scale_to_point_nd(np.ones(dim), vec)
 
-    canonical_basis = np.eye(dim)@mat.T
+    # canonical_basis = np.eye(dim)@mat.T
+
+    canonical_basis = np.eye(dim)
     for i in range(dim):
         basis[i] = find_interpolated_vector(canonical_basis[i], heights[i], chromas[i], projection_vector=white_point)
     return basis

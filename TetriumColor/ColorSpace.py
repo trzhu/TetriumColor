@@ -3,6 +3,7 @@ import numpy as np
 import numpy.typing as npt
 from typing import List
 from enum import Enum
+from scipy.linalg import orth
 
 from TetriumColor.Observer import Observer, MaxBasisFactory, GetHeringMatrix, GetPerceptualHering
 from TetriumColor.Observer.Spectra import Illuminant, Spectra
@@ -686,53 +687,132 @@ class ColorSpace:
         # convert points
         max_basis = MaxBasisFactory.get_object(self.observer, denom=1)
         refs, _, _, _ = max_basis.GetDiscreteRepresentation()
-        maxbasis_points = self.observer.observe_spectras([refs[x] for x in [1, 6]])
-        dists = [0.7, 0.7]
-        # Adjust maxbasis_points such that their perpendicular distance away from np.ones(3) is dists
-        reference_point = np.ones(3)
-        target_points = np.zeros((len(maxbasis_points), 3))
-        for i in range(len(maxbasis_points)):
-            projection = np.dot(maxbasis_points[i], reference_point) / np.linalg.norm(reference_point)
-            direction = maxbasis_points[i] - projection * reference_point
-            direction /= np.linalg.norm(direction)  # Normalize the direction
-            target_points[i] = projection * reference_point + direction * dists[i]
-
-        # target_points = np.append(target_points, , axis=0, )
-        # source_points = np.append(maxbasis_points, np.ones((1, 3)), axis=0)
+        maxbasis_points = self.observer.observe_spectras([refs[x] for x in [1, 2, 3]])
 
         M = np.array(
             [[0, 0,  1],
              [0,  1, 0],
              [0.8,  0,  0.2]]
-        )
+        )  # transform into an L M S-like space
         # spectral_locus = (M@self.observer.normalized_sensor_matrix).T
         new_white_pt = M@np.ones(3)
-        new_transform_mat = (np.diag(1/new_white_pt))@M
+        M1 = (np.diag(1/new_white_pt))@M
         # new_spectral_locus = (new_transform_mat@self.observer.normalized_sensor_matrix).T  # @ new_transform_mat.T
-        points = (new_transform_mat@points.T).T
-        # # A, _, _, _ = np.linalg.lstsq(maxbasis_points, target_points, rcond=None)
+        points = (M1@points.T).T
+        maxbasis_points = (M1@maxbasis_points.T).T
 
-        # # A = target_points@np.linalg.inv(maxbasis_points)
+        points = np.power(points, 1/denom_of_nonlin)
+        maxbasis_points = np.power(maxbasis_points, 1/denom_of_nonlin)
+        maxbasis_points = maxbasis_points[::-1]  # reverse BGR to RGB to match the M matrix
 
-        # # transform_mat = target_points@np.linalg.inv(maxbasis_points)
+        # normalized_maxbasis = maxbasis_points / np.linalg.norm(maxbasis_points, axis=1)[:, np.newaxis]
 
-        # print(maxbasis_points)
-        # print(target_points)
-        # print(transform_mat)
+        lums = maxbasis_points[:, 0].tolist()  # luminance value
+        # lums = [lums[0], lums[1], lums[2]]
+        # old_chromas = np.ones(3) * np.sqrt(2/3) * np.array([1.0, 0.5, 0.5])  # chromas as fractions of a basis
+        # chromas = [np.sqrt(2/3)] * 3
+        vshh = self.convert(maxbasis_points, ColorSpaceType.MAXBASIS, ColorSpaceType.VSH)
+        chromas = vshh[:, 1].tolist()
+        # vshh[:, 0] = lums
+        # vshh[:, 1] = chromas
+        angle_basis = BasisMath.construct_angle_basis(
+            maxbasis_points.shape[1], np.ones(self.dim), lums, chromas)
+
+        # target_points = BasisMath.construct_angle_basis(self.dim, np.ones(self.dim), , chromas)
+
+        # two column vectors transformed into each other can be right applied
+        M3 = ((angle_basis.T)@np.linalg.inv(maxbasis_points.T))
+
+        # try 1 renormalize
+        new_white_pt = M3@np.ones(self.dim)
+        M3 = np.diag(1/new_white_pt)@M3
+        points = (M3@points.T).T
+
+        # transformed_maxbasis = (M3@maxbasis_points.T).T
+        # print(transformed_maxbasis)
+        # import pdb
+        # pdb.set_trace()
+
+        # import matplotlib.pyplot as plt
+
+        # fig = plt.figure()
+        # ax = fig.add_subplot(111, projection='3d')
+        # # Plot the angle_basis points as vectors
+        # for vector in angle_basis:
+        #     ax.quiver(0, 0, 0, vector[0], vector[1], vector[2], color='r', label='Angle Basis Vector')
+
+        # ax.scatter(transformed_maxbasis[:, 0], transformed_maxbasis[:, 1],
+        #            transformed_maxbasis[:, 2], c='g', label='Max Basis Points')
+        # ax.scatter(points[:, 0], points[:, 1], points[:, 2], c='y', label='Transformed Points')
+
+        # # Plot the (1, 1, 1) vector
+        # ax.quiver(0, 0, 0, 1, 1, 1, color='b', label='(1, 1, 1) Vector')
+
+        # # Add labels and title
+        # ax.set_xlabel('X')
+        # ax.set_ylabel('Y')
+        # ax.set_zlabel('Z')
+        # ax.set_xlim([-0.1, 1])
+        # ax.set_ylim([-0.1, 1])
+        # ax.set_zlim([-0.1, 1])
+        # ax.set_title('3D Plot of Angle Basis')
+
+        # # Add legend
+        # ax.legend()
+
+        # # Show the plot
+        # plt.show()
 
         # import pdb
         # pdb.set_trace()
 
-        # assert np.allclose(target_points, transform_mat@maxbasis_points.T,
-        #                    atol=1e-3), f"Transformation matrix is incorrect {target_points} != {transform_mat@maxbasis_points}"
+        # reorient white to (1, 1, 1)
+        # M4 = BasisMath.rotation_and_scale_to_point_nd(M3@np.ones(self.dim), np.ones(self.dim))
+        # points = (M4@points.T).T
 
-        # new_white_pt = transform_mat@np.ones(3)
-        # new_transform_mat = (np.diag(1/new_white_pt))@transform_mat
-        # points = (transform_mat@points.T).T  # @ new_transform_mat.T
+        # points = points[:, [2, 1, 0]]
+        # Hering transformation
+        M = np.array([[1/np.sqrt(3), 1/np.sqrt(3), 1/np.sqrt(3)], [np.sqrt(2/3), -
+                     (1/np.sqrt(6)), -(1/np.sqrt(6))], [0, 1/np.sqrt(2), -(1/np.sqrt(2))]])
+        # print(OKLAB_M2)
 
-        points = np.power(points, 1/denom_of_nonlin)
-        # return self.convert(points, from_space, M_basis)
-        return points
+        # # BasisMath.rotation_and_scale_to_point_nd()
+        points = (M@points.T).T / np.sqrt(2)
+        # maxbasis_points = (M2@maxbasis_points.T).T
+
+        # # # Become Equiangular - only transform that keeps (1, 0, 0) mapped to the right point
+
+        # # Create a rotation matrix for 60 degrees around the (1, 0, 0) axis
+        # angle = np.radians(50)
+        # axis = np.array([1, 0, 0])
+        # axis = axis / np.linalg.norm(axis)  # Normalize the axis
+        # cos_angle = np.cos(angle)
+        # sin_angle = np.sin(angle)
+        # one_minus_cos = 1 - cos_angle
+
+        # # Compute the rotation matrix using the Rodrigues' rotation formula
+        # rotation_matrix = np.array([
+        #     [
+        #         cos_angle + axis[0] * axis[0] * one_minus_cos,
+        #         axis[0] * axis[1] * one_minus_cos - axis[2] * sin_angle,
+        #         axis[0] * axis[2] * one_minus_cos + axis[1] * sin_angle
+        #     ],
+        #     [
+        #         axis[1] * axis[0] * one_minus_cos + axis[2] * sin_angle,
+        #         cos_angle + axis[1] * axis[1] * one_minus_cos,
+        #         axis[1] * axis[2] * one_minus_cos - axis[0] * sin_angle
+        #     ],
+        #     [
+        #         axis[2] * axis[0] * one_minus_cos - axis[1] * sin_angle,
+        #         axis[2] * axis[1] * one_minus_cos + axis[0] * sin_angle,
+        #         cos_angle + axis[2] * axis[2] * one_minus_cos
+        #     ]
+        # ])
+
+        # # Apply the rotation matrix to the points
+        # points = points @ rotation_matrix.T
+        # return points
+        return points[:, [1, 0, 2]]
 
     def convert_to_hering(self, points: npt.NDArray):
         """Convert points to Hering space -- make it easier to display
@@ -849,6 +929,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     from colour.colorimetry import MSDS_CMFS_STANDARD_OBSERVER
     from colour import SpectralShape
+
     shape = SpectralShape(min(observer.wavelengths), max(observer.wavelengths),
                           int(observer.wavelengths[1] - observer.wavelengths[0]))
     xyz_cmfs = MSDS_CMFS_STANDARD_OBSERVER['CIE 1931 2 Degree Standard Observer'].copy().align(shape).values
@@ -860,6 +941,8 @@ if __name__ == "__main__":
 
     cst = ColorSpace(Observer.trichromat(wavelengths=np.arange(360, 830, 10)))
     print(repr(OKLAB_M1@cst.transform.cone_to_XYZ))
+
+    print(repr(OKLAB_M2))
     # cones = cst.convert(xyz, ColorSpaceType.XYZ, ColorSpaceType.CONE)
     # oklab = cst.convert(cones, ColorSpaceType.CONE, ColorSpaceType.OKLAB)
 
