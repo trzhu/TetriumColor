@@ -6,7 +6,7 @@ from colour.colorimetry import MSDS_CMFS_STANDARD_OBSERVER
 from colour.models import RGB_COLOURSPACE_BT709
 from colour import XYZ_to_RGB, wavelength_to_XYZ, SpectralShape
 
-from . import Observer, Spectra, MaxBasisFactory, Illuminant
+from . import Observer, Spectra, MaxBasis, MaxBasisFactory, Illuminant
 from TetriumColor.Utils.CustomTypes import ColorSpaceTransform, CSTDisplayType
 
 
@@ -63,7 +63,7 @@ def GetColorSpaceTransform(observer: Observer, display_basis: CSTDisplayType,
                            display_primaries: List[Spectra] | None = None,
                            metameric_axis: int = 2,
                            led_mapping: List[int] | None = [0, 1, 3, 2, 1, 3],
-                           scaling_factor: float = 10000) -> ColorSpaceTransform:
+                           scaling_factor: float = 10000, generate_max_basis=False) -> ColorSpaceTransform:
     """Get ColorSpaceTransform for the observer
 
     Args:
@@ -106,9 +106,17 @@ def GetColorSpaceTransform(observer: Observer, display_basis: CSTDisplayType,
             M_Cone_To_Primaries = GetConeTosRGBPrimaries(observer, metameric_axis)
 
     # Get all of the max_basis that we will use -> at most these many
+    # print("Calculating MaxBasis")
     max_basis = MaxBasisFactory.get_object(observer, denom=1, verbose=False)
-    max_basis_243 = MaxBasisFactory.get_object(observer, denom=2.43, verbose=False)
-    max_basis_3 = MaxBasisFactory.get_object(observer, denom=3, verbose=False)
+    # max_basis = MaxBasis(observer, denom=1, verbose=True)
+    # print("MaxBasis calculated w/denom=1")
+    # print(max_basis.cutpoints)
+    max_basis_243 = MaxBasisFactory.get_object(observer, denom=2.43 if generate_max_basis else 1, verbose=False)
+    # print("MaxBasis calculated w/denom=2.43")
+    max_basis_3 = MaxBasisFactory.get_object(observer, denom=3 if generate_max_basis else 1, verbose=False)
+    # print("MaxBasis calculated w/denom=3")
+
+    # print("MaxBasis calculated")
 
     # Get all transforms from cone to maxbasis to hering
     M_PrimariesToCone = np.linalg.inv(M_Cone_To_Primaries)

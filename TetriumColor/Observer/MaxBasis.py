@@ -2,7 +2,9 @@ import hashlib
 from importlib import resources
 from itertools import combinations, product
 from functools import reduce
+from colour.appearance.ciecam02 import P
 from tqdm import tqdm
+from joblib import Parallel, delayed
 
 import numpy as np
 import os
@@ -40,6 +42,7 @@ class MaxBasis:
                  verbose: bool = False) -> None:
         # perceptual points
         self.denom = denom
+        self.exp = 1 / denom
 
         self.verbose = verbose
         self.observer = observer
@@ -56,64 +59,97 @@ class MaxBasis:
         self.__getMaximalBasis()
 
     def __computeVolume(self, wavelengths):
-        transitions = self.GetCutpointTransitions(wavelengths)
-        cone_vals = np.array([np.dot(self.matrix, Spectra.from_transitions(
-            x, 1 if i == 0 else 0, self.wavelengths).data) for i, x in enumerate(transitions)])
-        corners = generate_parallelepiped(cone_vals)
-
         if self.denom > 1:
-            corners = np.power(corners, 1/self.denom)
-            # try:
-            #     vol = ConvexHull(corners).volume
-            # except:
-            #     vol = 0
             vol = self.__computeVolumeViaPointCloudEstimation(wavelengths)
         else:
+            transitions = self.GetCutpointTransitions(wavelengths)
+            cone_vals = np.array([np.dot(self.matrix, Spectra.from_transitions(
+                x, 1 if i == 0 else 0, self.wavelengths).data) for i, x in enumerate(transitions)])
             vol = np.abs(np.linalg.det(cone_vals))
-
         return vol
+
+    # def __computeVolumeViaPointCloudEstimation(self, wavelengths):
+    #     transitions = self.GetCutpointTransitions(wavelengths)
+    #     cone_vals = np.array([np.dot(self.matrix, Spectra.from_transitions(
+    #         x, 1 if i == 0 else 0, self.wavelengths).data) for i, x in enumerate(transitions)])
+    #     # Generate a hypercube of points in [0, 1]^d
+
+    #     if np.linalg.cond(cone_vals) > 1 / np.finfo(cone_vals.dtype).eps:
+    #         return 0  # Singular matrix, volume
+
+    #     all_points = cone_vals@self.hypercube_points.T
+    #     # raise to the power
+    #     transformed_points = np.power(all_points, 1/self.denom)
+
+    #     # Find the bounding box of the transformed points
+    #     min_coords = np.min(transformed_points, axis=1)
+    #     max_coords = np.max(transformed_points, axis=1)
+
+    #     # Generate random points in the bounding box
+    #     num_samples = 1000
+    #     random_points = np.random.uniform(
+    #         min_coords[:, np.newaxis],
+    #         max_coords[:, np.newaxis],
+    #         (self.dimension, num_samples)
+    #     )
+
+    #     # To check if a point is inside the transformed parallelepiped,
+    #     # we transform it back and check if it's in the original unit hypercube
+    #     inv_points = np.power(random_points, self.denom)
+
+    #     # Solve the linear system to find if they're in the original unit hypercube
+    #     try:
+    #         # Solve cone_vals * x = inv_points to find the coordinates in the original space
+    #         # coefficients = np.linalg.solve(cone_vals, inv_points)
+    #         cone_vals_inv = np.linalg.inv(cone_vals)
+    #         coefficients = cone_vals_inv @ inv_points
+    #         # Check if all coefficients are in [0,1] (within the unit hypercube)
+    #         inside_mask = np.all((0 <= coefficients) & (coefficients <= 1), axis=0)
+    #         points_inside = np.sum(inside_mask)
+
+    #         # Calculate the volume
+    #         bounding_box_volume = np.prod(max_coords - min_coords)
+    #         volume = bounding_box_volume * (points_inside / num_samples)
+    #     except np.linalg.LinAlgError:
+    #         # Handle singular matrix case
+    #         volume = 0
+    #     print("volume is ", volume)
+    #     return volume
 
     def __computeVolumeViaPointCloudEstimation(self, wavelengths):
         transitions = self.GetCutpointTransitions(wavelengths)
         cone_vals = np.array([np.dot(self.matrix, Spectra.from_transitions(
             x, 1 if i == 0 else 0, self.wavelengths).data) for i, x in enumerate(transitions)])
-        # Generate a hypercube of points in [0, 1]^d
 
-        all_points = cone_vals@self.hypercube_points.T
-        # raise to the power
-        transformed_points = np.power(all_points, 1/self.denom)
+        try:
+            cone_vals_inv = np.linalg.inv(cone_vals)
+        except np.linalg.LinAlgError:
+            return 0  # Singular matrix, volume is 0
 
-        # Find the bounding box of the transformed points
+        all_points = cone_vals @ self.hypercube_points.T
+
+        if np.isclose(self.denom, 3):
+            transformed_points = np.cbrt(all_points)
+        else:
+            transformed_points = np.power(all_points, self.exp)
+
         min_coords = np.min(transformed_points, axis=1)
         max_coords = np.max(transformed_points, axis=1)
 
-        # Generate random points in the bounding box
-        num_samples = 100000
+        num_samples = 10000
         random_points = np.random.uniform(
             min_coords[:, np.newaxis],
             max_coords[:, np.newaxis],
             (self.dimension, num_samples)
         )
 
-        # To check if a point is inside the transformed parallelepiped,
-        # we transform it back and check if it's in the original unit hypercube
         inv_points = np.power(random_points, self.denom)
+        coefficients = cone_vals_inv @ inv_points
+        inside_mask = np.all((0 <= coefficients) & (coefficients <= 1), axis=0)
+        points_inside = np.sum(inside_mask)
 
-        # Solve the linear system to find if they're in the original unit hypercube
-        try:
-            # Solve cone_vals * x = inv_points to find the coordinates in the original space
-            coefficients = np.linalg.solve(cone_vals, inv_points)
-            # Check if all coefficients are in [0,1] (within the unit hypercube)
-            inside_mask = np.all((0 <= coefficients) & (coefficients <= 1), axis=0)
-            points_inside = np.sum(inside_mask)
-
-            # Calculate the volume
-            bounding_box_volume = np.prod(max_coords - min_coords)
-            volume = bounding_box_volume * (points_inside / num_samples)
-        except np.linalg.LinAlgError:
-            # Handle singular matrix case
-            volume = 0
-
+        bounding_box_volume = np.prod(max_coords - min_coords)
+        volume = bounding_box_volume * (points_inside / num_samples)
         return volume
 
     def __findMaximalCMF(self, isReverse=True):
@@ -171,7 +207,7 @@ class MaxBasis:
                 Y = np.arange(rng[1][0], rng[1][1], self.step_size)
             Xidx, Yidx = np.meshgrid(X, Y, indexing='ij')
             Zidx = np.zeros_like(Xidx, dtype=float)
-            for i in tqdm(range(len(X)), disable=not self.verbose):
+            for i in tqdm(range(len(X)), desc="Max Basis Calculation"):
                 for j in range(len(Y)):
                     if i <= j:
                         wavelengths = [Xidx[i, j], Yidx[i, j]]
@@ -183,6 +219,33 @@ class MaxBasis:
             self.cutpoints = [Xidx[idxs][0], Yidx[idxs][0], Zidx[idxs][0]]
             return self.cutpoints
         elif self.dimension == 4:
+            # if not rng:
+            #     X = np.arange(self.observer.wavelengths[0] + self.step_size,
+            #                   self.observer.wavelengths[-1] - self.step_size, self.step_size)
+            #     Y = np.arange(self.observer.wavelengths[0] + self.step_size,
+            #                   self.observer.wavelengths[-1] - self.step_size, self.step_size)
+            #     W = np.arange(self.observer.wavelengths[0] + self.step_size,
+            #                   self.observer.wavelengths[-1] - self.step_size, self.step_size)
+            # else:
+            #     X = np.arange(rng[0][0], rng[0][1], self.step_size)
+            #     Y = np.arange(rng[1][0], rng[1][1], self.step_size)
+            #     W = np.arange(rng[2][0], rng[2][1], self.step_size)
+            # Xidx, Yidx, Widx = np.meshgrid(X, Y, W, indexing='ij')
+
+            # Zidx = np.zeros_like(Xidx, dtype=float)
+            # for i in tqdm(range(len(X)), desc="Max Basis Calculation"):
+            #     for j in range(len(Y)):
+            #         for k in range(len(W)):
+            #             if i <= j and j <= k:
+            #                 wavelengths = [Xidx[i, j, k], Yidx[i, j, k], Widx[i, j, k]]
+            #                 wavelengths.sort()
+            #                 Zidx[i, j, k] = self.__computeVolume(wavelengths)
+            # self.listvol = [Xidx, Yidx, Widx, Zidx]
+            # maxvol = reduce(max, Zidx.flatten())
+            # idxs = np.where(Zidx == maxvol)
+            # self.idxs = [x.tolist()[0] for x in idxs]
+            # self.cutpoints = [Xidx[idxs][0], Yidx[idxs][0], Widx[idxs][0], Zidx[idxs][0]]
+            # return self.cutpoints
             if not rng:
                 X = np.arange(self.observer.wavelengths[0] + self.step_size,
                               self.observer.wavelengths[-1] - self.step_size, self.step_size)
@@ -194,16 +257,29 @@ class MaxBasis:
                 X = np.arange(rng[0][0], rng[0][1], self.step_size)
                 Y = np.arange(rng[1][0], rng[1][1], self.step_size)
                 W = np.arange(rng[2][0], rng[2][1], self.step_size)
-            Xidx, Yidx, Widx = np.meshgrid(X, Y, W, indexing='ij')
 
+            Xidx, Yidx, Widx = np.meshgrid(X, Y, W, indexing='ij')
             Zidx = np.zeros_like(Xidx, dtype=float)
-            for i in tqdm(range(len(X)), disable=not self.verbose):
-                for j in range(len(Y)):
-                    for k in range(len(W)):
-                        if i <= j and j <= k:
-                            wavelengths = [Xidx[i, j, k], Yidx[i, j, k], Widx[i, j, k]]
-                            wavelengths.sort()
-                            Zidx[i, j, k] = self.__computeVolume(wavelengths)
+
+            # Function to compute volume for a single (i, j, k)
+            def compute_volume_for_indices(i, j, k):
+                if i <= j and j <= k:
+                    wavelengths = [Xidx[i, j, k], Yidx[i, j, k], Widx[i, j, k]]
+                    wavelengths.sort()
+                    return i, j, k, self.__computeVolume(wavelengths)
+                return i, j, k, 0  # Return 0 for invalid indices
+
+            # Flatten the indices for parallel processing
+            indices = [(i, j, k) for i in range(len(X)) for j in range(len(Y)) for k in range(len(W))]
+
+            # Parallelize the computation
+            results = Parallel(n_jobs=-1)(delayed(compute_volume_for_indices)(i, j, k)
+                                          for i, j, k in tqdm(indices, desc="Max Basis Calculation"))
+
+            # Populate Zidx with the results
+            for i, j, k, volume in results:
+                Zidx[i, j, k] = volume
+
             self.listvol = [Xidx, Yidx, Widx, Zidx]
             maxvol = reduce(max, Zidx.flatten())
             idxs = np.where(Zidx == maxvol)

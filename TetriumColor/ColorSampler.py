@@ -1,3 +1,4 @@
+from re import I, S
 import numpy as np
 import numpy.typing as npt
 from typing import List, Dict, Tuple, Union, Optional
@@ -615,6 +616,36 @@ class ColorSampler:
 
         return colors
 
+    def get_metameric_pairs(self, luminance: float, saturation: float, cube_idx: int, secrets: Optional[List[int]] = None) -> Tuple[npt.NDArray, npt.NDArray]:
+        """ Get the metamer points for a given luminance and cube index
+        Args:
+            luminance (float): luminance value
+            saturation (float): saturation value
+            cube_idx (int): cube index
+            grid_size (int): grid size
+            color_space_transform (ColorSpaceTransform): color space transform object
+
+        Returns:
+            npt.NDArray: The metamer points
+        """
+        disp_points = self.output_cubemap_values(luminance, saturation, ColorSpaceType.DISP)[cube_idx]
+        metamer_dir_in_disp = self.color_space.get_metameric_axis_in(ColorSpaceType.DISP)
+        if secrets is None:
+            secrets = np.random.randint(10, 100, size=len(disp_points)).tolist()
+
+        vec = np.zeros(self.color_space.dim)
+        vec[0] = luminance
+
+        metamers_in_disp = np.zeros((disp_points.shape[0], 2, self.color_space.dim))
+        for i in tqdm(range(metamers_in_disp.shape[0]), desc="Generating plates"):
+            # points in contention in disp space, bounded by unit cube scaled by vectors, direction is the metameric axis
+            metamers_in_disp[i] = np.array(FindMaximumIn1DimDirection(
+                disp_points[i], metamer_dir_in_disp, np.eye(self.color_space.dim)))
+
+        cones = self.color_space.convert(metamers_in_disp.reshape(-1, self.color_space.dim),
+                                         ColorSpaceType.DISP, ColorSpaceType.CONE)
+        return metamers_in_disp, cones.reshape(-1, 2, self.color_space.dim)
+
     def get_metameric_grid_plates(self, luminance: float, saturation: float, cube_idx: int, secrets: Optional[List[int]] = None) -> List[Tuple[Image.Image, Image.Image]]:
         """ Get the metamer points for a given luminance and cube index
         Args:
@@ -645,21 +676,25 @@ class ColorSampler:
 
             plate_color = self.color_space.to_plate_color(disp_points[i],
                                                           metamers_in_disp[i], from_space=ColorSpaceType.DISP)
+            SRGB_Colors = self.color_space.convert(metamers_in_disp[i], ColorSpaceType.DISP, ColorSpaceType.SRGB)
+
+            plate_color = PlateColor(TetraColor(SRGB_Colors[0], SRGB_Colors[0]),
+                                     TetraColor(SRGB_Colors[1], SRGB_Colors[1]))
             plates += [generate_ishihara_plate(plate_color, secrets[i], background_color=background)]
 
         # Convert to cone space
 
-        # print((metamers_in_disp.reshape(-1, self.color_space.dim)
-        #       * self.color_space.transform.white_weights * 255).astype(np.uint8))
+        print((metamers_in_disp.reshape(-1, self.color_space.dim)
+              * self.color_space.transform.white_weights * 255).astype(np.uint8))
 
-        # disp_6p = self.color_space.convert(metamers_in_disp.reshape(-1, self.color_space.dim),
-        #                                    ColorSpaceType.DISP, ColorSpaceType.DISP_6P)
+        disp_6p = self.color_space.convert(metamers_in_disp.reshape(-1, self.color_space.dim),
+                                           ColorSpaceType.DISP, ColorSpaceType.DISP_6P)
 
-        # print((disp_6p * 255).astype(np.uint8))
+        print((disp_6p * 255).astype(np.uint8))
 
-        # cones = self.color_space.convert(metamers_in_disp.reshape(-1, self.color_space.dim),
-        #                                  ColorSpaceType.DISP, ColorSpaceType.CONE)
-        # print(cones)
+        cones = self.color_space.convert(metamers_in_disp.reshape(-1, self.color_space.dim),
+                                         ColorSpaceType.DISP, ColorSpaceType.CONE)
+        print(cones)
         # Convert to RGBO
 
         return plates

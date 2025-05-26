@@ -7,6 +7,7 @@ from colour.plotting import plot_chromaticity_diagram_CIE1931
 import dataframe_image as dfi
 
 from TetriumColor.Observer import Illuminant
+from scipy.optimize import curve_fit
 
 import matplotlib.pyplot as plt
 
@@ -20,7 +21,10 @@ def computeStatsRoutine(led_spectrums_path):
 
     # Extract wavelength and spectra
     wavelengths = data.iloc[:, 0].values
-    spectra = data.iloc[:, 1:]
+    # spectra = data.iloc[:, 1:]
+    excluded = [6, 7, 8]
+    spectra = data.iloc[:, [x for x in range(1, data.shape[1]) if x not in excluded]]
+    # spectra = our_primaries[:, [x for x in range(1, our_primaries.shape[1]) if x not in excluded]]
 
     # Function to calculate FWHM
 
@@ -51,6 +55,30 @@ def computeStatsRoutine(led_spectrums_path):
 
         # Calculate FWHM
         fwhm = calculate_fwhm(wavelengths, spectrum)
+        # Fit a Gaussian to the spectrum
+
+        def gaussian(x, a, x0, sigma):
+            return a * np.exp(-(x - x0)**2 / (2 * sigma**2))
+
+        try:
+            popt, _ = curve_fit(gaussian, wavelengths, spectrum, p0=[np.max(spectrum), peak_wavelength, fwhm / 2.355])
+            fitted_spectrum = gaussian(wavelengths, *popt)
+
+            # Compare the Gaussian fit to the actual spectrum
+            plt.figure()
+            plt.plot(wavelengths, spectrum, label="Actual Spectrum")
+            plt.plot(wavelengths, fitted_spectrum, label="Gaussian Fit", linestyle="--")
+            plt.xlabel("Wavelength (nm)")
+            plt.ylabel("Intensity")
+            plt.title(f"Spectrum: {column}")
+            plt.legend()
+            plt.grid(True)
+            # plt.savefig(os.path.join(save_path, f"{column}_gaussian_fit.png"), dpi=300)
+            # plt.close()
+            plt.show()
+            # conclusion is that they are fine
+        except RuntimeError:
+            print(f"Gaussian fit failed for spectrum: {column}")
 
         # Create a spectral distribution for colorimetry
         sd = SpectralDistribution(dict(zip(wavelengths, spectrum))).interpolate(

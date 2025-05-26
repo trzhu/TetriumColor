@@ -16,46 +16,42 @@ def main():
     AddVideoOutputArgs(parser)
     AddAnimationArgs(parser)
     parser.add_argument('--step_size', type=float, default=10, help='Step size for wavelengths')
-    parser.add_argument('--ideal', action='store_true', default=False, help='Use ideal primaries')
-    parser.add_argument('--primary_wavelengths', nargs='+', type=float, default=[410, 510, 585, 695],
-                        help='Wavelengths for the display')
+    parser.add_argument(
+        '--polyscope_display_type', type=lambda choice: PolyscopeDisplayType[choice],
+        choices=[x for x in PolyscopeDisplayType],
+        default=PolyscopeDisplayType.HERING_CONE_PERCEPTUAL_300, help='Step size for wavelengths')
     args = parser.parse_args()
 
     # Observer attributes
-    observer_wavelengths = np.arange(360, 830, 10)
+    observer_wavelengths = np.arange(360, 830, 5)
     observer = Observer.custom_observer(observer_wavelengths, args.od, args.dimension, args.s_cone_peak, args.m_cone_peak, args.q_cone_peak,
                                         args.l_cone_peak, args.macula, args.lens, args.template)
     # Polyscope Animation Inits
     ps.init()
     ps.set_always_redraw(True)
-    ps.set_ground_plane_mode('shadow_only')
+    if args.dimension == 2:
+        ps.set_ground_plane_mode('none')
+    else:
+        ps.set_ground_plane_mode('shadow_only')
     ps.set_SSAA_factor(2)
     ps.set_window_size(720, 720)
 
-    # luminance_per_channel=[1/np.sqrt(3), 1/np.sqrt(3), 1/np.sqrt(3)],
-    cst = ColorSpace(observer, generate_all_max_basis=True)
+    cst = ColorSpace(observer)  # luminance_per_channel=[1/np.sqrt(3), 1/np.sqrt(3), 1/np.sqrt(3)],
     # chromas_per_channel=[np.sqrt(2/3)/2, np.sqrt(2/3)/4, np.sqrt(2/3)/4])
+    viz.RenderOBS("observer_hering", cst, args.polyscope_display_type)
+    # viz.RenderMaxBasis("maxbasis_hering", cst, args.polyscope_display_type)
+    ps.get_surface_mesh("observer_hering").set_transparency(0.8)
 
-    # viz.RenderOBS("oklab", cst, PolyscopeDisplayType.OKLAB)
-    # viz.RenderMaxBasis("oklab_maxbasis", cst, PolyscopeDisplayType.OKLAB_PERCEPTUAL_243)
-    # ps.get_surface_mesh("oklab").set_transparency(0.8)
+    # basis_in_space = cst.convert_to_polyscope(np.eye(args.dimension), ColorSpaceType.CONE, args.polyscope_display_type)
+    # basis_in_space = basis_in_space / np.linalg.norm(basis_in_space, axis=1, keepdims=True)
+    # viz.RenderBasisArrows("basis", basis_in_space, radius=0.01)
 
-    # viz.RenderOBS("oklabm1", cst, PolyscopeDisplayType.OKLABM1)
-    # ps.get_surface_mesh("oklabm1").set_transparency(0.8)
-
-    # viz.RenderOBS("CIELAB", cst, PolyscopeDisplayType.CIELAB)
-    # viz.RenderMaxBasis("cielab_maxbasis", cst, PolyscopeDisplayType.CIELAB_PERCEPTUAL_243)
-    # ps.get_surface_mesh("CIELAB").set_transparency(0.8)
-
-    # viz.RenderOBS("observer", cst, PolyscopeDisplayType.CONE)
-    # viz.RenderMaxBasis("maxbasis", cst, PolyscopeDisplayType.CONE)
-    # ps.get_surface_mesh("observer").set_transparency(0.8)
-
-    # viz.RenderOBS("observer_hering", cst, PolyscopeDisplayType.CONE_PERCEPTUAL_243)
-    # viz.RenderMaxBasis("maxbasis_hering", cst, PolyscopeDisplayType.CONE_PERCEPTUAL_243)
-    # ps.get_surface_mesh("observer_hering").set_transparency(0.8)
-
-    # viz.RenderBasisArrows("basis", np.eye(3), radius=0.01)
+    # viz.AnimationUtils.AddObject("observer_hering", "surface_mesh",
+    #                              args.position, args.velocity, args.rotation_axis, args.rotation_speed)
+    # # viz.AnimationUtils.AddObject("maxbasis_hering", "surface_mesh",
+    # #                              args.position, args.velocity, args.rotation_axis, args.rotation_speed)
+    # viz.AnimationUtils.AddObject("basis", "surface_mesh",
+    #                              args.position, args.velocity, args.rotation_axis, args.rotation_speed)
 
     # plot points from Munsell in the observer space
 
@@ -63,11 +59,9 @@ def main():
     # viz.RenderMaxBasis("maxbasis_cone_perceptual", cst, PolyscopeDisplayType.HERING_CONE_PERCEPTUAL_243)
     # ps.get_surface_mesh("observer_cone_perceptual").set_transparency(0.8)
 
-    # Actually, we need to transform into Hering first, and then apply the transform matrices
-
-    viz.RenderOBS("observer_maxbasis_perceptual", cst, PolyscopeDisplayType.HERING_MAXBASIS_PERCEPTUAL_300)
-    viz.RenderMaxBasis("maxbasis_maxbasis_perceptual", cst, PolyscopeDisplayType.HERING_MAXBASIS_PERCEPTUAL_300)
-    ps.get_surface_mesh("observer_maxbasis_perceptual").set_transparency(0.8)
+    # viz.RenderOBS("observer_maxbasis_perceptual", cst, PolyscopeDisplayType.HERING_MAXBASIS_PERCEPTUAL_243)
+    # viz.RenderMaxBasis("maxbasis_maxbasis_perceptual", cst, PolyscopeDisplayType.HERING_MAXBASIS_PERCEPTUAL_243)
+    # ps.get_surface_mesh("observer_maxbasis_perceptual").set_transparency(0.8)
 
     # viz.RenderOBS("observer_maxbasis243_perceptual243", cst, PolyscopeDisplayType.HERING_MAXBASIS243_PERCEPTUAL_243)
     # viz.RenderMaxBasis("maxbasis_maxbasis243_perceptual243", cst,
@@ -91,8 +85,8 @@ def main():
         delta_time: float = 1 / args.fps
 
         def callback():
-            pass
-            # viz.AnimationUtils.UpdateObjects(delta_time)
+            # pass
+            viz.AnimationUtils.UpdateObjects(delta_time)
         ps.set_user_callback(callback)
         ps.show()
         ps.clear_user_callback()

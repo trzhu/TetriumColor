@@ -370,6 +370,7 @@ class Observer:
         self.v_lambda = self.sensor_matrix[1:].sum(axis=0) / (len(self.sensors) - 1)
 
         if illuminant is not None:
+            # illuminant = Illuminant.get('E').interpolate_values(self.wavelengths)
             illuminant = illuminant.interpolate_values(self.wavelengths)
         else:
             print("No illuminant provided, using Illuminant D65")
@@ -429,9 +430,9 @@ class Observer:
         q_cone = Cone.cone(545, wavelengths=wavelengths,
                            template="neitz", od=0.5)
         # Cone.cone(530, wavelengths=wavelengths, template="neitz", od=0.35)
-        m_cone = Cone.m_cone(wavelengths, od=0.5)
+        m_cone = Cone.m_cone(wavelengths)
         # Cone.s_cone(wavelengths=wavelengths)
-        s_cone = Cone.s_cone(wavelengths, od=0.4)
+        s_cone = Cone.s_cone(wavelengths)
         return Observer([s_cone, m_cone, q_cone, l_cone], illuminant=illuminant, verbose=verbose)
 
     @staticmethod

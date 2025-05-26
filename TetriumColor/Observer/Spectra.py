@@ -77,34 +77,57 @@ class Spectra:
         return Spectra(wavelengths=wavelengths, data=peak_vector)
 
     @staticmethod
-    def from_transitions(transitions: List[int], start: int, wavelengths: npt.NDArray, maxVal: float = 1) -> 'Spectra':
-        """Return a Spectra that has the transitions of the given list, and starts with 0 or 1 depending on start parameter.
-
-        Args:
-            transitions (List[int]): list of wavelengths at which the reflectance goes from 0 to 1 or vice versa.   
-            start (int): 0 or 1, the starting value of the reflectance. 
-            wavelengths (npt.NDArray): the array of wavelengths. 
-            maxVal (float, optional): The maximum value of the reflectance. Defaults to 1.
-
-        Returns:
-            Spectra: the reflectance spectra with the transitions.
-        """
-
+    def from_transitions(transitions: List[float], start: int, wavelengths: npt.NDArray, maxVal: float = 1) -> 'Spectra':
+        """Faster version of from_transitions using vectorized masking."""
         step = wavelengths[1] - wavelengths[0]
         minwave = wavelengths[0]
         maxwave = wavelengths[-1] + step
 
-        transitions = copy.deepcopy(transitions)
-        transitions.insert(0, minwave)
-        transitions.insert(len(transitions), maxwave)
-        transitions = [round(t, 2) for t in transitions]
-        ref = []
-        for i in range(len(transitions)-1):
-            ref += [np.full(int(round((transitions[i+1] - transitions[i]) / step)), (start + i) % 2)]
-        ref = np.concatenate(ref)
-        assert (len(ref) == len(wavelengths))
+        # Ensure boundaries are included
+        transitions = [minwave] + transitions + [maxwave]
+        transitions = np.round(transitions, 2)
+
+        ref = np.zeros_like(wavelengths, dtype=float)
+
+        # Vectorized block filling
+        current_value = start
+        for i in range(0, len(transitions) - 1, 1):
+            mask = (wavelengths >= transitions[i]) & (wavelengths < transitions[i + 1])
+            ref[mask] = current_value
+            current_value = 1 - current_value
+
         data = ref * maxVal
         return Spectra(wavelengths=wavelengths, data=data)
+
+    # @staticmethod
+    # def from_transitions(transitions: List[int], start: int, wavelengths: npt.NDArray, maxVal: float = 1) -> 'Spectra':
+    #     """Return a Spectra that has the transitions of the given list, and starts with 0 or 1 depending on start parameter.
+
+    #     Args:
+    #         transitions (List[int]): list of wavelengths at which the reflectance goes from 0 to 1 or vice versa.
+    #         start (int): 0 or 1, the starting value of the reflectance.
+    #         wavelengths (npt.NDArray): the array of wavelengths.
+    #         maxVal (float, optional): The maximum value of the reflectance. Defaults to 1.
+
+    #     Returns:
+    #         Spectra: the reflectance spectra with the transitions.
+    #     """
+
+    #     step = wavelengths[1] - wavelengths[0]
+    #     minwave = wavelengths[0]
+    #     maxwave = wavelengths[-1] + step
+
+    #     transitions = copy.deepcopy(transitions)
+    #     transitions.insert(0, minwave)
+    #     transitions.insert(len(transitions), maxwave)
+    #     transitions = [round(t, 2) for t in transitions]
+    #     ref = []
+    #     for i in range(len(transitions)-1):
+    #         ref += [np.full(int(round((transitions[i+1] - transitions[i]) / step)), (start + i) % 2)]
+    #     ref = np.concatenate(ref)
+    #     assert (len(ref) == len(wavelengths))
+    #     data = ref * maxVal
+    #     return Spectra(wavelengths=wavelengths, data=data)
 
     def to_colour(self) -> SpectralDistribution:
         """Converts the Spectra object to a SpectralDistribution object from the Colour library.
@@ -129,6 +152,19 @@ class Spectra:
         i = illuminant.to_colour() if illuminant else None
 
         return sd_to_XYZ(self.to_colour(), illuminant=i, cmfs=cmfs) / 100
+
+    def to_xyz_d65(self, cmfs: Optional["MultiSpectralDistributions"] = None) -> npt.NDArray:
+        """Converts the spectra to the XYZ color space value.
+
+        Args:
+            illuminant (Optional[&quot;Spectra&quot;], optional): Spectra object corresponding to wavelengths. Defaults to None.
+            cmfs (Optional[&quot;MultiSpectralDistributions&quot;], optional): color matching functions to use for the XYZ transformation. Defaults to None.
+
+        Returns:
+            npt.NDArray: the XYZ color space value of the spectra. 
+        """
+        d65 = Illuminant.get("D65").to_xyz()
+        return sd_to_XYZ(self.to_colour(), cmfs=cmfs) / d65[1] / 100
 
     def to_rgb(self, illuminant: Optional["Spectra"] = None, cmfs: Optional["MultiSpectralDistributions"] = None) -> npt.NDArray:
         """Converts the spectra to the sRGB color space value.

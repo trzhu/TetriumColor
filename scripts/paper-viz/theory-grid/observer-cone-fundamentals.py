@@ -2,7 +2,7 @@ import argparse
 from re import I
 import numpy as np
 
-from TetriumColor.Observer import GetCustomObserver
+from TetriumColor.Observer import Observer
 from TetriumColor.Utils.ParserOptions import *
 
 
@@ -15,8 +15,8 @@ def main():
     # Observer attributes
     wavelengths = np.arange(400, 700, 1)
 
-    observer = GetCustomObserver(wavelengths, args.od, args.dimension, args.s_cone_peak, args.m_cone_peak, args.q_cone_peak,
-                                 args.l_cone_peak, args.macula, args.lens, args.template)
+    observer = Observer.custom_observer(wavelengths, args.od, args.dimension, args.s_cone_peak, args.m_cone_peak, args.q_cone_peak,
+                                        args.l_cone_peak, args.macula, args.lens, args.template)
 
     mat = np.concatenate([wavelengths[:, np.newaxis].T, observer.sensor_matrix]).T
     if args.dimension == 4:

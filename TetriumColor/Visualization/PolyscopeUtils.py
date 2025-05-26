@@ -181,7 +181,7 @@ def RenderSimplexElements(name: str, dim: int, simplex_coords: npt.NDArray, simp
             color = mesh_color
         RenderTriangle(f"{name}_simplex_face", simplex_coords[list(faces[0])], color)
         names.append((f"{name}_simplex_face", "surface_mesh"))
-        ps.get_surface_mesh(f'simplex_face').set_transparency(0.4)
+        ps.get_surface_mesh(f'{name}_simplex_face').set_transparency(0.4)
 
     elif dim == 4:
         for i, face in enumerate(faces):
@@ -271,13 +271,30 @@ def RenderOBS(name: str, cst: ColorSpace, display_basis: PolyscopeDisplayType, n
     if cst.observer.dimension == 4:
         csampler = ColorSampler(cst, cubemap_size=128)
         boundary_points = csampler.sample_full_colors(num_samples)
-        cones = cst.convert(boundary_points, ColorSpaceType.HERING, ColorSpaceType.CONE)
-        sRGBs = np.clip(cst.convert(cones, ColorSpaceType.CONE, ColorSpaceType.SRGB), 0, 1)
+        # boundary_points = cst.convert(boundary_points, ColorSpaceType.HERING, ColorSpaceType.CONE)
+        sRGBs = np.clip(cst.convert(boundary_points, ColorSpaceType.HERING, ColorSpaceType.SRGB), 0, 1)
+        Render3DMesh(f"{name}", boundary_points[:, 1:], sRGBs)
+        # points = cst.convert(boundary_points, ColorSpaceType.CONE, ColorSpaceType.HERING)[:, 1:]
+        # Render3DMesh(f"{name}", points, sRGBs)
+        return
     else:
         boundary_points, sRGBs = cst.observer.get_optimal_colors()
 
     new_points = cst.convert_to_polyscope(boundary_points, ColorSpaceType.CONE, display_basis)
-    Render3DMesh(f"{name}", new_points, sRGBs)
+    if cst.observer.dimension == 2:
+        Render2DMesh(f"{name}", new_points, np.zeros((1, 3)))
+        # Order the boundary points using the convex hull
+        hull = ConvexHull(new_points)
+        ordered_points = new_points[hull.vertices]
+        ordered_colors = sRGBs[hull.vertices]
+        # Append the beginning of ordered_points and ordered_colors to the back to form a "circle"
+        ordered_points = np.vstack((ordered_points, ordered_points[0]))
+        ordered_colors = np.vstack((ordered_colors, ordered_colors[0]))
+        # Draw the line with the ordered points
+        Render3DLine(f"{name}_ordered_line", ordered_points, ordered_colors)
+        # Render3DLine(f"{name}_line", boundary_points, sRGBs)
+    else:
+        Render3DMesh(f"{name}", new_points, sRGBs)
 
 
 def RenderMaxBasis(name: str, cst: ColorSpace, display_basis: PolyscopeDisplayType) -> None:

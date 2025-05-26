@@ -4,16 +4,11 @@ import numpy as np
 import tetrapolyscope as ps
 import numpy.typing as npt
 
-from TetriumColor.Observer import Observer, ObserverFactory, getsRGBfromWavelength, Spectra
-# from TetriumColor.Utils.CustomTypes import DisplayBasisType
+from TetriumColor.Observer import GetCustomObserver, Observer, ObserverFactory, GetsRGBfromWavelength
+from TetriumColor.Utils.CustomTypes import DisplayBasisType
 import TetriumColor.Visualization as viz
 from TetriumColor.Utils.ParserOptions import *
 from TetriumColor.ColorMath.Geometry import GetSimplexBarycentricCoords, GetSimplexOrigin
-from TetriumColor import ColorSpace, ColorSpaceType
-
-
-def gaussian(x, mu, sigma):
-    return np.exp(-0.5 * ((x - mu) / sigma) ** 2)
 
 
 def main():
@@ -30,10 +25,9 @@ def main():
     # Observer attributes
     wavelengths = np.arange(380, 780, 1)
 
-    observer = Observer.custom_observer(wavelengths, args.od, args.dimension, args.s_cone_peak, args.m_cone_peak, args.q_cone_peak,
-                                        args.l_cone_peak, args.macula, args.lens, args.template)
-    spectral_locus_colors = np.array([getsRGBfromWavelength(wl) for wl in wavelengths])
-    cs = ColorSpace(observer)
+    observer = GetCustomObserver(wavelengths, args.od, args.dimension, args.s_cone_peak, args.m_cone_peak, args.q_cone_peak,
+                                 args.l_cone_peak, args.macula, args.lens, args.template)
+    spectral_locus_colors = np.array([GetsRGBfromWavelength(wl) for wl in wavelengths])
     # load cached observer stuff if it exists, terrible design but whatever
     # observer = ObserverFactory.get_object(observer)
     # Polyscope Animation Inits
@@ -50,30 +44,19 @@ def main():
     projection_idxs = list(range(1, observer.dimension))
     # Create Geometry & Register with Polyscope, and define the animation
 
-    # chromaticity_points = viz.ConvertPointsToChromaticity(
-    #     observer.normalized_sensor_matrix.T, observer, projection_idxs)
-    # # get rid of zero points as they are not visible
-    # idxs = ~np.all(chromaticity_points == 0, axis=1)
-    # chromaticity_points = chromaticity_points[idxs]
-    chromaticity_points = cs.convert(observer.normalized_sensor_matrix.T,
-                                     ColorSpaceType.CONE, ColorSpaceType.HERING_CHROM)
+    chromaticity_points = viz.ConvertPointsToChromaticity(
+        observer.normalized_sensor_matrix.T, observer, projection_idxs)
+    # get rid of zero points as they are not visible
     idxs = ~np.all(chromaticity_points == 0, axis=1)
     chromaticity_points = chromaticity_points[idxs]
     spectral_locus_colors = spectral_locus_colors[idxs]
 
-    # viz.ConvertPointsToChromaticity(np.eye(args.dimension), observer, projection_idxs)
-    basis_points = cs.convert(np.eye(args.dimension), ColorSpaceType.MAXBASIS, ColorSpaceType.HERING_CHROM)
+    basis_points = viz.ConvertPointsToChromaticity(np.eye(args.dimension), observer, projection_idxs)
 
     primary_indices = [np.argmin(np.abs(wavelengths - wl)) for wl in args.primary_wavelengths]
     primary_points = chromaticity_points[primary_indices]
-    AVG_FWHM = 22.4
-    sigma = AVG_FWHM / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to standard deviation
 
-    primaries = [Spectra(wavelengths=wavelengths, data=gaussian(wavelengths, peak, sigma))
-                 for peak in args.primary_wavelengths]
-
-    # np.array([GetsRGBfromWavelength(wl) for wl in args.primary_wavelengths])
-    primaries_sRGB = np.array([p.to_rgb() for p in primaries])
+    primaries_sRGB = np.array([GetsRGBfromWavelength(wl) for wl in args.primary_wavelengths])
 
     simplex_coords, points = GetSimplexBarycentricCoords(
         args.dimension, primary_points, chromaticity_points)
