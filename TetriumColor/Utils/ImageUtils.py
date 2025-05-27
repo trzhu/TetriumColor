@@ -47,10 +47,10 @@ def CreatePaddedGrid(images: List[str] | List[Image.Image], canvas_size=(1280, 7
         y = row * (max_height + padding)
         grid_image.paste(img, (x, y))
 
-    grid_image = grid_image.resize((720, 720), Image.Resampling.BICUBIC)
+    grid_image = grid_image.resize((canvas_size[1], canvas_size[1]))
     # Center the grid on the canvas
-    x_offset = (canvas_width - 720) // 2
-    y_offset = (canvas_height - 720) // 2
+    x_offset = (canvas_width - canvas_size[1]) // 2
+    y_offset = (canvas_height - canvas_size[1]) // 2
     canvas.paste(grid_image, (x_offset, y_offset))
 
     return canvas

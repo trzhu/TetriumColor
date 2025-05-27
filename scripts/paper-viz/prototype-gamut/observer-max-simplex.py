@@ -22,7 +22,10 @@ def main():
     AddVideoOutputArgs(parser)
     AddAnimationArgs(parser)
 
-    parser.add_argument('--primary_wavelengths', nargs='+', type=float, default=[410, 510, 585, 695],
+    parser.add_argument('--max_simplex_wavelengths', nargs='+', type=float, default=[410, 510, 585, 695],
+                        help='Wavelengths for the display')
+
+    parser.add_argument('--led_gamut_wavelengths', nargs='+', type=float, default=[410, 510, 585, 695],
                         help='Wavelengths for the display')
 
     args = parser.parse_args()
@@ -70,9 +73,7 @@ def main():
     sigma = AVG_FWHM / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to standard deviation
 
     primaries = [Spectra(wavelengths=wavelengths, data=gaussian(wavelengths, peak, sigma))
-                 for peak in args.primary_wavelengths]
-
-    # np.array([GetsRGBfromWavelength(wl) for wl in args.primary_wavelengths])
+                 for peak in args.led_gamut_wavelengths]
     primaries_sRGB = np.array([p.to_rgb() for p in primaries])
 
     simplex_coords, points = GetSimplexBarycentricCoords(

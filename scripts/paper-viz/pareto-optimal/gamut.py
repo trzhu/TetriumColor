@@ -4,17 +4,13 @@ import tetrapolyscope as ps
 from scipy.spatial import ConvexHull
 from colour.notation import RGB_to_HEX
 
-from TetriumColor.Measurement.TetriumMeasurementRoutines import load_primaries_from_csv
-from TetriumColor.Observer import Observer, convert_refs_to_spectras, Spectra
+from TetriumColor.Observer import Observer, convert_refs_to_spectras
 from TetriumColor.Observer.ColorSpaceTransform import GetsRGBfromWavelength
 import TetriumColor.Visualization as viz
 from TetriumColor.Utils.ParserOptions import *
 from TetriumColor.ColorMath.Geometry import GetSimplexBarycentricCoords
+from TetriumColor.Measurement import LoadPrimaries, GaussianSmoothPrimaries
 from TetriumColor import ColorSpace, ColorSpaceType
-
-
-def gaussian(x, mu, sigma):
-    return np.exp(-0.5 * ((x - mu) / sigma) ** 2)
 
 
 def main():
@@ -23,16 +19,16 @@ def main():
     AddVideoOutputArgs(parser)
     AddAnimationArgs(parser)
     parser.add_argument('--step_size', type=float, default=5, help='Step size for wavelengths')
-    parser.add_argument('--max_simplex_wavelengths', nargs='+', type=float, default=[410, 510, 585, 695],
+    parser.add_argument('--primary_wavelengths', nargs='+', type=float, default=[410, 510, 585, 695],
                         help='Wavelengths for the ideal chromatic display')
-    parser.add_argument('--max_perceptual_volume_wavelengths', nargs='+', type=float, default=[435, 515, 610, 660],
+    parser.add_argument('--viz_efficient_wavelengths', nargs='+', type=float, default=[445, 535, 590, 635],
                         help='Wavelengths for the visually efficient display')
-    parser.add_argument('--display_type', choices=['ideal', 'max-perceptual',
+    parser.add_argument('--display_type', choices=['ideal', 'viz-efficient',
                         'ours'], default='ours', help='Type of display to visualize')
     args = parser.parse_args()
 
     # Observer attributes
-    observer_wavelengths = np.arange(380, 781, 5)
+    observer_wavelengths = np.arange(380, 781, 10)
 
     observer = Observer.custom_observer(observer_wavelengths, args.od, args.dimension, args.s_cone_peak, args.m_cone_peak, args.q_cone_peak,
                                         args.l_cone_peak, args.macula, args.lens, args.template)
@@ -55,32 +51,28 @@ def main():
     ps.set_transparency_mode('pretty')
     ps.set_transparency_render_passes(16)
 
-    # ideal_primary_spectra = np.zeros((len(args.viz_efficient_wavelengths), len(wavelengths)))
-    AVG_FWHM = 22.4
-    sigma = AVG_FWHM / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to standard deviation
-    ideal_primary_spectras = [Spectra(wavelengths=wavelengths, data=gaussian(wavelengths, peak, sigma))
-                              for peak in args.max_perceptual_volume_wavelengths]
-    # for i, primary_wavelength in enumerate(args.viz_efficient_wavelengths):
-    #     index = np.where(wavelengths == primary_wavelength)[0]
-    #     if index.size > 0:
-    #         ideal_primary_spectra[i, index[0]] = 1
-    ideal_primary_sRGB = np.array([s.to_rgb() for s in ideal_primary_spectras])
+    ideal_primary_spectra = np.zeros((len(args.viz_efficient_wavelengths), len(wavelengths)))
+    for i, primary_wavelength in enumerate(args.viz_efficient_wavelengths):
+        index = np.where(wavelengths == primary_wavelength)[0]
+        if index.size > 0:
+            ideal_primary_spectra[i, index[0]] = 1
+    ideal_primary_spectra = convert_refs_to_spectras(ideal_primary_spectra, wavelengths)
+    ideal_primary_sRGB = np.array([s.to_rgb() for s in ideal_primary_spectra])
     ideal_primary_sRGB = ideal_primary_sRGB / np.max(ideal_primary_sRGB)
 
-    # primaries = LoadPrimaries("../../../measurements/2025-05-20/primaries")
-    # primary_spectra = GaussianSmoothPrimaries(primaries)
-    our_primary_spectras = load_primaries_from_csv("../../../measurements/2025-05-20/primaries")
+    primaries = LoadPrimaries("../../../measurements/2024-12-06/primaries")
+    primary_spectra = GaussianSmoothPrimaries(primaries)
     if args.dimension == 3:
-        our_primary_spectras = [x for i, x in enumerate(our_primary_spectras) if i != 3]  # just use RGB
-    our_primaries_sRGB = np.array([s.to_rgb() for s in our_primary_spectras])
+        primary_spectra = [x for i, x in enumerate(primary_spectra) if i != 3]  # just use RGB
+    our_primaries_sRGB = np.array([s.to_rgb() for s in primary_spectra])
     our_primaries_sRGB = our_primaries_sRGB / np.max(our_primaries_sRGB)
 
-    our_display_to_cone = observer.observe_spectras(our_primary_spectras)
-    ideal_display_to_cone = observer.observe_spectras(ideal_primary_spectras)
+    display_to_cone = observer.observe_spectras(primary_spectra)
+    ideal_display_to_cone = observer.observe_spectras(ideal_primary_spectra)
 
     chromaticity_points = cst.convert(observer.normalized_sensor_matrix.T,
                                       ColorSpaceType.CONE, ColorSpaceType.HERING_CHROM)
-    our_display_coords = cst.convert(our_display_to_cone, ColorSpaceType.CONE, ColorSpaceType.HERING_CHROM)
+    display_coords = cst.convert(display_to_cone, ColorSpaceType.CONE, ColorSpaceType.HERING_CHROM)
     ideal_display_coords = cst.convert(ideal_display_to_cone, ColorSpaceType.CONE, ColorSpaceType.HERING_CHROM)
     basis_points = cst.convert(np.eye(args.dimension), ColorSpaceType.CONE, ColorSpaceType.HERING_CHROM)
 
@@ -95,26 +87,25 @@ def main():
     chromaticity_points = chromaticity_points[idxs]
     spectral_locus_colors = spectral_locus_colors[idxs]
 
-    primary_indices = [np.argmin(np.abs(wavelengths - wl)) for wl in args.max_simplex_wavelengths]
+    primary_indices = [np.argmin(np.abs(wavelengths - wl)) for wl in args.primary_wavelengths]
     primary_points = chromaticity_points[primary_indices]
-    max_primaries_sRGB = np.array([GetsRGBfromWavelength(wl) for wl in args.max_simplex_wavelengths])
+
+    max_primaries_sRGB = np.array([GetsRGBfromWavelength(wl) for wl in args.primary_wavelengths])
     max_primaries_sRGB = max_primaries_sRGB / np.max(max_primaries_sRGB)
 
-    # simplex_coords, points = GetSimplexBarycentricCoords(
-    #     args.dimension, primary_points, chromaticity_points)
-    simplex_coords = np.array([np.zeros(args.dimension)])
-    points = chromaticity_points
+    simplex_coords, points = GetSimplexBarycentricCoords(
+        args.dimension, primary_points, chromaticity_points)
 
     if args.display_type == 'ideal':
         bary_points = simplex_coords
         bary_primaries = max_primaries_sRGB
-    elif args.display_type == 'max-perceptual':
-        bary_points = ideal_display_coords
+    elif args.display_type == 'viz-efficient':
+        _, bary_points = GetSimplexBarycentricCoords(
+            args.dimension, primary_points, ideal_display_coords)
         bary_primaries = ideal_primary_sRGB
     else:
-        # _, bary_points = GetSimplexBarycentricCoords(
-        #     args.dimension, primary_points, our_display_coords)
-        bary_points = our_display_coords
+        _, bary_points = GetSimplexBarycentricCoords(
+            args.dimension, primary_points, display_coords)
         bary_primaries = our_primaries_sRGB
 
     actual_volume = ConvexHull(bary_points).volume

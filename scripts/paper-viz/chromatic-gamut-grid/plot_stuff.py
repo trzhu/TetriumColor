@@ -11,6 +11,7 @@ import TetriumColor.Visualization as viz
 from TetriumColor.Utils.ParserOptions import *
 from TetriumColor.ColorMath.Geometry import GetSimplexBarycentricCoords
 from TetriumColor import ColorSpace, ColorSpaceType
+from TetriumColor.Measurement import load_primaries_from_csv, compare_dataset_to_primaries, get_spectras_from_rgbo_list, export_metamer_difference, export_predicted_vs_measured_with_square_coords, get_spectras_from_rgbo_list, plot_measured_vs_predicted
 
 
 def gaussian(x, mu, sigma):
@@ -89,6 +90,62 @@ def main():
     # display_coords = viz.ConvertPointsToChromaticity(display_to_cone, observer, projection_idxs)
     # ideal_display_coords = viz.ConvertPointsToChromaticity(ideal_display_to_cone, observer, projection_idxs)
     #  basis_points = viz.ConvertPointsToChromaticity(np.eye(args.dimension), observer, projection_idxs)
+    measurement_points = np.array([[108, 101,  88, 215],
+                                   [89, 118,  84, 219],
+                                   [69, 139,  82, 217],
+                                   [55, 159,  85, 207],
+                                   [48, 173,  91, 192],
+                                   [101,  90, 109, 213],
+                                   [77, 107, 107, 220],
+                                   [53, 131, 106, 218],
+                                   [37, 154, 109, 205],
+                                   [33, 170, 112, 187],
+                                   [95,  79, 135, 203],
+                                   [68,  95, 138, 210],
+                                   [41, 120, 140, 208],
+                                   [26, 145, 140, 194],
+                                   [24, 164, 139, 176],
+                                   [92,  73, 161, 187],
+                                   [67,  87, 168, 189],
+                                   [42, 110, 172, 186],
+                                   [27, 134, 170, 174],
+                                   [24, 153, 165, 161],
+                                   [92,  71, 181, 169],
+                                   [71,  85, 188, 167],
+                                   [51, 104, 192, 163],
+                                   [37, 125, 190, 155],
+                                   [32, 143, 184, 146],
+                                   [206,  81, 163,  62],
+                                   [199,  95, 169,  47],
+                                   [185, 115, 172,  37],
+                                   [165, 136, 170,  35],
+                                   [146, 153, 166,  39],
+                                   [221,  84, 142,  67],
+                                   [217, 100, 145,  49],
+                                   [201, 123, 148,  36],
+                                   [177, 147, 147,  34],
+                                   [153, 164, 145,  41],
+                                   [230,  90, 115,  78],
+                                   [228, 109, 114,  60],
+                                   [213, 134, 114,  46],
+                                   [186, 159, 116,  44],
+                                   [159, 175, 119,  51],
+                                   [230, 101,  89,  93],
+                                   [227, 120,  84,  80],
+                                   [212, 144,  82,  68],
+                                   [187, 167,  86,  65],
+                                   [162, 181,  93,  67],
+                                   [222, 111,  70, 108],
+                                   [217, 129,  64,  99],
+                                   [203, 150,  62,  91],
+                                   [183, 169,  66,  87],
+                                   [162, 183,  73,  85]], dtype=np.uint8)
+    measurements_dir = "../../../measurements/2025-05-21/5x5-cubemap/"
+    measured_spectras = get_spectras_from_rgbo_list(measurements_dir, measurement_points.tolist())
+
+    cones = observer.observe_spectras(measured_spectras)
+    measured_pts = cst.convert(cones, ColorSpaceType.CONE, ColorSpaceType.HERING_CHROM)
+    srgb_of_measured = cst.convert(cones * 1000, ColorSpaceType.CONE, ColorSpaceType.SRGB)
 
     # get rid of zero points as they are not visible
     idxs = ~np.all(chromaticity_points == 0, axis=1)
@@ -139,6 +196,9 @@ def main():
 
     viz.Render3DLine("spectral_locus", points, spectral_locus_colors)
     names.append(("spectral_locus", "curve_network"))
+
+    viz.RenderPointCloud("cube-map-predicted", measured_pts, srgb_of_measured)
+
     ps.set_automatically_compute_scene_extents(False)
 
     for name, element_name in names:

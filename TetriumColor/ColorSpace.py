@@ -1,18 +1,22 @@
+from re import I
 import numpy as np
 import numpy.typing as npt
 from typing import List
 from enum import Enum
+from scipy.linalg import orth
 
 from TetriumColor.Observer import Observer, MaxBasisFactory, GetHeringMatrix, GetPerceptualHering
-from TetriumColor.Observer.Spectra import Spectra
+from TetriumColor.Observer.Spectra import Illuminant, Spectra
 from TetriumColor.Utils.CustomTypes import TetraColor, PlateColor
 from TetriumColor.Observer.ColorSpaceTransform import (
     GetColorSpaceTransform, CSTDisplayType, GetMaxBasisToDisplayTransform
 )
 
 from colour.models import RGB_COLOURSPACE_BT709
+from colour import XYZ_to_Lab
 import TetriumColor.ColorMath.Geometry as Geometry
 import TetriumColor.ColorMath.Conversion as Conversion
+import TetriumColor.Utils.BasisMath as BasisMath
 
 
 OKLAB_M1 = np.array([
@@ -25,6 +29,12 @@ OKLAB_M2 = np.array([
     [0.210454, 0.793617, -0.004072],
     [1.977998, -2.428592, 0.450593],
     [0.025904, 0.782771, -0.808675]
+])
+
+IPT_M1 = np.array([
+    [0.4002, 0.7075, -0.0807],
+    [-0.2280, 1.1500, 0.0612],
+    [0.0000, 0.0000, 0.9184]
 ])
 
 M_XYZ_to_RGB = RGB_COLOURSPACE_BT709.matrix_XYZ_to_RGB
@@ -55,9 +65,12 @@ class ColorSpaceType(Enum):
     SRGB = "srgb"  # sRGB display
     XYZ = "xyz"  # CIE XYZ color space
     OKLAB = 'oklab'
+    OKLABM1 = 'oklabm1'  # OKLAB color space with M1 matrix
+    CIELAB = 'cielab'  # CIE L*a*b* color space
 
     CHROM = "chrom"  # Chromaticity space
     HERING_CHROM = "hering_chrom"  # Hering chromaticity space
+    MACLEOD_CHROM = "macleod_chrom"  # MacLeod-Boynton chromaticity space
 
     def __str__(self):
         return self.value
@@ -78,12 +91,16 @@ class PolyscopeDisplayType(Enum):
     CONE_PERCEPTUAL_300 = ColorSpaceType.CONE_PERCEPTUAL_300
     DISP = ColorSpaceType.DISP
     OKLAB = ColorSpaceType.OKLAB
+    OKLABM1 = ColorSpaceType.OKLABM1
+    OKLAB_PERCEPTUAL_243 = "oklab_perceptual_243"
+    CIELAB = ColorSpaceType.CIELAB
+    CIELAB_PERCEPTUAL_243 = "cielab_perceptual_243"
 
     HERING_MAXBASIS = ColorSpaceType.HERING  # this is HERING_MAXBASIS
     HERING_MAXBASIS_PERCEPTUAL_243 = "hering_maxbasis_perceptual_243"
     HERING_MAXBASIS_PERCEPTUAL_300 = "hering_maxbasis_perceptual_300"
     HERING_MAXBASIS243_PERCEPTUAL_243 = "hering_maxbasis243_perceptual_243"
-    HERING_MAXBASIS300_PERCEPTUAL_3 = "hering_maxbasis300_perceptual_300"
+    HERING_MAXBASIS300_PERCEPTUAL_300 = "hering_maxbasis300_perceptual_300"
 
     HERING_DISP = "hering_disp"
     HERING_CONE = "hering_cone"
@@ -105,7 +122,8 @@ class ColorSpace:
                  metameric_axis: int = 2,
                  luminance_per_channel: List[float] = [1/np.sqrt(3)] * 3,
                  chromas_per_channel: List[float] = [np.sqrt(2/3)] * 3,
-                 led_mapping: List[int] | None = [0, 1, 3, 2, 1, 3]):
+                 led_mapping: List[int] | None = [0, 1, 3, 2, 1, 3],
+                 generate_all_max_basis: bool = False):
         """
         Initialize a ColorSpace with an observer and optional display.
 
@@ -127,7 +145,7 @@ class ColorSpace:
             cst_display_type = CSTDisplayType[cst_display_type.upper()]
 
         self.transform = GetColorSpaceTransform(observer, cst_display_type, display_primaries,
-                                                metameric_axis, led_mapping, luminance_per_channel, chromas_per_channel)
+                                                metameric_axis, led_mapping, generate_max_basis=generate_all_max_basis)
         # Store the dimensionality of the color space
         self.dim = self.observer.dimension
 
@@ -402,10 +420,28 @@ class ColorSpace:
             m1_cubed = np.cbrt(m1_points)
             m2_points = OKLAB_M2 @ m1_cubed
             return m2_points.T
+        elif to_space == ColorSpaceType.OKLABM1:
+            if self.transform.dim != 3:
+                raise ValueError("OKLAB color space is only defined for 3D color spaces")
+            # Convert to cone space first, then to OKLAB
+            xyz_points = self.convert(points, from_space, ColorSpaceType.XYZ)
+            m1_points = OKLAB_M1 @ xyz_points.T
+            m1_cubed = np.cbrt(m1_points)
+            return m1_cubed.T
+        elif to_space == ColorSpaceType.CIELAB:
+            if self.transform.dim != 3:
+                raise ValueError("CIELAB color space is only defined for 3D color spaces")
+            # Convert to cone space first, then to CIELAB
+            xyz_points = self.convert(points, from_space, ColorSpaceType.XYZ)
+            return XYZ_to_Lab(xyz_points) / np.array([100, 400, 400])
 
          # chromaticity based color transforms
         if from_space == ColorSpaceType.CHROM or from_space == ColorSpaceType.HERING_CHROM:
             raise ValueError("Cannot transform from chromaticity back to another color space")
+        elif to_space == ColorSpaceType.MACLEOD_CHROM:
+            cone_pts = self.convert(points, from_space, ColorSpaceType.CONE)
+            # auto drop the second coord (M cone?)
+            return (cone_pts.T / (np.sum(cone_pts[:, 1:].T, axis=0) + 1e-9))[[i for i in range(self.dim) if i != 1]].T
         elif to_space == ColorSpaceType.CHROM:
             cone_pts = self.convert(points, from_space, ColorSpaceType.CONE)
             return (cone_pts.T / (np.sum(cone_pts.T, axis=0) + 1e-9))[1:].T  # auto drop first coordinate
@@ -483,6 +519,94 @@ class ColorSpace:
         # If we reach here, the transformation is not defined
         raise ValueError(f"Transformation from {from_space} to {to_space} not implemented")
 
+    def convert_to_perceptual_new(self, points: npt.NDArray, from_space: str | ColorSpaceType,
+                                  denom_of_nonlin: float = 3) -> npt.NDArray:
+
+        white_point = np.array([1, 1, 1])  # in cone space
+
+        # 0.5 Get all of the basis vectors, and transform to this space
+        max_basis = MaxBasisFactory.get_object(self.observer, denom=denom_of_nonlin)
+        refs, _, _, _ = max_basis.GetDiscreteRepresentation()
+        maxbasis_points = self.observer.observe_spectras(refs[1:4])
+
+        # 1. first convert to cone
+        points = self.convert(points, from_space, ColorSpaceType.CONE)
+
+        # 2. apply non-linearity in cone space
+        points = np.power(points, 1/denom_of_nonlin)
+        maxbasis_points = np.power(maxbasis_points, 1/denom_of_nonlin)
+
+        # 3. Transform to luminance space --> using cone long-wavelength sum as luminance
+        mat = GetPerceptualHering(self.transform.dim)
+        points = points@mat.T
+        maxbasis_points = maxbasis_points@mat.T
+        white_point = white_point@mat.T
+
+        # get the transformation points -- use some heuristics
+        lums = maxbasis_points[:, 0]  # luminance value
+        lums = [lums[0], lums[1], lums[2] * 1.3]
+        chromas = np.ones(3) * np.sqrt(2/3) * np.array([1.0, 0.5, 0.5])  # chromas as fractions of a basis
+        # chromas = [np.sqrt(2/3)] * 3
+        vshh = self.convert(maxbasis_points, ColorSpaceType.HERING, ColorSpaceType.VSH)
+        vshh[:, 0] = lums
+        vshh[:, 1] = chromas
+        target_points = BasisMath.construct_angle_basis(maxbasis_points.shape[1], white_point, lums, chromas)
+        hering_target_points = self.convert(vshh, ColorSpaceType.VSH, ColorSpaceType.HERING)
+
+        transform_mat, _ = BasisMath.solve_transformation_matrix(maxbasis_points, target_points[:, [0, 2, 1]])
+        points = points @ transform_mat.T
+        # points = points * [1, 1.5, 1.5]
+
+        transformed_max_basis = maxbasis_points @ transform_mat.T
+
+        print("Max basis points:", maxbasis_points)
+        print("Target points:", target_points[:, [0, 2, 1]])
+        print("Transform matrix:", transform_mat)
+        print("Transformed points:", maxbasis_points@transform_mat.T)
+
+        BasisMath.visualize_transformation(
+            maxbasis_points, target_points[:, [0, 2, 1]], maxbasis_points@transform_mat.T)
+
+        # no_lum_blue = transformed_max_basis[0]
+        # no_lum_blue[0] = 0
+        # stretch_mat = BasisMath.stretch_matrix_along_direction(no_lum_blue, 1.5)
+
+        # points = points @ stretch_mat.T
+
+        # Create a rotation matrix for 60 degrees around the (1, 0, 0) axis
+        angle = np.radians(50)
+        axis = np.array([1, 0, 0])
+        axis = axis / np.linalg.norm(axis)  # Normalize the axis
+        cos_angle = np.cos(angle)
+        sin_angle = np.sin(angle)
+        one_minus_cos = 1 - cos_angle
+
+        # Compute the rotation matrix using the Rodrigues' rotation formula
+        rotation_matrix = np.array([
+            [
+                cos_angle + axis[0] * axis[0] * one_minus_cos,
+                axis[0] * axis[1] * one_minus_cos - axis[2] * sin_angle,
+                axis[0] * axis[2] * one_minus_cos + axis[1] * sin_angle
+            ],
+            [
+                axis[1] * axis[0] * one_minus_cos + axis[2] * sin_angle,
+                cos_angle + axis[1] * axis[1] * one_minus_cos,
+                axis[1] * axis[2] * one_minus_cos - axis[0] * sin_angle
+            ],
+            [
+                axis[2] * axis[0] * one_minus_cos - axis[1] * sin_angle,
+                axis[2] * axis[1] * one_minus_cos + axis[0] * sin_angle,
+                cos_angle + axis[2] * axis[2] * one_minus_cos
+            ]
+        ])
+
+        # Apply the rotation matrix to the points
+        points = points @ rotation_matrix.T
+
+        if self.dim == 3:
+            points = points[:, [1, 0, 2]]
+        return points / np.sqrt(2)
+
     def convert_to_polyscope(self, points: npt.NDArray,
                              from_space: str | ColorSpaceType,
                              to_space: PolyscopeDisplayType | str) -> npt.NDArray:
@@ -496,7 +620,6 @@ class ColorSpace:
         Returns:
             npt.NDArray: array of points in the given PolyscopeDisplayType
         """
-        white_point = np.array([1, 1, 1])  # in cone space
         if isinstance(to_space, str):
             to_space = PolyscopeDisplayType[to_space]
         # split the name into two - if it's hering, add a flag, and remove it. Otherwise, take the rest of the name
@@ -506,27 +629,37 @@ class ColorSpace:
 
         # just apply the non-linearity first, then do all the basis transforms manually here
         if len(name_split) > 1 and name_split[1] == 'PERCEPTUAL':
-            denom = float(name_split[2]) / 100
-            points = self.convert_to_perceptual(points, from_space, ColorSpaceType.CONE, denom_of_nonlin=denom)
-            name_split = name_split[:-2]
+            basis_name = name_split[0]
+            points = self.convert_to_perceptual(points, from_space, basis_name,
+                                                denom_of_nonlin=float(name_split[2])/100)
 
-        if isHering:
-            mat = GetPerceptualHering(self.transform.dim, isLumY=True)
-            points = points@mat.T
-        else:
-            if to_space == PolyscopeDisplayType.OKLAB:
-                points = points[:, [1, 0, 2]]
-
-        # # First check if it's perceptual - to see if we need to take a cubic-like root to all of the values
-        # if len(name_split) > 1 and name_split[1] == 'PERCEPTUAL':
-        #     denom = float(name_split[2]) / 100
-        #     points = self.convert_to_perceptual(points, from_space, "_".join(name_split[:-2]), denom_of_nonlin=denom)
-        #     white_point = self.convert_to_perceptual(
-        #         white_point, from_space, "_".join(name_split[:-2]), denom_of_nonlin=denom)
-        # else:
+            # return self.convert_to_perceptual_new(points, from_space, denom_of_nonlin=float(name_split[2])/100)
         points = self.convert(points, from_space, "_".join(name_split))
-        # white_point = self.convert(white_point, from_space, "_".join(name_split))
+        if isHering:
+            if self.dim > 3:
+                # points = self.convert(points, "_".join(name_split), ColorSpaceType.HERING)
+                mat = GetHeringMatrix(self.transform.dim)
+                points = points @ mat.T
+                return points[:, 1:]
+            else:
+                # mat = GetPerceptualHering(self.transform.dim, isLumY=True)
+                mat = GetHeringMatrix(self.transform.dim)
+                points = points @ mat.T
+                tmp = points[:, 1].copy()
+                points[:, 1] = points[:, 0]
+                points[:, 0] = tmp
+                return points
+
         return points
+
+        # points = self.convert(points, from_space, "_".join(name_split))
+        # if to_space == PolyscopeDisplayType.OKLAB or to_space == PolyscopeDisplayType.CIELAB:
+        #     return points[:, [1, 0, 2]]
+
+        # if to_space == PolyscopeDisplayType.CONE:
+        #     return points[:, [2, 1, 0]]
+
+        # return points
 
     def get_maxbasis_parallelepiped(self, display_basis: PolyscopeDisplayType) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray]:
         """Get the maxbasis parallelepiped for the given display basis
@@ -537,15 +670,31 @@ class ColorSpace:
         Returns:
             tuple[npt.NDArray, npt.NDArray, npt.NDArray]: _description_
         """
-
+        np.set_printoptions(precision=3, suppress=True)
         display_name = display_basis.name.split("_")
         denom = 1 if len(display_name) < 2 or display_name[-2] != "PERCEPTUAL" else float(display_name[-1])/100
-        maxbasis = MaxBasisFactory.get_object(
-            self.observer, denom=denom, lums_per_channel=self.lums_per_channel, chromas_per_channel=self.chromas_per_channel)
+        maxbasis = MaxBasisFactory.get_object(self.observer, denom=denom)  # , denom=denom)
         refs, _, rgbs, lines = maxbasis.GetDiscreteRepresentation()
 
+        if "OKLAB" in display_name or "CIELAB" in display_name:
+            display_name = display_name[:-2]
         cones = self.observer.observe_spectras(refs)
-        points = self.convert_to_polyscope(cones, ColorSpaceType.CONE, display_basis)
+        points = self.convert_to_polyscope(cones, ColorSpaceType.CONE, "_".join(display_name))
+
+        # Compute the perpendicular distance from the lines (1, 0, 0)
+        reference_point = np.array([1, 0, 0])
+        projections = np.dot(points, reference_point) / np.linalg.norm(reference_point)
+        perpendicular_distances = np.linalg.norm(points - np.outer(projections, reference_point), axis=1)
+
+        print(perpendicular_distances[1:4], points[1:4, 0])
+
+        # Measure the angles on the yz-plane of points
+        yz_points = points[1:4, [0, 2]]  # Extract y and z coordinates
+        angles = np.degrees(np.arctan2(yz_points[:, 1], yz_points[:, 0])) % 360  # Compute angles in radians
+        angle_diffs = [(angles[i] - angles[(i+1) % len(angles)]) % 360 for i in range(len(angles))]
+        print("Angles on the yz-plane (degrees):", angles)
+        print("Angles Diffs: ", angle_diffs)
+
         return points, rgbs, lines
 
     def convert_to_perceptual(self, points: npt.NDArray,
@@ -563,8 +712,148 @@ class ColorSpace:
         Returns:
             npt.NDArray: Converted points in "perceptual space"
         """
+        points = self.convert(points, from_space, ColorSpaceType.CONE)
+        nonlinear_points = np.power(np.clip(points, 0, None), 1/denom_of_nonlin)  # why is it negative..?
+        points = self.convert(nonlinear_points, ColorSpaceType.CONE, to_space=M_basis)
+
+        # if M_basis != ColorSpaceType.CONE:
+        #     max_basis = MaxBasisFactory.get_object(self.observer, denom=denom_of_nonlin)
+        #     refs, _, _, _ = max_basis.GetDiscreteRepresentation()
+        #     maxbasis_points = self.observer.observe_spectras([refs[x] for x in range(1, self.dim + 1)])
+        #     maxbasis_points = np.power(maxbasis_points, 1/denom_of_nonlin)
+
+        #     # renormalize points
+        #     M3 = np.linalg.inv(maxbasis_points.T)
+        #     new_white_pt = M3@np.ones(self.dim)
+        #     M3 = np.diag(1/new_white_pt)@M3
+        #     points = (M3@nonlinear_points.T).T
+        return points
+
+        # convert points
+        max_basis = MaxBasisFactory.get_object(self.observer, denom=denom_of_nonlin)
+        refs, _, _, _ = max_basis.GetDiscreteRepresentation()
+        maxbasis_points = self.observer.observe_spectras([refs[x] for x in [1, 2, 3]])
+
+        M = np.array(
+            [[0, 0,  1],
+             [0,  1, 0],
+             [0.8,  0,  0.2]]
+        )  # transform into an L M S-like space
+        # spectral_locus = (M@self.observer.normalized_sensor_matrix).T
+        new_white_pt = M@np.ones(3)
+        M1 = (np.diag(1/new_white_pt))@M
+        # new_spectral_locus = (new_transform_mat@self.observer.normalized_sensor_matrix).T  # @ new_transform_mat.T
+        points = (M1@points.T).T
+        maxbasis_points = (M1@maxbasis_points.T).T
+
         points = np.power(points, 1/denom_of_nonlin)
-        return self.convert(points, from_space, M_basis)
+        maxbasis_points = np.power(maxbasis_points, 1/denom_of_nonlin)
+        maxbasis_points = maxbasis_points[::-1]  # reverse BGR to RGB to match the M matrix
+
+        # normalized_maxbasis = maxbasis_points / np.linalg.norm(maxbasis_points, axis=1)[:, np.newaxis]
+
+        # lums = maxbasis_points[:, 0].tolist()  # luminance value
+        # lums = [lums[0], lums[1], lums[2]]
+        # old_chromas = np.ones(3) * np.sqrt(2/3) * np.array([1.0, 0.5, 0.5])  # chromas as fractions of a basis
+        # chromas = [np.sqrt(2/3)] * 3
+        vshh = self.convert(maxbasis_points, ColorSpaceType.MAXBASIS, ColorSpaceType.VSH)
+        lums = vshh[:, 0].tolist()
+        # chromas = vshh[:, 1].tolist()
+        lums = [lums[0] * 1.3, lums[1], lums[2] * 0.5]  # red is the same as green
+        chromas = [np.sqrt(2/3) * 0.5, np.sqrt(2/3) * 0.7, np.sqrt(2/3)]  # vshh[:, 1].tolist()
+        print("lums & chromas: ", lums, chromas)
+        # vshh[:, 0] = lums
+        # vshh[:, 1] = chromas
+        angle_basis = BasisMath.construct_angle_basis(
+            maxbasis_points.shape[1], np.ones(self.dim), lums, chromas)
+
+        # TODO: Recheck angle_basis, it's not really working as I'd like - i.e., it's not returning 120 degree separated angles.
+        # once this works, it will work perfectly, I'm pretty sure.
+
+        # two column vectors transformed into each other can be right applied
+        M3 = ((angle_basis.T)@np.linalg.inv(maxbasis_points.T))
+
+        # try 1 renormalize, or reorient
+        new_white_pt = M3@np.ones(self.dim)
+        M3 = np.diag(1/new_white_pt)@M3
+        points = (M3@points.T).T
+
+        # import matplotlib.pyplot as plt
+        # fig = plt.figure()
+        # ax = fig.add_subplot(111, projection='3d')
+        # # Plot the angle_basis points as vectors
+        # for vector in angle_basis:
+        #     ax.quiver(0, 0, 0, vector[0], vector[1], vector[2], color='r', label='Angle Basis Vector')
+
+        # trans_maxbasis = maxbasis_points @ M3.T
+        # ax.scatter(trans_maxbasis[:, 0], trans_maxbasis[:, 1],
+        #            trans_maxbasis[:, 2], c='g', label='Transformed Maxbasis Points')
+        # ax.scatter(points[:, 0], points[:, 1], points[:, 2], c='y', label='Transformed Points')
+
+        # # Plot the (1, 1, 1) vector
+        # ax.quiver(0, 0, 0, 1, 1, 1, color='b', label='(1, 1, 1) Vector')
+
+        # # Add labels and title
+        # ax.set_xlabel('X')
+        # ax.set_ylabel('Y')
+        # ax.set_zlabel('Z')
+        # ax.set_xlim([-0.1, 1])
+        # ax.set_ylim([-0.1, 1])
+        # ax.set_zlim([-0.1, 1])
+        # ax.set_title('3D Plot of Angle Basis')
+        # ax.legend()
+        # plt.show()
+
+        # transformed_maxbasis = (M3@maxbasis_points.T).T
+        # print(transformed_maxbasis)
+
+        # reorient white to (1, 1, 1)
+        # M4 = BasisMath.rotation_and_scale_to_point_nd(M3@np.ones(self.dim), np.ones(self.dim))
+        # points = (M4@points.T).T
+
+        # points = points[:, [2, 1, 0]]
+        # Hering transformation
+        M = np.array([[1/np.sqrt(3), 1/np.sqrt(3), 1/np.sqrt(3)], [np.sqrt(2/3), -
+                                                                   (1/np.sqrt(6)), -(1/np.sqrt(6))], [0, 1/np.sqrt(2), -(1/np.sqrt(2))]])
+        # print(OKLAB_M2)
+
+        # # BasisMath.rotation_and_scale_to_point_nd()
+        points = (M@points.T).T / np.sqrt(3)
+        # maxbasis_points = (M2@maxbasis_points.T).T
+
+        # # # Become Equiangular - only transform that keeps (1, 0, 0) mapped to the right point
+
+        # Create a rotation matrix for 60 degrees around the (1, 0, 0) axis
+        angle = np.radians(40)
+        axis = np.array([1, 0, 0])
+        axis = axis / np.linalg.norm(axis)  # Normalize the axis
+        cos_angle = np.cos(angle)
+        sin_angle = np.sin(angle)
+        one_minus_cos = 1 - cos_angle
+
+        # Compute the rotation matrix using the Rodrigues' rotation formula
+        rotation_matrix = np.array([
+            [
+                cos_angle + axis[0] * axis[0] * one_minus_cos,
+                axis[0] * axis[1] * one_minus_cos - axis[2] * sin_angle,
+                axis[0] * axis[2] * one_minus_cos + axis[1] * sin_angle
+            ],
+            [
+                axis[1] * axis[0] * one_minus_cos + axis[2] * sin_angle,
+                cos_angle + axis[1] * axis[1] * one_minus_cos,
+                axis[1] * axis[2] * one_minus_cos - axis[0] * sin_angle
+            ],
+            [
+                axis[2] * axis[0] * one_minus_cos - axis[1] * sin_angle,
+                axis[2] * axis[1] * one_minus_cos + axis[0] * sin_angle,
+                cos_angle + axis[2] * axis[2] * one_minus_cos
+            ]
+        ])
+
+        # Apply the rotation matrix to the points
+        points = points @ rotation_matrix.T
+        # return points
+        return points[:, [1, 0, 2]]
 
     def convert_to_hering(self, points: npt.NDArray):
         """Convert points to Hering space -- make it easier to display
@@ -681,10 +970,22 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     from colour.colorimetry import MSDS_CMFS_STANDARD_OBSERVER
     from colour import SpectralShape
+
     shape = SpectralShape(min(observer.wavelengths), max(observer.wavelengths),
                           int(observer.wavelengths[1] - observer.wavelengths[0]))
-    xyz = MSDS_CMFS_STANDARD_OBSERVER['CIE 1931 2 Degree Standard Observer'].copy().align(shape).values
+    xyz_cmfs = MSDS_CMFS_STANDARD_OBSERVER['CIE 1931 2 Degree Standard Observer'].copy().align(shape).values
+    xyz_d65 = xyz_cmfs.T @ Illuminant.get("D65").to_colour().align(shape).values
+    xyz_ones = xyz_cmfs.T @ np.ones(len(observer.wavelengths))
+    # xyz_d65 = xyz_d65/xyz_d65[1]
+    xyz = xyz_cmfs / (xyz_ones/(xyz_d65/xyz_d65[1]))
     fig, axes = plt.subplots(1, 4, figsize=(12, 3))
+
+    cst = ColorSpace(Observer.trichromat(wavelengths=np.arange(360, 830, 10)))
+    print(repr(OKLAB_M1@cst.transform.cone_to_XYZ))
+
+    print(repr(OKLAB_M2))
+    # cones = cst.convert(xyz, ColorSpaceType.XYZ, ColorSpaceType.CONE)
+    # oklab = cst.convert(cones, ColorSpaceType.CONE, ColorSpaceType.OKLAB)
 
     # Plot the original XYZ color matching functions
     axes[0].plot(observer.wavelengths, xyz)
@@ -693,7 +994,7 @@ if __name__ == "__main__":
     axes[0].set_ylabel("Value")
 
     # Plot the transformed OKLAB M1 values
-    axes[1].plot(observer.wavelengths, xyz @ OKLAB_M1.T)
+    axes[1].plot(observer.wavelengths, (observer.normalized_sensor_matrix.T @ cst.transform.cone_to_XYZ.T) @ OKLAB_M1.T)
     axes[1].set_title("Transformed OKLAB M1 Values")
     axes[1].set_xlabel("Wavelength (nm)")
     axes[1].set_ylabel("Value")

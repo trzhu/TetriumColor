@@ -55,6 +55,35 @@ def main():
     basis_points = basis_points[~np.all(basis_points == 0, axis=1)]
     # basis_points = [[basis_points[0][0], -basis_points[0][0]]]
 
+    # ideal_primary_spectra = np.zeros((len(args.viz_efficient_wavelengths), len(wavelengths)))
+    AVG_FWHM = 22.4
+    sigma = AVG_FWHM / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to standard deviation
+    ideal_primary_spectras = [Spectra(wavelengths=wavelengths, data=gaussian(wavelengths, peak, sigma))
+                              for peak in args.max_perceptual_volume_wavelengths]
+    # for i, primary_wavelength in enumerate(args.viz_efficient_wavelengths):
+    #     index = np.where(wavelengths == primary_wavelength)[0]
+    #     if index.size > 0:
+    #         ideal_primary_spectra[i, index[0]] = 1
+    ideal_primary_sRGB = np.array([s.to_rgb() for s in ideal_primary_spectras])
+    ideal_primary_sRGB = ideal_primary_sRGB / np.max(ideal_primary_sRGB)
+
+    # primaries = LoadPrimaries("../../../measurements/2025-05-20/primaries")
+    # primary_spectra = GaussianSmoothPrimaries(primaries)
+    our_primary_spectras = load_primaries_from_csv("../../../measurements/2025-05-20/primaries")
+    if args.dimension == 3:
+        primary_spectra = [x for i, x in enumerate(our_primary_spectras) if i != 3]  # just use RGB
+    our_primaries_sRGB = np.array([s.to_rgb() for s in our_primary_spectras])
+    our_primaries_sRGB = our_primaries_sRGB / np.max(our_primaries_sRGB)
+
+    our_display_to_cone = observer.observe_spectras(our_primary_spectras)
+    ideal_display_to_cone = observer.observe_spectras(ideal_primary_spectras)
+
+    chromaticity_points = cs.convert(observer.normalized_sensor_matrix.T,
+                                     ColorSpaceType.CONE, ColorSpaceType.HERING_CHROM)
+    our_display_coords = cs.convert(our_display_to_cone, ColorSpaceType.CONE, ColorSpaceType.HERING_CHROM)
+    ideal_display_coords = cs.convert(ideal_display_to_cone, ColorSpaceType.CONE, ColorSpaceType.HERING_CHROM)
+    basis_points = cs.convert(np.eye(args.dimension), ColorSpaceType.CONE, ColorSpaceType.HERING_CHROM)
+
     if args.dimension < 4:
         points_3d = np.hstack((points, np.zeros((points.shape[0], 4 - args.dimension))))
         basis_points_3d = np.hstack((basis_points, np.zeros((basis_points.shape[0], 4 - args.dimension))))

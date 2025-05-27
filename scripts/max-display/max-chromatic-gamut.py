@@ -1,15 +1,19 @@
 
 
-import pdb
+from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import math
+import pandas as pd
 
+
+from itertools import combinations
+
+from scipy.spatial import ConvexHull
 from TetriumColor.Observer import *
 from TetriumColor import *
-import math
 from tqdm import tqdm
-import pandas as pd
 from pandas.plotting import table
 
 AVG_FWHM = 22.4
@@ -67,13 +71,49 @@ def compute_efficiency(color_space: ColorSpace, primary_candidates: npt.NDArray,
 
 def compute_max_chromatic_vol(color_space: ColorSpace, chrom_basis: ColorSpaceType, primary_candidates: npt.NDArray):
     sets_of_primaries = primary_candidates.reshape(-1, color_space.dim)
-    chrom_points = cs.convert(sets_of_primaries, ColorSpaceType.CONE, chrom_basis)
-    chrom_points = np.hstack((chrom_points, np.ones((chrom_points.shape[0], 1))))
-    chrom_points = chrom_points.reshape(-1, color_space.dim, color_space.dim)
+    chrom_points = cs.convert(sets_of_primaries, ColorSpaceType.CONE,
+                              chrom_basis).reshape(-1, color_space.dim, color_space.dim - 1)
+    # chrom_points = np.hstack((chrom_points, np.ones((chrom_points.shape[0], 1))))
+    # chrom_points = chrom_points.reshape(-1, color_space.dim, color_space.dim)
 
-    volumes = np.array([np.linalg.det(p) for p in chrom_points]) / math.factorial(color_space.dim)
+    # volumes = np.array([np.linalg.det(p) for p in chrom_points]) / math.factorial(color_space.dim - 1) # this is not working
+    volumes = np.array([ConvexHull(p).volume for p in tqdm(chrom_points)])
+
     volumes[volumes < 0] = 0
+    idx = np.argmax(volumes)
+    chrom_max = chrom_points[idx]
+    max_k_simplex_vol = ConvexHull(chrom_max[:, :2]).volume
+
+    sets_of_primaries = color_space.observer.normalized_sensor_matrix.T
+    spectral_locus = color_space.convert(sets_of_primaries, ColorSpaceType.CONE, chrom_basis)
+
+    if color_space.dim == 4:
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        ax.scatter(spectral_locus[:, 0], spectral_locus[:, 1], spectral_locus[:, 2], c='blue', label='Spectral Locus')
+        ax.scatter(chrom_max[:, 0], chrom_max[:, 1], chrom_max[:, 2], c='red', label='Max Chromaticity')
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_zlabel('Z')
+        ax.legend()
+        plt.show()
+    elif color_space.dim == 3:
+        plt.scatter(spectral_locus[:, 0], spectral_locus[:, 1], c='blue', label='spectral locus')
+        plt.scatter(chrom_max[:, 0], chrom_max[:, 1], c='red', label='Max Chromaticity')
+        plt.show()
+
+    spectral_locus_vol = ConvexHull(spectral_locus).volume
+    print("Max Chromaticity Volume: ", max_k_simplex_vol)
+    print("Spectral Locus Volume: ", spectral_locus_vol)
+
     return volumes
+
+
+def compute_spectral_vol(color_space: ColorSpace, chrom_basis: ColorSpaceType):
+    sets_of_primaries = color_space.observer.normalized_sensor_matrix.T
+    chrom_points = cs.convert(sets_of_primaries, ColorSpaceType.CONE, chrom_basis)
+    hull = ConvexHull(chrom_points)
+    return hull.volume
 
 
 def compute_perceptual_volume(color_space: ColorSpace, chrom_basis: ColorSpaceType, primary_candidates: npt.NDArray):
@@ -127,7 +167,7 @@ def compute_max_pareto_vol_efficiency(color_space: ColorSpace, chrom_basis: Colo
             plt.show()
         plt.close()
 
-    return best_idx, volumes[best_idx], efficacies[best_idx]
+    return best_idx, volumes[best_idx], efficacies[best_idx], volumes, efficacies
 
 
 def compute_max_parallelotope(primary_candidates: npt.NDArray):
@@ -137,22 +177,22 @@ def compute_max_parallelotope(primary_candidates: npt.NDArray):
 
 
 wavelengths = np.arange(400, 701, 5)
-observer_wavelengths = np.arange(380, 781, 1)
+observer_wavelengths = np.arange(380, 781, 5)
 observers = [
     Observer.custom_observer(observer_wavelengths, dimension=3),  # standard LMS observer
-    Observer.custom_observer(observer_wavelengths, dimension=3, l_cone_peak=547),  # Cda29's kid
-    Observer.custom_observer(observer_wavelengths, dimension=3, l_cone_peak=551),  # ben-like observer
+    # Observer.custom_observer(observer_wavelengths, dimension=3, l_cone_peak=547),  # Cda29's kid
+    # Observer.custom_observer(observer_wavelengths, dimension=3, l_cone_peak=551),  # ben-like observer
     # most likely functional tetrachromatic observer
-    Observer.custom_observer(observer_wavelengths, dimension=4, template='govardovskii'),
-    Observer.custom_observer(observer_wavelengths, q_cone_peak=551, dimension=4),  # ben-like tetrachromatic observer
-    Observer.custom_observer(observer_wavelengths, q_cone_peak=555, dimension=4)
+    # Observer.custom_observer(observer_wavelengths, dimension=4, template='govardovskii'),
+    # Observer.custom_observer(observer_wavelengths, q_cone_peak=551, dimension=4),  # ben-like tetrachromatic observer
+    # Observer.custom_observer(observer_wavelengths, q_cone_peak=555, dimension=4)
 ]  # ser180ala like observer
 
 # set of primaries - monochromatic, gaussian, or discrete
 
 fwhm = AVG_FWHM
 sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to standard deviation
-peak_wavelengths = np.arange(400, 701, 5)  # Peaks every 10nm from 380nm to 720nm
+peak_wavelengths = np.arange(400, 701, 5)  # Peaks every 5m from 380nm to 720nm
 
 gaussian_primaries = [Spectra(wavelengths=wavelengths, data=gaussian(wavelengths, peak, sigma))
                       for peak in peak_wavelengths]
@@ -168,24 +208,39 @@ our_primaries = (our_primaries / np.max(our_primaries, axis=0)).T
 our_primaries = [Spectra(wavelengths=primary_wavelengths, data=spectrum) for spectrum in our_primaries]
 our_primary_peaks = [primary_wavelengths[np.argmax(spectrum.data)] for spectrum in our_primaries]
 
-primary_sets = [monochromatic_lights, gaussian_primaries, our_primaries]
-corresponding_peaks = [peak_wavelengths, peak_wavelengths, our_primary_peaks]
+# # Normalize each spectrum in our_primaries such that the maximum point is 1
+# for spectrum in our_primaries:
+#     spectrum.data = spectrum.data / np.max(spectrum.data)
+#     # Save our_primaries as a CSV file
+#     print(spectrum.to_hex())
+# output_file = "normalized_primaries.csv"
+# primary_data = np.column_stack([primary_wavelengths] + [spectrum.data for spectrum in our_primaries])
+# primary_df = pd.DataFrame(primary_data, columns=["wavelength"] + [f"primary_{i+1}" for i in range(len(our_primaries))])
+# primary_df.to_csv(output_file, index=False)
+
+# exit()
+
+primary_sets = [gaussian_primaries, our_primaries]
+corresponding_peaks = [peak_wavelengths, our_primary_peaks]
 # set of bases to project into from chromaticity
-bases = [ColorSpaceType.CHROM, ColorSpaceType.HERING_CHROM]
+bases = [ColorSpaceType.CHROM, ColorSpaceType.MACLEOD_CHROM, ColorSpaceType.HERING_CHROM]
 
 save_dir = "./results/"
 os.makedirs(save_dir, exist_ok=True)
 
 # Initialize an empty DataFrame to store results
 results_df = pd.DataFrame(columns=pd.Index(["Observer", "Basis", "Primary Set", "Max Volume",
-                          "Efficacy", "Corresponding Max Peaks"]))
+                                            "Efficacy", "Corresponding Max Peaks"]))
+
 
 # For all possible combinations of observers, primary sets, and bases
 for observer in observers:
     for pset_idx, (spds, corresponding_peak_wavelengths) in enumerate(zip(primary_sets, corresponding_peaks)):
         corresponding_primaries = list(combinations(corresponding_peak_wavelengths, observer.dimension))
         for basis in bases:
+            print(f"Observer: {observer}, Basis: {basis}, Primary Set: {pset_idx}")
             cs = ColorSpace(observer)
+
             observed_primaries = np.array(
                 [observer.observe(primary) for primary in spds])
             peak_combinations = np.array(list(combinations(corresponding_peak_wavelengths, observer.dimension)))
@@ -193,8 +248,18 @@ for observer in observers:
             sets_of_observed = np.array(list(combinations(observed_primaries, observer.dimension)))
             idxs = np.array(list(combinations(range(len(observed_primaries)), observer.dimension)))
 
-            idx, volume, efficacy = compute_max_pareto_vol_efficiency(
+            idx, volume, efficacy, volumes, efficacies = compute_max_pareto_vol_efficiency(
                 cs, basis, sets_of_observed, idxs, np.array(spds))  # , paretoPlot=f"{save_dir}/{str(observer)}_{basis}_primary_set_{pset_idx}.png")
+
+            max_vol_idx, volume = np.argmax(volumes), volumes.max()
+            spectral_vol = compute_spectral_vol(cs, basis)
+
+            print("Max Chromatic Volume: ", volume)
+            print("Max spectral vol: ", spectral_vol)
+            print("k-Gamut vs Ideal: ", volume / spectral_vol)
+
+            print("Max Vol Corresponding Peaks: ", corresponding_primaries[max_vol_idx])
+            print("Max Volume: ", volume)
 
             max_primaries = list(sets_of_observed)[idx]
             corresponding_max_peaks = corresponding_primaries[idx]
