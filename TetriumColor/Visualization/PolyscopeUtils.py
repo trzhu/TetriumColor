@@ -250,14 +250,14 @@ def RenderTriangle(name: str, points: npt.NDArray, color: npt.NDArray) -> None:
 
 
 def RenderMetamericDirection(name: str, observer: Observer, display_basis: PolyscopeDisplayType,
-                             metameric_axis: int, color: npt.NDArray, line_alpha: float = 1, scale: float = 1) -> None:
+                             metameric_axis: int, color: npt.NDArray, radius: float = 1, scale: float = 1) -> None:
     length = 1 * 0.05
     basisLMSQ = np.zeros((1, observer.dimension))
     basisLMSQ[:, metameric_axis] = 1
     basisLMSQ = basisLMSQ * length
     basisLMSQ = ColorSpace(observer).convert_to_polyscope(basisLMSQ, ColorSpaceType.CONE, display_basis)
     normalizedLMSQ = basisLMSQ[0] / np.linalg.norm(basisLMSQ[0]) * scale
-    Render3DLine(name, np.array([np.zeros(3), normalizedLMSQ]), color, line_alpha)
+    Render3DLine(name, np.array([-normalizedLMSQ, normalizedLMSQ]), color, radius)
 
 
 def RenderOBS(name: str, cst: ColorSpace, display_basis: PolyscopeDisplayType, num_samples=10000) -> None:

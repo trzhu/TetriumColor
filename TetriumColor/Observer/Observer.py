@@ -354,6 +354,14 @@ class Cone(Spectra):
         # 545 per nathan & merbs 92
         return Cone.cone(545, template=template, od=0.5, wavelengths=wavelengths)
 
+    @staticmethod
+    def old_q_cone(wavelengths=None):
+        with resources.path("TetriumColor.Assets.Cones.old", "tetrachromat_cones.npy") as data_path:
+            A = np.load(data_path)
+        path_wavelengths = np.arange(390, 831, 1)
+        arr = np.stack([path_wavelengths, A[3, :]])
+        return Cone(arr.T).interpolate_values(wavelengths)
+
 
 class Observer:
     def __init__(self, sensors: List[Cone], illuminant: Optional[Spectra] = Illuminant.get('D65'), verbose: bool = False):
@@ -416,10 +424,10 @@ class Observer:
         return Observer([s_cone, m_cone], illuminant=illuminant)
 
     @staticmethod
-    def trichromat(wavelengths=None, illuminant=None):
-        l_cone = Cone.l_cone(wavelengths)
-        m_cone = Cone.m_cone(wavelengths)
-        s_cone = Cone.s_cone(wavelengths)
+    def trichromat(wavelengths=None, illuminant=None, template='neitz'):
+        l_cone = Cone.l_cone(wavelengths, template=template)
+        m_cone = Cone.m_cone(wavelengths, template=template)
+        s_cone = Cone.s_cone(wavelengths, template=template)
         return Observer([s_cone, m_cone, l_cone], illuminant=illuminant)
 
     @staticmethod
@@ -429,6 +437,18 @@ class Observer:
         l_cone = Cone.l_cone(wavelengths)
         q_cone = Cone.cone(545, wavelengths=wavelengths,
                            template="neitz", od=0.5)
+        # Cone.cone(530, wavelengths=wavelengths, template="neitz", od=0.35)
+        m_cone = Cone.m_cone(wavelengths)
+        # Cone.s_cone(wavelengths=wavelengths)
+        s_cone = Cone.s_cone(wavelengths)
+        return Observer([s_cone, m_cone, q_cone, l_cone], illuminant=illuminant, verbose=verbose)
+
+    @staticmethod
+    def old_tetrachromat(wavelengths=None, illuminant=None, verbose=False):
+        # This is a "maximally well spaced" tetrachromat
+        # Cone.cone(555, wavelengths=wavelengths, template="neitz", od=0.35)
+        l_cone = Cone.l_cone(wavelengths)
+        q_cone = Cone.old_q_cone(wavelengths=wavelengths)
         # Cone.cone(530, wavelengths=wavelengths, template="neitz", od=0.35)
         m_cone = Cone.m_cone(wavelengths)
         # Cone.s_cone(wavelengths=wavelengths)
