@@ -1,4 +1,3 @@
-from re import I
 import numpy as np
 import numpy.typing as npt
 from typing import List
@@ -140,6 +139,7 @@ class ColorSpace:
         self.led_mapping = led_mapping
         self.lums_per_channel = luminance_per_channel
         self.chromas_per_channel = chromas_per_channel
+        self.display_primaries = display_primaries
 
         if isinstance(cst_display_type, str):
             cst_display_type = CSTDisplayType[cst_display_type.upper()]
@@ -410,7 +410,14 @@ class ColorSpace:
         if to_space == ColorSpaceType.SRGB:
             # Convert to cone space first, then to sRGB
             cone_points = self.convert(points, from_space, ColorSpaceType.XYZ)
-            return (M_XYZ_to_RGB @ cone_points.T).T
+            # Apply gamma encoding for sRGB
+            linear_rgb = M_XYZ_to_RGB @ cone_points.T
+
+            # sRGB gamma encoding
+            encoded_rgb = np.where(linear_rgb <= 0.0031308,
+                                   12.92 * linear_rgb,
+                                   1.055 * np.power(linear_rgb, 1/2.2) - 0.055)
+            return encoded_rgb.T
         elif to_space == ColorSpaceType.OKLAB:
             if self.transform.dim != 3:
                 raise ValueError("OKLAB color space is only defined for 3D color spaces")

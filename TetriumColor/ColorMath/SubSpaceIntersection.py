@@ -1,9 +1,12 @@
 import numpy.typing as npt
+from typing import Tuple, Optional
+
 import numpy as np
 import matplotlib.pyplot as plt
 
-from scipy.optimize import linprog
+from scipy.optimize import linprog, minimize
 from scipy.spatial import ConvexHull
+from scipy.optimize import minimize
 
 from TetriumColor.Observer.Zonotope import getZonotopePoints
 
@@ -92,7 +95,7 @@ def ZonotopeToInequalities(generators: npt.NDArray):
     Convert generating vectors of a zonotope into a list of inequalities.
 
     Parameters:
-        generators (np.ndarray): A 2D array of shape (n, d), where n is the number of generating vectors 
+        generators (np.ndarray): A 2D array of shape (n, d), where n is the number of generating vectors
                                  and d is the dimension of the space.
 
     Returns:
@@ -263,8 +266,6 @@ def GeneratePointsOnSubspace(vectors, num_points=100, distance=1):
 
     return np.array(points)
 
-# Define maximization function
-
 
 def MaximizeAllDirectionsOnSubspace(A, b, V, center, num_directions=100):
     directions = GeneratePointsOnSubspace(V.T, num_directions)
@@ -280,29 +281,120 @@ def MaximizeAllDirectionsOnSubspace(A, b, V, center, num_directions=100):
     return np.array(intersections)
 
 
-if __name__ == "__main__":
+def excitations_to_contrast(
+    resp: npt.NDArray[np.float64],
+    background: npt.NDArray[np.float64]
+) -> npt.NDArray[np.float64]:
+    """
+    Compute contrast between response and background.
+    """
+    return (resp - background) / background
 
-    # cube = np.eye(3)
-    cube = np.array([[0, 0, 0.5], [0.5, 0.5, 0], [0, 0.5, 0], [0.5, 0, 0.5]])
-    A, b = ZonotopeToInequalities(cube)
-    V = np.array([[1, 1, 1], [0, 1, 0]]).T
 
-    intersections = MaximizeAllDirectionsOnSubspace(A, b, V, np.ones(3) * 0.5, num_directions=1000)
-    distances = np.vstack([ScalarProjection(intersections, V.T[i]) for i in range(V.shape[1])])
-    # Make axes equidistant
-    plt.gca().set_aspect('equal', adjustable='box')
-    plt.scatter(distances[1], distances[0])
-    plt.show()
+def receptor_isolate_spectral(
+    T_receptors: npt.NDArray[np.float64],          # shape: (n_receptors, n_wavelengths)
+    desired_contrasts: npt.NDArray[np.float64],    # shape: (n_receptors,)
+    B_primary: npt.NDArray[np.float64],            # shape: (n_wavelengths, n_primaries)
+    background_primary: npt.NDArray[np.float64],   # shape: (n_primaries,)
+    initial_primary: npt.NDArray[np.float64],      # shape: (n_primaries,)
+    primary_headroom: float,
+    target_basis: npt.NDArray[np.float64],         # shape: (n_wavelengths, n_basis)
+    project_indices: Optional[npt.NDArray[np.int_]],  # shape: (n_selected_wavelengths,)
+    target_lambda: float,
+    ambient_spd: npt.NDArray[np.float64],          # shape: (n_wavelengths,)
+    POSITIVE_ONLY: bool = False,
+    EXCITATIONS: bool = False
+) -> Tuple[
+    npt.NDArray[np.float64],  # modulating_primary
+    npt.NDArray[np.float64],  # upper_primary
+    npt.NDArray[np.float64]   # lower_primary
+]:
+    """
+    Compute primary modulation that achieves desired receptor contrast,
+    with optional smoothness constraints via projection to basis functions.
+    """
 
-    # Plot the 3D scatter plot
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
+    # Use all wavelengths if none selected
+    if project_indices is None or len(project_indices) == 0:
+        project_indices = np.arange(target_basis.shape[0])
 
-    intersections = np.array(intersections)
-    ax.scatter(intersections[:, 0], intersections[:, 1], intersections[:, 2], c='r', marker='o')
+    # Check receptor/contrast dimensions
+    if T_receptors.shape[0] != len(desired_contrasts):
+        raise ValueError("T_receptors and desired_contrasts dimension mismatch")
 
-    ax.set_xlabel('X Label')
-    ax.set_ylabel('Y Label')
-    ax.set_zlabel('Z Label')
+    # Initial guess (modulation vector)
+    x0 = initial_primary - background_primary
+    n_primaries = B_primary.shape[1]
 
-    plt.show()
+    # Headroom sanity check
+    tol = 1e-7
+    if np.any(background_primary < primary_headroom - tol) or \
+       np.any(background_primary > 1 - primary_headroom + tol):
+        raise ValueError("Background primary out of allowed headroom range")
+
+    # Bounds in primary space
+    vub = np.zeros(n_primaries)
+    vlb = np.zeros(n_primaries)
+    for i in range(n_primaries):
+        if background_primary[i] > 0.5:
+            vub[i] = 1 - primary_headroom
+            vlb[i] = background_primary[i] - (1 - primary_headroom - background_primary[i])
+        elif background_primary[i] < 0.5:
+            vub[i] = background_primary[i] + (background_primary[i] - primary_headroom)
+            vlb[i] = primary_headroom
+        else:
+            vub[i] = 1 - primary_headroom
+            vlb[i] = primary_headroom
+
+    bounds = [(vlb[i] - background_primary[i], vub[i] - background_primary[i]) for i in range(n_primaries)]
+
+    # Objective function
+    def isolate_objective(x: npt.NDArray[np.float64]) -> float:
+        background_spd = B_primary @ background_primary + ambient_spd
+        modulation_spd = B_primary @ x + background_spd
+
+        if EXCITATIONS:
+            response = T_receptors @ modulation_spd
+        else:
+            response = excitations_to_contrast(T_receptors @ modulation_spd,
+                                               T_receptors @ background_spd)
+
+        f1 = np.linalg.norm(response - desired_contrasts) / np.linalg.norm(desired_contrasts)
+
+        if target_lambda > 0:
+            coeffs = np.linalg.lstsq(target_basis[project_indices, :],
+                                     modulation_spd[project_indices], rcond=None)[0]
+            projection_spd = target_basis @ coeffs
+            f2 = np.linalg.norm(modulation_spd[project_indices] - projection_spd[project_indices]) / \
+                np.linalg.norm(modulation_spd[project_indices])
+            return f1 + target_lambda * f2
+        else:
+            return f1
+
+    result = minimize(
+        isolate_objective,
+        x0,
+        bounds=bounds,
+        method='SLSQP',
+        options={'disp': False, 'ftol': 1e-10}
+    )
+
+    if not result.success:
+        raise RuntimeError("Optimization failed: " + result.message)
+
+    modulating_primary = result.x
+    upper_primary = background_primary + modulating_primary
+    lower_primary = background_primary - modulating_primary
+
+    # Final bounds check
+    primary_tol = 2e-2
+    if np.any(upper_primary > 1 - primary_headroom + primary_tol) or \
+       np.any(upper_primary < 0 + primary_headroom - primary_tol):
+        raise ValueError("upperPrimary out of gamut")
+
+    if not POSITIVE_ONLY:
+        if np.any(lower_primary > 1 - primary_headroom + primary_tol) or \
+           np.any(lower_primary < 0 + primary_headroom - primary_tol):
+            raise ValueError("lowerPrimary out of gamut")
+
+    return modulating_primary, upper_primary, lower_primary

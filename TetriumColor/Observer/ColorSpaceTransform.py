@@ -90,11 +90,10 @@ def GetColorSpaceTransform(observer: Observer, display_basis: CSTDisplayType,
         intensities = disp.T * scaling_factor
         white_pt = observer.observe_normalized(np.ones_like(observer.wavelengths))
         white_weights = np.linalg.inv(intensities)@white_pt
-        new_intensities = intensities * white_weights
-        M_Cone_To_Primaries = np.linalg.inv(new_intensities)  # something is fucked
 
-        # scaling that needs to be applied after for 4p -> 6p display
         rescaled_white_weights = white_weights / np.max(white_weights)
+        new_intensities = intensities * rescaled_white_weights
+        M_Cone_To_Primaries = np.linalg.inv(new_intensities)  # something is fucked
     else:
         rescaled_white_weights = np.ones(observer.dimension)
         led_mapping = [i for i in range(observer.dimension)]

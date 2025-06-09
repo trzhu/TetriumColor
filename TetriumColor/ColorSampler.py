@@ -1,4 +1,3 @@
-from re import I, S
 import numpy as np
 import numpy.typing as npt
 from typing import List, Dict, Tuple, Union, Optional
@@ -13,7 +12,7 @@ from TetriumColor.ColorSpace import ColorSpace, ColorSpaceType
 from TetriumColor.PsychoPhys.IshiharaPlate import generate_ishihara_plate
 from TetriumColor.Utils.CustomTypes import TetraColor, PlateColor
 import TetriumColor.ColorMath.Geometry as Geometry
-from TetriumColor.ColorMath.SubSpaceIntersection import FindMaximalSaturation, FindMaximumIn1DimDirection
+from TetriumColor.ColorMath.SubSpaceIntersection import FindMaximalSaturation, FindMaximumIn1DimDirection, excitations_to_contrast, receptor_isolate_spectral
 from TetriumColor.ColorMath import GamutMath
 
 
@@ -460,6 +459,22 @@ class ColorSampler:
         Returns:
             npt.NDArray: Array of full colors in Hering Space
         """
+        # Create a hash based on observer and num_points
+        observer_hash = hashlib.md5(str(self.color_space.observer).encode()).hexdigest()
+        cache_filename = f"full_colors_{observer_hash}_{num_points}.pkl"
+
+        # Try to load from cache first
+        try:
+            with resources.path("TetriumColor.Assets.Cache", cache_filename) as path:
+                if os.path.exists(path):
+                    with open(path, "rb") as f:
+                        cached_data = pickle.load(f)
+                    print(f"Loaded full colors from cache: {cache_filename}")
+                    return cached_data
+        except Exception as e:
+            print(f"Failed to load full colors from cache: {e}")
+
+        # If not in cache, compute the full colors
         # for every hue
         vshh: npt.NDArray = self.sample_hue_manifold(1, 0.5, num_points)
         all_disp_points = self.color_space.convert(vshh, ColorSpaceType.VSH, ColorSpaceType.DISP)
@@ -474,7 +489,19 @@ class ColorSampler:
         max_sat_cartesian_per_angle = np.array(pts)
 
         # return point of max saturation for every hue
-        return self.color_space.convert(max_sat_cartesian_per_angle, ColorSpaceType.DISP, ColorSpaceType.HERING)
+        hering_points = self.color_space.convert(
+            max_sat_cartesian_per_angle, ColorSpaceType.DISP, ColorSpaceType.HERING)
+
+        # Save to cache
+        try:
+            with resources.path("TetriumColor.Assets.Cache", cache_filename) as path:
+                with open(path, "wb") as f:
+                    pickle.dump(hering_points, f)
+            print(f"Saved full colors to cache: {cache_filename}")
+        except Exception as e:
+            print(f"Failed to save full colors to cache: {e}")
+
+        return hering_points
 
     @staticmethod
     def _concatenate_cubemap(faces):
@@ -646,7 +673,11 @@ class ColorSampler:
                                          ColorSpaceType.DISP, ColorSpaceType.CONE)
         return metamers_in_disp, cones.reshape(-1, 2, self.color_space.dim)
 
-    def get_metameric_grid_plates(self, luminance: float, saturation: float, cube_idx: int, secrets: Optional[List[int]] = None) -> List[Tuple[Image.Image, Image.Image]]:
+    def get_metameric_grid_plates(self, luminance: float, saturation: float,
+                                  cube_idx: int, secrets: Optional[List[int]] = None,
+                                  lum_noise=0.0,
+                                  background: None | npt.NDArray = None,
+                                  isSRGB: bool = False) -> List[Tuple[Image.Image, Image.Image]]:
         """ Get the metamer points for a given luminance and cube index
         Args:
             luminance (float): luminance value
@@ -663,9 +694,12 @@ class ColorSampler:
         if secrets is None:
             secrets = np.random.randint(10, 100, size=len(disp_points)).tolist()
 
-        vec = np.zeros(self.color_space.dim)
-        vec[0] = luminance
-        background = self.color_space.to_tetra_color(np.array([vec]), from_space=ColorSpaceType.VSH)[0]
+        if background is None:
+            vec = np.zeros(self.color_space.dim)
+            vec[0] = luminance
+            background = self.color_space.to_tetra_color(np.array([vec]), from_space=ColorSpaceType.VSH)[0]
+        else:
+            background = self.color_space.to_tetra_color(np.array([background]), from_space=ColorSpaceType.DISP)[0]
 
         metamers_in_disp = np.zeros((disp_points.shape[0], 2, self.color_space.dim))
         plates = []
@@ -676,14 +710,16 @@ class ColorSampler:
 
             plate_color = self.color_space.to_plate_color(disp_points[i],
                                                           metamers_in_disp[i], from_space=ColorSpaceType.DISP)
-            SRGB_Colors = self.color_space.convert(metamers_in_disp[i], ColorSpaceType.DISP, ColorSpaceType.SRGB)
+            if isSRGB:
+                SRGB_Colors = self.color_space.convert(metamers_in_disp[i], ColorSpaceType.DISP, ColorSpaceType.SRGB)
 
-            plate_color = PlateColor(TetraColor(SRGB_Colors[0], SRGB_Colors[0]),
-                                     TetraColor(SRGB_Colors[1], SRGB_Colors[1]))
-            plates += [generate_ishihara_plate(plate_color, secrets[i], background_color=background)]
+                plate_color = PlateColor(TetraColor(SRGB_Colors[0], SRGB_Colors[0]),
+                                         TetraColor(SRGB_Colors[1], SRGB_Colors[1]))
+
+            plates += [generate_ishihara_plate(plate_color, secrets[i],
+                                               background_color=background, lum_noise=lum_noise)]
 
         # Convert to cone space
-
         print((metamers_in_disp.reshape(-1, self.color_space.dim)
               * self.color_space.transform.white_weights * 255).astype(np.uint8))
 
@@ -695,7 +731,6 @@ class ColorSampler:
         cones = self.color_space.convert(metamers_in_disp.reshape(-1, self.color_space.dim),
                                          ColorSpaceType.DISP, ColorSpaceType.CONE)
         print(cones)
-        # Convert to RGBO
 
         return plates
 
@@ -733,6 +768,100 @@ class ColorSampler:
                                                       metamers_in_disp[i], from_space=ColorSpaceType.DISP)
 
         return generate_ishihara_plate(plate_color, secret)
+
+    def get_cone_contrast_metamers_brainard(self, target_contrasts: npt.NDArray,  # shape: [n_primaries]
+                                            background_primary: npt.NDArray,  # shape: [n_primaries]
+                                            isPlotResults=False) -> Tuple[npt.NDArray, npt.NDArray]:
+        """Compute the cone contrast metamers using Brainard's modulation method
+
+        Args:
+            target_contrasts (npt.NDArray): the target cone contrasts to achieve
+            background_primary (npt.NDArray): the background primary choice
+
+        Returns:
+            Tuple[npt.NDArray, npt.NDArray]: two primary modulations
+        """
+        if self.color_space.display_primaries is None:
+            raise ValueError("Display primaries are not defined in the color space.")
+
+        n_wavelengths = len(self.color_space.observer.wavelengths)
+        n_primaries = len(self.color_space.display_primaries)
+        n_receptors = len(self.color_space.observer.sensor_matrix)
+        n_basis = n_primaries
+
+        observer = self.color_space.observer
+        primaries = self.color_space.display_primaries
+
+        # Synthetic example values
+        wls = np.linspace(380, 780, n_wavelengths)
+        T_receptors = observer.sensor_matrix
+        B_primary = np.array([p.data for p in primaries]).T
+        ambientSpd = np.zeros(wls.shape)  # np.sum(B_primary / 2.0, axis=1)
+        targetBasis = np.random.rand(n_wavelengths, n_basis)  # not using this
+        projectIndices = np.arange(n_wavelengths)  # not using this either
+        # targetContrasts = np.array([0, 0, -0.03, 0])
+        # backgroundPrimary = 0.5 * np.ones(n_primaries)
+        initialPrimary = np.zeros(n_primaries)
+        primaryHeadroom = 0.0
+        targetLambda = 0.0
+
+        # --- Run Optimization ---
+        modulatingPrimary, upperPrimary, lowerPrimary = receptor_isolate_spectral(
+            T_receptors, target_contrasts,
+            B_primary, background_primary, initialPrimary,
+            primaryHeadroom, targetBasis, projectIndices,
+            targetLambda, ambientSpd,
+            POSITIVE_ONLY=False,
+            EXCITATIONS=False
+        )
+
+        if isPlotResults:
+            backgroundSpd = B_primary @ background_primary + ambientSpd
+            upperIsolatingSpd = B_primary @ upperPrimary + ambientSpd
+            lowerIsolatingSpd = B_primary @ lowerPrimary + ambientSpd
+
+            backgroundResp = T_receptors @ backgroundSpd
+            upperIsolatingResp = T_receptors @ upperIsolatingSpd
+            lowerIsolatingResp = T_receptors @ lowerIsolatingSpd
+            obtainedUpperContrasts = excitations_to_contrast(upperIsolatingResp, backgroundResp)
+            obtainedLowerContrasts = excitations_to_contrast(lowerIsolatingResp, backgroundResp)
+
+            print("Target contrasts: ", np.round(target_contrasts, 2))
+            print("Obtained Upper contrasts: ", np.round(obtainedUpperContrasts, 2))
+            print("Obtained Lower Contrasts", np.round(obtainedLowerContrasts, 2))
+
+            import matplotlib.pyplot as plt
+            # --- Plot Spectra ---
+            plt.figure()
+            plt.plot(wls, backgroundSpd, 'k-', label='Background', linewidth=2)
+            plt.plot(wls, upperIsolatingSpd, 'r-', label='Upper Isolating', linewidth=2)
+            plt.plot(wls, lowerIsolatingSpd, 'b--', label='Lower Isolating', linewidth=2)
+            plt.xlabel('Wavelength (nm)')
+            plt.ylabel('Power')
+            plt.title('Upper and Lower Isolating Modulations vs Background')
+            plt.legend()
+            plt.show()
+
+        return upperPrimary, lowerPrimary
+
+    def get_cone_contrast_plate(self, target_contrasts: npt.NDArray,
+                                background_primary: npt.NDArray,
+                                secret: int | None = None
+                                ) -> Tuple[Image.Image, Image.Image]:
+
+        upper, lower = self.get_cone_contrast_metamers_brainard(target_contrasts, background_primary)
+        upper_sixd_color = upper[[0, 1, 3, 2, 1, 3]]  # need something better to reuse colorspace code
+        lower_sixd_color = lower[[0, 1, 3, 2, 1, 3]]
+        plate_color = PlateColor(TetraColor(upper_sixd_color[:3], upper_sixd_color[3:]), TetraColor(
+            lower_sixd_color[:3], lower_sixd_color[3:]))
+
+        # need something better to reuse colorspace code
+        sixd_background = background_primary[[0, 1, 3, 2, 1, 3]]
+        background_tetracolor: TetraColor = TetraColor(sixd_background[:3], sixd_background[3:])
+
+        if secret is None:
+            secret = np.random.randint(10, 100)
+        return generate_ishihara_plate(plate_color, secret, background_color=background_tetracolor)
 
     def to_tetra_color(self, vsh_points: npt.NDArray) -> List[TetraColor]:
         """

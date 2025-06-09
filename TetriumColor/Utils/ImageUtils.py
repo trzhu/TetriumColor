@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple
 
 from PIL import Image
 import math
@@ -54,3 +54,20 @@ def CreatePaddedGrid(images: List[str] | List[Image.Image], canvas_size=(1280, 7
     canvas.paste(grid_image, (x_offset, y_offset))
 
     return canvas
+
+
+def ExportPlates(images: List[Tuple[Image.Image, Image.Image]], filename: str):
+    """
+    Export a list of images as a padded grid to a file.
+
+    Args:
+        images (list of Image.Image): List of Pillow Image objects.
+        filename (str): The output file path.
+        canvas_size (tuple): Tuple (width, height) specifying the canvas dimensions.
+        padding (int, optional): Padding between images in pixels. Defaults to 10.
+        bg_color (tuple, optional): Background color for the canvas (R, G, B). Defaults to black.
+    """
+    img_rgo = CreatePaddedGrid([i[0] for i in images], padding=0)
+    img_rgo.save(f"{filename}_RGB.png")
+    img_bgo = CreatePaddedGrid([i[1] for i in images], padding=0)
+    img_bgo.save(f"{filename}_OCV.png")
