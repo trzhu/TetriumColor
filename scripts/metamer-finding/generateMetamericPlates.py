@@ -68,9 +68,11 @@ color_sampler = ColorSampler(cs_4d, cubemap_size=5)
 # images = color_sampler.get_metameric_grid_plates(1.0, 0.4, 4, lum_noise=0.02)
 # ExportPlates(images, "./results/avg-background")
 
-lum_noise = 0.04
-images = color_sampler.get_metameric_grid_plates(1.0, 0.4, 4, background=np.zeros(4), lum_noise=lum_noise)
-ExportPlates(images, f"./results/black-background_{lum_noise:.2f}")
+lum_noise = 0.01
+s_cone_noise = 0.04
+images = color_sampler.get_metameric_grid_plates(
+    1.0, 0.4, 4, background=np.zeros(4), lum_noise=lum_noise, s_cone_noise=s_cone_noise, isSRGB=True)
+ExportPlates(images, f"./results/black-background_lum_noise_{lum_noise:.2f}_scone_noise_{s_cone_noise:.3f}")
 
 
 # img = CreatePaddedGrid([i[0] for i in images], padding=0, canvas_size=(1280 * 8, 720 * 8))

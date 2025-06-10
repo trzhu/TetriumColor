@@ -8,6 +8,7 @@ import numpy.typing as npt
 
 from PIL import Image, ImageDraw
 from TetriumColor.Utils.CustomTypes import PlateColor, TetraColor
+from TetriumColor import ColorSpace, ColorSpaceType
 from PIL import ImageFont
 from pathlib import Path
 
@@ -135,11 +136,13 @@ def _draw_plate(
     circles: List[List[float]],
     inside_props: List[float],
     outside_props: List[float],
-    inside_color: np.ndarray,
-    outside_color: np.ndarray,
+    inside_color: np.ndarray,  # cone stimulation
+    outside_color: np.ndarray,  # cone stimulation
+    color_space: ColorSpace,
     channel_draws: List[ImageDraw.ImageDraw],
     lum_noise: float,
-    noise_generator: Optional[Callable[[], npt.NDArray]] = None
+    output_space: ColorSpaceType = ColorSpaceType.DISP_6P,
+    s_cone_noise: float = 0.0
 ) -> None:
     """
     Draw the plate with the computed circle positions and colors.
@@ -151,42 +154,47 @@ def _draw_plate(
     :param outside_color: Color for background elements
     :param channel_draws: ImageDraw objects for each channel
     :param lum_noise: Luminance noise amount
-    :param noise_generator: Optional custom noise generator
     """
     for i, [x, y, r] in enumerate(circles):
         in_p, out_p = inside_props[i], outside_props[i]
 
-        if noise_generator:
-            new_color = np.clip(noise_generator(), 0, 1)
-            if in_p:
-                new_color = new_color[0]
-            else:
-                new_color = new_color[1]
-        else:
-            circle_color = in_p * inside_color + out_p * outside_color
-            # Noise applied to the six channel, scale the entire vector
-            lum_noise_val = np.random.normal(0, lum_noise)
-            # Only apply to vector that are on
-            new_color = np.clip(circle_color + (lum_noise_val * (circle_color > 0)), 0, 1)
+        # chooses inside or outside color
+        circle_color = in_p * inside_color + out_p * outside_color
 
+        noise_vector = np.zeros(color_space.dim)
+        if s_cone_noise > 0:
+            noise_vector[0] += np.random.normal(0, s_cone_noise)
+
+        if lum_noise > 0:
+            # Add luminance noise
+            noise_vector += np.random.normal(0, lum_noise, size=color_space.dim)
+
+        circle_color = np.clip(circle_color + noise_vector, 0, None)
+        circle_color = color_space.convert(np.array([circle_color]), ColorSpaceType.CONE, output_space)[0]
+
+        if output_space == ColorSpaceType.SRGB:
+            circle_color = np.append(circle_color, circle_color)  # double it lol
         # Draw the ellipse
         bounding_box = [x-r, y-r, x+r, y+r]
-        ellipse_color = (new_color * 255).astype(int)
+        ellipse_color = (circle_color * 255).astype(int)
         channel_draws[0].ellipse(bounding_box, fill=tuple(ellipse_color[:3]), width=0)
         channel_draws[1].ellipse(bounding_box, fill=tuple(ellipse_color[3:]), width=0)
 
 
 def generate_ishihara_plate(
-    plate_color: PlateColor,
+    inside_cone: npt.NDArray,
+    outside_cone: npt.NDArray,
+    color_space: ColorSpace,
     secret: int = _SECRETS[0],
     num_samples: int = 100,
     dot_sizes: List[int] = [16, 22, 28],
     image_size: int = 1024,
     seed: int = 0,
     lum_noise: float = 0,
+    s_cone_noise: float = 0,
     noise: float = 0,
+    output_space: ColorSpaceType = ColorSpaceType.DISP_6P,
     gradient: bool = False,
-    noise_generator: Optional[Callable[[], npt.NDArray]] = None,
     corner_label: Optional[str] = None,
     corner_color: npt.ArrayLike = np.array([255/2, 255/2, 255/2, 255/2, 0, 0]).astype(int),
     background_color: TetraColor = TetraColor(RGB=np.array([0, 0, 0]), OCV=np.array([0, 0, 0]))
@@ -196,8 +204,10 @@ def generate_ishihara_plate(
 
     Parameters:
     -----------
-    plate_color : PlateColor
-        A PlateColor object with shape and background colors (RGB/OCV tuples).
+    inside_cone: npt.NDArray
+        Color for the inside of the plate (shape elements).
+    outside_cone: npt.NDArray
+        Color for the outside of the plate (background elements).
     secret : int
         Specifies which secret file to use from the secrets directory.
     num_samples : int
@@ -234,10 +244,9 @@ def generate_ishihara_plate(
         num_samples = 1
         if noise != 0:
             raise ValueError("None-zero noise is not supported for non-gradient plates -- it doesn't make sense!")
+    dim = inside_cone.shape[0]
 
     # Standardize colors
-    inside_color = _standardize_color(plate_color.shape)
-    outside_color = _standardize_color(plate_color.background)
 
     # Load secret image
     with resources.path("TetriumColor.Assets.HiddenImages", f"{str(secret)}.png") as data_path:
@@ -262,8 +271,8 @@ def generate_ishihara_plate(
 
     # Draw plate
     _draw_plate(
-        circles, inside_props, outside_props, inside_color, outside_color,
-        channel_draws, lum_noise, noise_generator
+        circles, inside_props, outside_props, inside_cone, outside_cone, color_space,
+        channel_draws, lum_noise, output_space, s_cone_noise
     )
 
     # Draw corner label if provided

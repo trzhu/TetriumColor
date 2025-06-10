@@ -676,6 +676,7 @@ class ColorSampler:
     def get_metameric_grid_plates(self, luminance: float, saturation: float,
                                   cube_idx: int, secrets: Optional[List[int]] = None,
                                   lum_noise=0.0,
+                                  s_cone_noise=0.0,
                                   background: None | npt.NDArray = None,
                                   isSRGB: bool = False) -> List[Tuple[Image.Image, Image.Image]]:
         """ Get the metamer points for a given luminance and cube index
@@ -708,16 +709,12 @@ class ColorSampler:
             metamers_in_disp[i] = np.array(FindMaximumIn1DimDirection(
                 disp_points[i], metamer_dir_in_disp, np.eye(self.color_space.dim)))
 
-            plate_color = self.color_space.to_plate_color(disp_points[i],
-                                                          metamers_in_disp[i], from_space=ColorSpaceType.DISP)
-            if isSRGB:
-                SRGB_Colors = self.color_space.convert(metamers_in_disp[i], ColorSpaceType.DISP, ColorSpaceType.SRGB)
+            display_color_space = ColorSpaceType.SRGB if isSRGB else ColorSpaceType.DISP_6P
+            colors = self.color_space.convert(metamers_in_disp[i], ColorSpaceType.DISP, ColorSpaceType.CONE)
 
-                plate_color = PlateColor(TetraColor(SRGB_Colors[0], SRGB_Colors[0]),
-                                         TetraColor(SRGB_Colors[1], SRGB_Colors[1]))
-
-            plates += [generate_ishihara_plate(plate_color, secrets[i],
-                                               background_color=background, lum_noise=lum_noise)]
+            plates += [generate_ishihara_plate(colors[0], colors[1], self.color_space, secrets[i],
+                                               background_color=background, output_space=display_color_space,
+                                               lum_noise=lum_noise, s_cone_noise=s_cone_noise)]
 
         # Convert to cone space
         print((metamers_in_disp.reshape(-1, self.color_space.dim)
@@ -736,17 +733,20 @@ class ColorSampler:
 
     def get_metameric_grid_plate(self, luminance: float, saturation: float,
                                  cube_idx: int, grid_idx: tuple[int, int],
-                                 secret: Optional[int] = None) -> Tuple[Image.Image, Image.Image]:
+                                 secret: Optional[int] = None, lum_noise: float = 0.0,
+                                 s_cone_noise: float = 0.0) -> Tuple[Image.Image, Image.Image]:
         """ Get the metamer points for a given luminance and cube index
         Args:
             luminance (float): luminance value
             saturation (float): saturation value
             cube_idx (int): cube index
-            grid_size (int): grid size
-            color_space_transform (ColorSpaceTransform): color space transform object
+            grid_idx (int): grid index into the cubemap (out of six)
+            secret (Optional[int]): secret number for the plate
+            lum_noise (float): noise to add to the luminance channel
+            s_cone_noise (float): noise to add to the S-cone channel
 
         Returns:
-            npt.NDArray: The metamer points
+            Tuple[Image.Image, Image.Image]: The metamer plates in RGB/OCV
         """
         disp_points = self.output_cubemap_values(luminance, saturation, ColorSpaceType.DISP)[cube_idx]
         metamer_dir_in_disp = self.color_space.get_metameric_axis_in(ColorSpaceType.DISP)
@@ -764,10 +764,9 @@ class ColorSampler:
         metamers_in_disp[i] = np.array(FindMaximumIn1DimDirection(
             disp_points[i], metamer_dir_in_disp, np.eye(self.color_space.dim)))
 
-        plate_color = self.color_space.to_plate_color(disp_points[i],
-                                                      metamers_in_disp[i], from_space=ColorSpaceType.DISP)
+        cones = self.color_space.convert(metamers_in_disp[i], ColorSpaceType.DISP, ColorSpaceType.CONE)
 
-        return generate_ishihara_plate(plate_color, secret)
+        return generate_ishihara_plate(cones[0], cones[1], self.color_space, secret, lum_noise=lum_noise, s_cone_noise=s_cone_noise)
 
     def get_cone_contrast_metamers_brainard(self, target_contrasts: npt.NDArray,  # shape: [n_primaries]
                                             background_primary: npt.NDArray,  # shape: [n_primaries]
