@@ -1,3 +1,5 @@
+# script for getting the wavelength information from Artist_paint_spectra.xlsx and putting it in a json
+
 import pandas as pd
 import numpy as np
 import json
@@ -11,7 +13,7 @@ sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from TetriumColor.Observer import Spectra, Illuminant, Observer
 
-
+# getting the data from the xls was kinda slow so i'll save the important stuff to a json first
 def save_reflectances_as_json(filePath):
     excel_file = pd.ExcelFile(filePath)
     df = pd.read_excel(excel_file, sheet_name="Oil")
@@ -26,6 +28,8 @@ def save_reflectances_as_json(filePath):
     processed = []
     
     for pigment, group in grouped:
+        # assume the highest luminance is the lowest concentration
+        # tbh I should have done it ascending and counted down from 100...
         group = group.sort_values(by="L* D65, 10°", ascending=False).reset_index(drop=True)
         for i, row in group.iterrows():
             label = f"{pigment.strip().strip("'")}"
@@ -34,8 +38,10 @@ def save_reflectances_as_json(filePath):
                 concentration = 100
             else:
                 concentration = 10 * (i+1)
-            reflectance = row[i+6:].to_list() #R380 is on the 6th column
+            reflectance = row[6:].to_list() #R380 is on the 6th column
             processed.append((label, concentration, reflectance))
+            # e.g.
+            # ["pigment name", concentration, [reflectance at 380nm, reflectance at 390nm, ... reflectance at 730 nm]]
     
     data_to_save = {
         "wavelengths": wavelengths,
@@ -48,7 +54,7 @@ def save_reflectances_as_json(filePath):
     with open(json_path, "w") as f:
         json.dump(data_to_save, f)
         
-    print("yippee")
+    print("saved to oilpaints.json")
 
 if __name__ == "__main__":
     save_reflectances_as_json("C:\\Users\\User\\Documents\\Documents2\\tetrachromacy\\Berns archiving files\\Artist_paint_spectra.xlsx")
