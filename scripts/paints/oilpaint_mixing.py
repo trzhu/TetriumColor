@@ -75,7 +75,11 @@ def plot_all_pigments(pigment_data: dict):
     # Plot each pigment
     for i, pigment in enumerate(pigments):
         ax_plot = axes[i, 0]
-        ax_plot.plot(pigment_data[pigment][100].wavelengths, pigment_data[pigment][100].data, label=pigment)
+        rgb = pigment_data[pigment][100].to_rgb()
+        
+        # plot spectrum
+        spec = pigment_data[pigment][100]
+        spec.plot(name=pigment, ax=ax_plot, normalize=True, color = rgb)
         ax_plot.set_title(pigment)
         ax_plot.set_xlabel("Wavelength")
         ax_plot.set_ylabel("Reflectance")
@@ -83,7 +87,6 @@ def plot_all_pigments(pigment_data: dict):
 
         # Plot swatch
         ax_swatch = axes[i, 1]
-        rgb = pigment_data[pigment][100].to_rgb()
         ax_swatch.imshow([[rgb]])
         ax_swatch.axis("off")
         ax_swatch.set_title("Swatch")

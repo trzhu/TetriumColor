@@ -28,16 +28,12 @@ def save_reflectances_as_json(filePath):
     processed = []
     
     for pigment, group in grouped:
-        # assume the highest luminance is the lowest concentration
-        # tbh I should have done it ascending and counted down from 100...
-        group = group.sort_values(by="L* D65, 10°", ascending=False).reset_index(drop=True)
+        # assume the lowest luminance (darkest) is the highest concentration
+        group = group.sort_values(by="L* D65, 10°", ascending=True).reset_index(drop=True)
         for i, row in group.iterrows():
             label = f"{pigment.strip().strip("'")}"
-            # if something has only one entry, like titanium white, it is 100% concentration
-            if len(group) == 1:
-                concentration = 100
-            else:
-                concentration = 10 * (i+1)
+            # if something has only one entry, like titanium white, it will automatically be 100% concentration
+            concentration = 100 - 10 * i
             reflectance = row[6:].to_list() #R380 is on the 6th column
             processed.append((label, concentration, reflectance))
             # e.g.
