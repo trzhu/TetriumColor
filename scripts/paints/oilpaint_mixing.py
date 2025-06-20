@@ -59,6 +59,7 @@ def visualize(name: str, spec: Spectra):
     plt.ylabel("Reflectance")
     plt.show()
 
+# reminder to self: the left side is short wavelengths/purple and the right side is long wavelengths/red
 def plot_all_pigments(pigment_data: dict):
     # Number of pigments
     pigments = list(pigment_data.keys())
@@ -100,7 +101,7 @@ def plot_all_pigments(pigment_data: dict):
     plt.savefig(path, dpi=300)
     plt.close()
     
-    print("saved image")
+    print("saved swatches image")
 
 # returns K/S = (1-R)^2 / 2R for every lambda
 def KS_ratio(spec: Spectra) -> np.ndarray:
@@ -203,14 +204,47 @@ def plot_values(Ks: list, Ss: list, pigment: str, wavelengths: list):
     plt.grid(True)
     plt.show()
     
+def plot_computed_KS(computed_KS: dict, wavelengths: np.array):
+    n_pigments = len(computed_KS)
+    fig, axes = plt.subplots(n_pigments, 2, figsize=(10, 3 * n_pigments), sharex=True)
+
+    if n_pigments == 1:
+        axes = [axes]  # handle the single-row edge case
+
+    for i, (pigment, data) in enumerate(computed_KS.items()):
+        ax_left = axes[i][0]
+        ax_right = axes[i][1]
+
+        # Left: K_p and S_p
+        ax_left.plot(wavelengths, data["K_p"], label="K_p", color="blue")
+        ax_left.plot(wavelengths, data["S_p"], label="S_p", color="green")
+        ax_left.set_title(f"{pigment} - Pigment Coefficients")
+        ax_left.legend()
+        ax_left.set_ylabel("Value")
+
+        # Right: K_w and S_w as derived via this pigment
+        ax_right.plot(wavelengths, data["K_w"], label="K_w", color="red")
+        ax_right.plot(wavelengths, data["S_w"], label="S_w", color="orange")
+        ax_right.set_title(f"White Coefficients (via {pigment})")
+        ax_right.legend()
+
+    for ax in axes[-1]:
+        ax.set_xlabel("Wavelength (nm)")
+
+    plt.tight_layout()
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(current_dir, "KS_plots.png")
+    plt.savefig(path, dpi=300)
+    plt.close()
+    print("saved plots")
+    
 def main():
     print("it started")
     wvls, pigment_spectra = load_reflectance_data()
-    
-    plot_all_pigments(pigment_spectra)
-    
     # if want smaller steps maybe do something like e.g.
     # spec.interpolate(385, 395, )etc
+    
+    # plot_all_pigments(pigment_spectra)
     
     # K/S for titanium white 
     Q_white = KS_ratio(pigment_spectra["titanium white"][100])
@@ -220,27 +254,24 @@ def main():
     for p in pigment_spectra.keys():
         if p == "titanium white":
             KS_ratios[p][100] = Q_white
-            # print(f"Q_white = {Q_white}")
             continue
         # for everything except white, its 0% reflectance is just titanium white
-        # helps with least squares fitting
         pigment_spectra[p][0] = pigment_spectra["titanium white"][100]
         for c in pigment_spectra[p]:
             if c == 0:
                 KS_ratios[p][0] = Q_white
                 continue
             KS_ratios[p][c] = KS_ratio(pigment_spectra[p][c])
-            # print(f"{pigment} {concentration}% {KS_ratios[pigment][concentration]}")
     
+    # dictionary that will store values for K_w, S_w, K_p, S_p as computed by each pigment's data
+    computed_values = {}
     
-    ### I need to change this to save it in a diff array for each wavelength probably
-    w = "titanium white" # substrate
-    computed_K_ws = []
-    computed_S_ws = []
-
     for p in KS_ratios.keys():
         if p == "titanium white":
             continue
+        # K_w, S_w, K_p, S_p as computed for this pigment across each wavelength
+        computed_K_ws = []
+        computed_S_ws = []
         computed_K_ps = []
         computed_S_ps = []
         for i in range(len(wvls)):
@@ -252,20 +283,20 @@ def main():
                 c_vals.append(c / 100)  # convert to [0, 1] range
 
             K_w, S_w, K_p, S_p = solve_KS(np.array(Q_vals), np.array(c_vals))
+            
             computed_K_ws.append(K_w)
             computed_S_ws.append(S_w)
             computed_K_ps.append(K_p)
             computed_S_ps.append(S_p)
-            # print(f"at concentration {c}, at wavelength {wvls[i]}, K_w, S_w, K_p, S_p = {K_w, S_w, K_p, S_p}")
-            
-        # print(f"computed_K_ws = {computed_K_ws}")
-        # print(f"computed_S_ws = {computed_S_ws}")
-        # print(f"computed_K_ps = {computed_K_ps}")
-        # print(f"computed_S_ps = {computed_S_ps}")
         
-        # plot_values(computed_K_ps, computed_S_ps, p, wvls)
-        # plot_values(computed_K_ws, computed_S_ws, w, wvls)
-
+        computed_values[p] = {
+        "K_w": np.array(computed_K_ws),
+        "S_w": np.array(computed_S_ws),
+        "K_p": np.array(computed_K_ps),
+        "S_p": np.array(computed_S_ps), 
+        }
+        
+    plot_computed_KS(computed_values, wvls)
     
     
 # btw FOR SOME REASON, in Artist_paint_spectra.xlsx phthalo blue is spelled pthalo blue
