@@ -9,12 +9,12 @@ from TetriumColor.Observer import Spectra
 def combine_ansari_data():
 
     # Load the reflectance library from the .mat file
-    data = loadmat("../../data/ansari/complete_reflectance_library.mat")
+    data = loadmat("../../data/inksets/ansari/complete_reflectance_library.mat")
     reflectance_data = data["reflectance"]
     wavelengths = np.arange(400, 701, 10)
 
     # Load the ink library description from the .csv file
-    description_df = pd.read_csv("../../data/ansari/ink_library_description.csv")
+    description_df = pd.read_csv("../../data/inksets/ansari/ink_library_description.csv")
 
     # Combine the data into a single DataFrame
     reflectance_df = pd.DataFrame(reflectance_data.T, index=wavelengths)
@@ -23,8 +23,25 @@ def combine_ansari_data():
     # Merge the reflectance data with the description data
     combined_df = description_df.merge(reflectance_df.T, left_index=True, right_index=True)
 
+    # Combine the metadata columns into a single column
+    combined_df['Name'] = (
+        combined_df['Color'].astype(str) + ', ' +
+        combined_df['Manufacturer'].astype(str) + ', ' +
+        combined_df['Type'].astype(str) + ', ' +
+        combined_df['Details'].astype(str)
+    )
+
+    # Reorder columns to put Name as the second column
+    cols = combined_df.columns.tolist()
+    cols.remove('Name')
+    cols.insert(1, 'Name')
+    combined_df = combined_df[cols]
+
+    # Drop the original metadata columns
+    combined_df = combined_df.drop(['Color', 'Manufacturer', 'Type', 'Details'], axis=1)
+
     # Save the combined DataFrame to a CSV file
-    combined_df.to_csv("../../data/ansari/combined_ink_library.csv", index=False)
+    combined_df.to_csv("../../data/inksets/ansari/ansari-inks.csv", index=False)
 
     # Display the first few rows of the combined DataFrame
     print(combined_df.head())
@@ -90,7 +107,7 @@ def combine_fp_inks_data():
     all_inks["epson cyan"] = cmy_primaries_dict["100"]
     all_inks["epson magenta"] = cmy_primaries_dict["010"]
     all_inks["epson yellow"] = cmy_primaries_dict["001"]
-    paper = cmy_primaries_dict["000"]
+    all_inks["paper"] = cmy_primaries_dict["000"]
 
     # del all_inks["Noodlers Firefly"]
     # del all_inks["PR Neon Yellow"]
@@ -106,9 +123,9 @@ def combine_fp_inks_data():
 
     # Save to CSV
     df.to_csv("../../data/fp_inks/all_inks.csv")
-    print("Combined FP inks data saved to ../../data/fp_inks/all_inks.csv")
+    print("Combined FP inks data saved to ../../data/inksets/fp_inks/all_inks.csv")
 
 
 if __name__ == "__main__":
-    # combine_ansari_data()
-    combine_fp_inks_data()
+    combine_ansari_data()
+    # combine_fp_inks_data()

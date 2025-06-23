@@ -227,7 +227,7 @@ def km_mix(pigments, concentrations=None):
     K_mix = K_matrix @ concentrations
     S_mix = S_matrix @ concentrations
 
-    return Spectra(data=data_from_k_s(K_mix, S_mix), wavelengths=wavelengths)
+    return Spectra(data=data_from_k_s(K_mix, S_mix), wavelengths=wavelengths, normalized=False)
 
 
 def load_neugebauer(inks, paper, n=50):
@@ -326,7 +326,7 @@ class CellNeugebauer:
 
 
 class Neugebauer:
-    def __init__(self, primaries_dict: Optional[Dict[Union[Tuple, str], Spectra]], n=50):
+    def __init__(self, primaries_dict: Optional[Dict[Union[Tuple, str], Spectra]], n=2):
         """
         primaries_dict is (key, value) pairs where the key is either a
         string of binary digits or a tuple of binary values, and value is a Spectra.
@@ -423,7 +423,7 @@ class InkGamut:
         data = self.neugebauer.mix(percentages).T
         if clip:
             data = np.clip(data, 0, 1)
-        return Spectra(data=data, wavelengths=self.wavelengths)
+        return Spectra(data=data, wavelengths=self.wavelengths, normalized=clip)
 
     def batch_generator(self, iterable, batch_size):
         """Utility function to generate batches from an iterable."""
@@ -584,7 +584,7 @@ class InkGamut:
     def get_width(self, observe: Union[Observer, npt.NDArray],
                   axis=2, stepsize=0.1, verbose=True, save=False, refined=0):
         percentages = self.get_buckets(observe, axis=axis, stepsize=stepsize, verbose=verbose, save=save,
-                                       refined=refined)
+                                       )
 
         dst, (pi, pj) = percentages[0]
 

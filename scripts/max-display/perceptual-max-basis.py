@@ -352,7 +352,7 @@ def compute_max_pareto_vol_efficiency(volumes, efficacies, corresponding_peaks, 
 wavelengths = np.arange(400, 701, 10)
 observer_wavelengths = np.arange(380, 781, 10)
 observers = [
-    Observer.custom_observer(observer_wavelengths, dimension=3),  # standard LMS observer
+    # Observer.custom_observer(observer_wavelengths, dimension=3),  # standard LMS observer
     # Observer.custom_observer(observer_wavelengths, dimension=3, l_cone_peak=547),  # Cda29's kid
     # Observer.custom_observer(observer_wavelengths, dimension=3, l_cone_peak=551),  # ben-like observer
     # most likely functional tetrachromatic observer
@@ -373,10 +373,11 @@ monochromatic_lights = [Spectra(wavelengths=wavelengths, data=np.eye(1, len(wave
                         for p in peak_wavelengths]
 
 led_spectrums_path = "../../measurements/2025-04-04/led-spectrums.csv"
+led_spectrums_path = "../../data/vpixx/spds.csv"
 primary_df = pd.read_csv(led_spectrums_path)
 excluded = [5, 6, 7]
 our_primaries = primary_df.iloc[:, 1:].to_numpy()
-our_primaries = our_primaries[:, [x for x in range(1, our_primaries.shape[1]) if x not in excluded]]
+# our_primaries = our_primaries[:, [x for x in range(1, our_primaries.shape[1]) if x not in excluded]]
 primary_wavelengths = primary_df["wavelength"].to_numpy()
 # Normalize our primaries such that the peak of each spectrum is 1
 our_primaries = (our_primaries / np.max(our_primaries, axis=(0, 1))).T
@@ -384,8 +385,9 @@ our_primaries = [Spectra(wavelengths=primary_wavelengths, data=spectrum) for spe
 our_primary_peaks = [primary_wavelengths[np.argmax(spectrum.data)] for spectrum in our_primaries]
 
 
-primary_sets = [gaussian_primaries, our_primaries]  # [gaussian_primaries, our_primaries]  # gaussian_primaries,
-corresponding_peaks = [peak_wavelengths, our_primary_peaks]  # [peak_wavelengths, our_primary_peaks]  #
+# gaussian_primaries, our_primaries]  # [gaussian_primaries, our_primaries]  # gaussian_primaries,
+primary_sets = [our_primaries]
+corresponding_peaks = [our_primary_peaks]  # [peak_wavelengths, our_primary_peaks]  #
 # set of bases to project into from chromaticity
 # bases = [ColorSpaceType.CHROM, ColorSpaceType.HERING_CHROM, ColorSpaceType.CONE, ColorSpaceType.MAXBASIS]
 # ColorSpaceType.MAXBASIS243_PERCEPTUAL_243,
@@ -431,36 +433,36 @@ for observer in observers:
             primary_candidates = np.array(list(combinations(observed_primaries, observer.dimension)))
             idxs = np.array(list(combinations(range(len(observed_primaries)), observer.dimension)))
             # compute the chromaticity of the primary candidates
-            # if isPerceptual:
-            #     volumes, efficacies = compute_max_perceptual_volume(
-            #         cs, basis, denom, primary_candidates, spds)
-            # else:
-            #     efficacies = compute_efficiency(cs, primary_candidates, spds)
-            #     volumes = compute_max_chromatic_vol(cs, basis, primary_candidates)
-
-            # Define file paths for pickled data
-            volumes_file = os.path.join(save_dir, f"volumes_{str(observer)}_{basis}_{denom}_primary_set_{pset_idx}.pkl")
-            efficacies_file = os.path.join(
-                save_dir, f"efficacies_{str(observer)}_{basis}_{denom}_primary_set_{pset_idx}.pkl")
-
-            # Check if pickled data exists
-            if os.path.exists(volumes_file) and os.path.exists(efficacies_file):
-                with open(volumes_file, 'rb') as vf, open(efficacies_file, 'rb') as ef:
-                    volumes = pickle.load(vf)
-                    efficacies = pickle.load(ef)
+            if isPerceptual:
+                volumes, efficacies = compute_max_perceptual_volume(
+                    cs, basis, denom, primary_candidates, idxs, spds)
             else:
-                # Compute volumes and efficacies if not already pickled
-                volumes, efficacies = compute_perceptual_volume(cs, basis, denom, primary_candidates, idxs, spds)
-                # Save the computed data to pickle files
-                with open(volumes_file, 'wb') as vf, open(efficacies_file, 'wb') as ef:
-                    pickle.dump(volumes, vf)
-                    pickle.dump(efficacies, ef)
+                efficacies = compute_efficiency(cs, primary_candidates, spds)
+                volumes = compute_max_chromatic_vol(cs, basis, primary_candidates)
+
+            # # Define file paths for pickled data
+            # volumes_file = os.path.join(save_dir, f"volumes_{str(observer)}_{basis}_{denom}_primary_set_{pset_idx}.pkl")
+            # efficacies_file = os.path.join(
+            #     save_dir, f"efficacies_{str(observer)}_{basis}_{denom}_primary_set_{pset_idx}.pkl")
+
+            # # Check if pickled data exists
+            # if os.path.exists(volumes_file) and os.path.exists(efficacies_file):
+            #     with open(volumes_file, 'rb') as vf, open(efficacies_file, 'rb') as ef:
+            #         volumes = pickle.load(vf)
+            #         efficacies = pickle.load(ef)
+            # else:
+            #     # Compute volumes and efficacies if not already pickled
+            #     volumes, efficacies = compute_perceptual_volume(cs, basis, denom, primary_candidates, idxs, spds)
+            #     # Save the computed data to pickle files
+            #     with open(volumes_file, 'wb') as vf, open(efficacies_file, 'wb') as ef:
+            #         pickle.dump(volumes, vf)
+            #         pickle.dump(efficacies, ef)
             # efficacies = compute_efficiency(cs, primary_candidates, spds)
 
             max_vol_idx, volume = np.argmax(volumes), volumes.max()
 
-            print("Max Vol Corresponding Peaks: ", corresponding_primaries[max_vol_idx])
             print("Max Volume: ", volume)
+            print("Max Vol Corresponding Peaks: ", corresponding_primaries[max_vol_idx])
 
             idx, volume, efficacy = compute_max_pareto_vol_efficiency(
                 volumes, efficacies, corresponding_primaries,
