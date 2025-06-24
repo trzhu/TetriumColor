@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import json, os, math
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 from collections import defaultdict
 from scipy.optimize import lsq_linear
 
@@ -14,6 +15,8 @@ sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 # from TetriumColor.Observer import Spectra, Illuminant, Observer
 from TetriumColor.Observer import Spectra
+
+img_dpi = 48 # make smaller or larger for desired size of pngs
 
 def load_reflectance_data():
     """
@@ -65,13 +68,10 @@ def plot_all_pigments(pigment_data: dict):
     pigments = list(pigment_data.keys())
     num_pigments = len(pigments)
 
-    # Set up subplot grid (e.g., 3 columns)
+    # Set up subplot grid
     cols = 2
     rows = num_pigments
     fig, axes = plt.subplots(rows, cols, figsize=(6 * cols, 2.5 * rows), constrained_layout=True)
-
-    if rows == 1:
-        axes = np.expand_dims(axes, axis=0)
 
     # Plot each pigment
     for i, pigment in enumerate(pigments):
@@ -98,7 +98,7 @@ def plot_all_pigments(pigment_data: dict):
     
     current_dir = os.path.dirname(os.path.abspath(__file__))
     path = os.path.join(current_dir, "oilpaint_swatches.png")
-    plt.savefig(path, dpi=300)
+    plt.savefig(path, dpi=img_dpi)
     plt.close()
     
     print("saved swatches image")
@@ -152,9 +152,17 @@ def solve_KS(Q_array: list, c_array: list):
     # print(f"A {A}")
     
     # Solve Ax = b in least squares sense
-    bounds = (1.0e-16, np.inf)
+    # have to set some lower bound so it doesnt give u all 0s
+    bounds = (1.0e-32, np.inf)
     result = lsq_linear(A, b, bounds=bounds)
-    # print(f"K_w, S_w, K_p, S_p = {result.x}")
+    
+    # test
+    residuals = A @ result.x - b
+    mse = np.mean(residuals**2)
+    mae = np.mean(np.abs(residuals))
+    print(f"mean squared error: {mse}")
+    print(f"mean absolute error: {mae}")
+    
     return result.x
 
 def Q_to_R(Q):
@@ -234,10 +242,57 @@ def plot_computed_KS(computed_KS: dict, wavelengths: np.array):
     plt.tight_layout()
     current_dir = os.path.dirname(os.path.abspath(__file__))
     path = os.path.join(current_dir, "KS_plots.png")
-    plt.savefig(path, dpi=300)
+    plt.savefig(path, dpi=img_dpi)
     plt.close()
     print("saved plots")
     
+def plot_real_vs_predicted_reflectance(pigment_spectra: dict, predicted_reflectances: dict):
+    cols = 14 # 1 graph and 10 swatches but first plot takes 2 columns
+    rows = 3 * len(predicted_reflectances)
+    fig = plt.figure(figsize=(cols * 1.5, rows * 1.5))
+    gs = gridspec.GridSpec(rows, cols, figure=fig)
+    
+    for i, pigment in enumerate(predicted_reflectances.keys()):
+        # plot real spectra
+        ax_plot_real = fig.add_subplot(gs[3*i, 0:2])
+        ax_plot_real.set_title(f"{pigment} real reflectance")
+        for j, conc in enumerate(sorted(pigment_spectra[pigment].keys())):
+            spec = pigment_spectra[pigment][conc]
+            rgb = spec.to_rgb()
+            
+            spec.plot(name=pigment, ax=ax_plot_real, normalize=True, color = rgb)
+            ax_plot_real.set_xlabel("Wavelength")
+            ax_plot_real.set_ylabel("Reflectance")
+            ax_plot_real.grid(True)
+            
+            ax_swatch = fig.add_subplot(gs[3*i,j+2])
+            ax_swatch.imshow([[rgb]])
+            ax_swatch.axis("off")
+            ax_swatch.set_title(f"{conc}%")
+        # plot predicted spectra
+        ax_plot_predicted = fig.add_subplot(gs[3*i + 1, 0:2])
+        ax_plot_predicted.set_title(f"{pigment} predicted reflectance")
+        for k, conc in enumerate(sorted(pigment_spectra[pigment].keys())):
+            spec = predicted_reflectances[pigment][conc]
+            rgb = spec.to_rgb()
+            
+            spec.plot(name=pigment, ax=ax_plot_predicted, normalize=True, color = rgb)
+            ax_plot_predicted.set_xlabel("Wavelength")
+            ax_plot_predicted.set_ylabel("Reflectance")
+            ax_plot_predicted.grid(True)
+            
+            ax_swatch = fig.add_subplot(gs[3*i + 1,k+2])
+            ax_swatch.imshow([[rgb]])
+            ax_swatch.axis("off")
+            ax_swatch.set_title(f"{conc}%")
+    
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(current_dir, "real_vs_predicted.png")
+    plt.savefig(path, dpi=img_dpi)
+    plt.close()
+    
+    print("saved real vs predicted image")
+
 def main():
     print("it started")
     wvls, pigment_spectra = load_reflectance_data()
@@ -264,7 +319,7 @@ def main():
             KS_ratios[p][c] = KS_ratio(pigment_spectra[p][c])
     
     # dictionary that will store values for K_w, S_w, K_p, S_p as computed by each pigment's data
-    computed_values = {}
+    computed_KS_values = {}
     
     for p in KS_ratios.keys():
         if p == "titanium white":
@@ -289,14 +344,32 @@ def main():
             computed_K_ps.append(K_p)
             computed_S_ps.append(S_p)
         
-        computed_values[p] = {
+        computed_KS_values[p] = {
         "K_w": np.array(computed_K_ws),
         "S_w": np.array(computed_S_ws),
         "K_p": np.array(computed_K_ps),
         "S_p": np.array(computed_S_ps), 
         }
         
-    plot_computed_KS(computed_values, wvls)
+    # plot_computed_KS(computed_KS_values, wvls)
+    
+    # compute predicted reflectance of each pigment, at each concentration
+    predicted_reflectances = defaultdict(dict)
+    for p in computed_KS_values:
+        Q_white = computed_KS_values[p]["K_w"] / computed_KS_values[p]["S_w"]
+        white_spec = Spectra(wavelengths=wvls, data=Q_to_R(Q_white))
+        predicted_reflectances[p][0] = white_spec
+        for c in pigment_spectra[p].keys():
+            K_mix = c * computed_KS_values[p]["K_p"] + (100 - c) * computed_KS_values[p]["K_w"]
+            S_mix = c * computed_KS_values[p]["S_p"] + (100 - c) * computed_KS_values[p]["S_w"]
+            Q_mix = K_mix / S_mix
+            mix_spec = Spectra(wavelengths=wvls, data=Q_to_R(Q_mix))
+            predicted_reflectances[p][c] = mix_spec
+    
+    # plot_real_vs_predicted_reflectance(pigment_spectra, predicted_reflectances)
+    
+    
+    
     
     
 # btw FOR SOME REASON, in Artist_paint_spectra.xlsx phthalo blue is spelled pthalo blue
