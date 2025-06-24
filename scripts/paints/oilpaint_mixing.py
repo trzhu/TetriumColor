@@ -157,11 +157,11 @@ def solve_KS(Q_array: list, c_array: list):
     result = lsq_linear(A, b, bounds=bounds)
     
     # test
-    residuals = A @ result.x - b
-    mse = np.mean(residuals**2)
-    mae = np.mean(np.abs(residuals))
-    print(f"mean squared error: {mse}")
-    print(f"mean absolute error: {mae}")
+    # residuals = A @ result.x - b
+    # mse = np.mean(residuals**2)
+    # mae = np.mean(np.abs(residuals))
+    # print(f"mean squared error: {mse}")
+    # print(f"mean absolute error: {mae}")
     
     return result.x
 
@@ -366,7 +366,7 @@ def main():
             mix_spec = Spectra(wavelengths=wvls, data=Q_to_R(Q_mix))
             predicted_reflectances[p][c] = mix_spec
     
-    # plot_real_vs_predicted_reflectance(pigment_spectra, predicted_reflectances)
+    plot_real_vs_predicted_reflectance(pigment_spectra, predicted_reflectances)
     
     
     
