@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
+# from TetriumColor.Observer import Spectra, Illuminant, Observer
 from TetriumColor.Observer import Spectra
 
 img_dpi = 48 # make smaller or larger for desired size of pngs
@@ -42,6 +43,24 @@ def load_reflectance_data():
         pigment_spectra[pigment][concentration] = spec
     
     return wavelengths, pigment_spectra
+
+def visualize(name: str, spec: Spectra):
+    rgb = spec.to_rgb()
+    fig, ax = plt.subplots(1, 2, figsize=(8, 3), gridspec_kw={'width_ratios': [3, 1]})
+    
+    # Plot spectrum
+    spec.plot(name="Spectrum", ax=ax[0])
+
+    # Plot color swatch
+    ax[1].imshow([[rgb]])
+    ax[1].axis('off')
+    ax[1].set_title("Swatch")
+    plt.tight_layout()
+    plt.legend()
+    plt.title(name)
+    plt.xlabel("Wavelength (nm)")
+    plt.ylabel("Reflectance")
+    plt.show()
 
 # reminder to self: the left side is short wavelengths/purple and the right side is long wavelengths/red
 def plot_all_pigments(pigment_data: dict):
@@ -92,6 +111,8 @@ def KS_ratio(spec: Spectra) -> np.ndarray:
 # returns reflectance predicted by KM
 # as an array like the wavelength arrays
 # R_bg = reflectance of background substrate
+# I want to be able to pass in an arbitrary number of pigments 
+# and their weights
 def mixture_KM_reflectance(weights: np.array, K_pigments: np.array, S_pigments: np.array, d=1.0, R_bg=1.0) -> np.array:
     if not len(weights) == len(K_pigments) == len(S_pigments):
         print("number of weights should be the same as number of pigments")
@@ -109,40 +130,124 @@ def mixture_KM_reflectance(weights: np.array, K_pigments: np.array, S_pigments: 
     R_inf = 1 + Q - np.sqrt((1+Q)**2 - 1)
     return R_inf
 
-def solve_KS(Q_array: list, c_array: list, K_w):
+def solve_KS(Q_array: list, c_array: list):
     """
-    Solves for K_p, S_p at a single wavelength using linear least squares.
+    Solves for K_w, S_w, K_p, S_p at a single wavelength using linear least squares.
     
     Q_array: array of Q values for each concentration (length n)
     c_array: array of concentrations as decimals (length n)
     
-    Returns: (K_p, S_p)
+    Returns: (K_w, S_w, K_p, S_p)
     """
     A = []
-    b = []
     for Q, c in zip(Q_array, c_array):
         A.append([
-            Q * c,     # coefficient for S_p
-            -c         # coefficient for K_p
+            -(1 - c),         # coefficient of K_w
+             Q * (1 - c),     # coefficient of S_w
+            -c,               # coefficient of K_p
+             Q * c            # coefficient of S_p
         ])
-        b.append((1 - c) * (K_w - Q))  # Known terms: K_w, S_w=1
-
     A = np.array(A)
-    b = np.array(b)
-
-    # have to set a lower bound so it doesnt give all 0s
-    bounds = (1.0e-6, np.inf)
+    b = np.zeros_like(Q_array)
+    # print(f"A {A}")
+    
+    # Solve Ax = b in least squares sense
+    # have to set some lower bound so it doesnt give u all 0s
+    bounds = (1.0e-32, np.inf)
     result = lsq_linear(A, b, bounds=bounds)
-
-
-    S_p, K_p = result.x
-    return K_p, S_p
+    
+    # test
+    # residuals = A @ result.x - b
+    # mse = np.mean(residuals**2)
+    # mae = np.mean(np.abs(residuals))
+    # print(f"mean squared error: {mse}")
+    # print(f"mean absolute error: {mae}")
+    
+    return result.x
 
 def Q_to_R(Q):
     return (1 + Q - np.sqrt(Q**2 + 2 * Q)) / (1 + Q + np.sqrt(Q**2 + 2 * Q))
+
+
+def fit_KS_all_wavelengths(refls_by_c: dict, wavelengths: np.ndarray):
+    concentrations = sorted(refls_by_c.keys())
+    c_array = np.array(concentrations) / 100  # Convert to 0-1
+
+    # Initialize arrays
+    K_w_spectrum = []
+    S_w_spectrum = []
+    K_p_spectrum = []
+    S_p_spectrum = []
+
+    for i in range(len(wavelengths)):
+        # Reflectance values at this wavelength
+        R_array = np.array([refls_by_c[c][i] for c in concentrations])
+        R_clipped = np.clip(R_array, 0.01, 0.99)
+        Q_array = ((1 - R_clipped) ** 2) / (2 * R_clipped)
+
+        K_w, S_w, K_p, S_p = solve_KS(Q_array, c_array)
+        K_w_spectrum.append(K_w)
+        S_w_spectrum.append(S_w)
+        K_p_spectrum.append(K_p)
+        S_p_spectrum.append(S_p)
+
+    return (
+        np.array(K_w_spectrum),
+        np.array(S_w_spectrum),
+        np.array(K_p_spectrum),
+        np.array(S_p_spectrum),
+    )
+
+def plot_values(Ks: list, Ss: list, pigment: str, wavelengths: list):
+    if not len(Ks) == len(Ss) == len(wavelengths):
+        print(f"len(Ks), Ss = {len(Ks)}, len(Ss) = {len(Ss)}")
+        print(f"pigment is {pigment}")
+        return
+    i = range(len(wavelengths))
+    plt.plot(wavelengths[i], Ks, marker='o', label = 'K')
+    plt.plot(wavelengths[i], Ss, marker='x', label = 'S')
+    plt.xlabel('wavelength')
+    plt.ylabel('Value of K/S')
+    plt.title(pigment)
+    plt.grid(True)
+    plt.show()
+    
+def plot_computed_KS(computed_KS: dict, wavelengths: np.array):
+    n_pigments = len(computed_KS)
+    fig, axes = plt.subplots(n_pigments, 2, figsize=(10, 3 * n_pigments), sharex=True)
+
+    if n_pigments == 1:
+        axes = [axes]  # handle the single-row edge case
+
+    for i, (pigment, data) in enumerate(computed_KS.items()):
+        ax_left = axes[i][0]
+        ax_right = axes[i][1]
+
+        # Left: K_p and S_p
+        ax_left.plot(wavelengths, data["K_p"], label="K_p", color="blue")
+        ax_left.plot(wavelengths, data["S_p"], label="S_p", color="green")
+        ax_left.set_title(f"{pigment} - Pigment Coefficients")
+        ax_left.legend()
+        ax_left.set_ylabel("Value")
+
+        # Right: K_w and S_w as derived via this pigment
+        ax_right.plot(wavelengths, data["K_w"], label="K_w", color="red")
+        ax_right.plot(wavelengths, data["S_w"], label="S_w", color="orange")
+        ax_right.set_title(f"White Coefficients (via {pigment})")
+        ax_right.legend()
+
+    for ax in axes[-1]:
+        ax.set_xlabel("Wavelength (nm)")
+
+    plt.tight_layout()
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(current_dir, "KS_plots.png")
+    plt.savefig(path, dpi=img_dpi)
+    plt.close()
+    print("saved plots")
     
 def plot_real_vs_predicted_reflectance(pigment_spectra: dict, predicted_reflectances: dict):
-    cols = 14 # 1 graph and 11 swatches but first plot takes 2 columns
+    cols = 14 # 1 graph and 10 swatches but first plot takes 2 columns
     rows = 3 * len(predicted_reflectances)
     fig = plt.figure(figsize=(cols * 1.5, rows * 1.5))
     gs = gridspec.GridSpec(rows, cols, figure=fig)
@@ -182,25 +287,11 @@ def plot_real_vs_predicted_reflectance(pigment_spectra: dict, predicted_reflecta
             ax_swatch.set_title(f"{conc}%")
     
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    path = os.path.join(current_dir, "new_real_vs_predicted.png")
+    path = os.path.join(current_dir, "real_vs_predicted.png")
     plt.savefig(path, dpi=img_dpi)
     plt.close()
     
-    print("saved new real vs predicted image")
-
-def saunderson_correction(R: np.array, S1=0.035, S2=0.6):
-    return ((1 - S1)**2 * R) / (1 - (S1**2) * R) + S2
-
-# I think this is making things negative
-def reverse_saunderson(R: np.ndarray, S1=0.035, S2=0.6) -> np.ndarray:
-    numerator = R - S2
-    denominator = (1 - S1)**2 + S1**2 * (R - S2)
-    
-    # Avoid division by zero
-    with np.errstate(divide='ignore', invalid='ignore'):
-        R = np.where(denominator != 0, numerator / denominator, 0.0)
-
-    return np.clip(R, 0, 1)
+    print("saved real vs predicted image")
 
 def main():
     print("it started")
@@ -208,80 +299,76 @@ def main():
     # if want smaller steps maybe do something like e.g.
     # spec.interpolate(385, 395, )etc
     
-    # apply the saunderson correction to all pigments with S_1 = 0.035 and S_2 = 0.6
-    corrected_reflectances = defaultdict(dict)
-    for p in pigment_spectra.keys():
-        # TODO: "The internal reflectance of white was scaled by 1.005"
-        for c in pigment_spectra[p].keys():
-            corrected_reflectances[p][c] = saunderson_correction(pigment_spectra[p][c])
+    # plot_all_pigments(pigment_spectra)
     
-    Q_white = KS_ratio(corrected_reflectances["titanium white"][100])
+    # K/S for titanium white 
+    Q_white = KS_ratio(pigment_spectra["titanium white"][100])
     
-    # compute K/S ratio at each wavelength for each mixture we have
+    # compute K/S ratio at each wavelength for each mixture we have :)
     KS_ratios = defaultdict(dict)
-    for p in corrected_reflectances.keys():
+    for p in pigment_spectra.keys():
         if p == "titanium white":
             KS_ratios[p][100] = Q_white
             continue
         # for everything except white, its 0% reflectance is just titanium white
-        corrected_reflectances[p][0] = corrected_reflectances["titanium white"][100]
-        KS_ratios[p][0] = Q_white
-        for c in corrected_reflectances[p]:
+        pigment_spectra[p][0] = pigment_spectra["titanium white"][100]
+        for c in pigment_spectra[p]:
             if c == 0:
+                KS_ratios[p][0] = Q_white
                 continue
-            KS_ratios[p][c] = KS_ratio(corrected_reflectances[p][c])
+            KS_ratios[p][c] = KS_ratio(pigment_spectra[p][c])
     
-    # assume S = 1.0 uniformly for white 
-    K_white = Q_white
-    S_white = np.ones_like(K_white)
-    
-    # dictionary that will store values for K_p, S_p
+    # dictionary that will store values for K_w, S_w, K_p, S_p as computed by each pigment's data
     computed_KS_values = {}
     
     for p in KS_ratios.keys():
         if p == "titanium white":
-            computed_KS_values["K"] = K_white
-            computed_KS_values["S"] = np.ones_like(wvls)
             continue
-        # K_p, S_p across each wavelength
+        # K_w, S_w, K_p, S_p as computed for this pigment across each wavelength
+        computed_K_ws = []
+        computed_S_ws = []
         computed_K_ps = []
         computed_S_ps = []
         for i in range(len(wvls)):
             Q_vals = []
             c_vals = []
             for c in [10 * i for i in range(11)]:
-                # cooked
                 Q = KS_ratios[p][c][i]  # K/S at this wavelength and concentration
                 Q_vals.append(Q)
                 c_vals.append(c / 100)  # convert to [0, 1] range
 
-            K_p, S_p = solve_KS(np.array(Q_vals), np.array(c_vals), K_white[i])
+            K_w, S_w, K_p, S_p = solve_KS(np.array(Q_vals), np.array(c_vals))
             
+            computed_K_ws.append(K_w)
+            computed_S_ws.append(S_w)
             computed_K_ps.append(K_p)
             computed_S_ps.append(S_p)
         
         computed_KS_values[p] = {
+        "K_w": np.array(computed_K_ws),
+        "S_w": np.array(computed_S_ws),
         "K_p": np.array(computed_K_ps),
         "S_p": np.array(computed_S_ps), 
         }
         
+    plot_computed_KS(computed_KS_values, wvls)
+    
     # compute predicted reflectance of each pigment, at each concentration
     predicted_reflectances = defaultdict(dict)
     for p in computed_KS_values:
-        # cooked
+        Q_white = computed_KS_values[p]["K_w"] / computed_KS_values[p]["S_w"]
+        white_spec = Spectra(wavelengths=wvls, data=Q_to_R(Q_white))
+        predicted_reflectances[p][0] = white_spec
         for c in pigment_spectra[p].keys():
-            K_mix = c * computed_KS_values[p]["K_p"] + (100 - c) * K_white
-            S_mix = c * computed_KS_values[p]["S_p"] + (100 - c) * S_white
+            K_mix = c * computed_KS_values[p]["K_p"] + (100 - c) * computed_KS_values[p]["K_w"]
+            S_mix = c * computed_KS_values[p]["S_p"] + (100 - c) * computed_KS_values[p]["S_w"]
             Q_mix = K_mix / S_mix
-            # reverse saunderson correction
-            # i think on the first call to this, things are getting clipped
-            # reverse saunderson is cooked
-            mix_spec = Spectra(wavelengths=wvls, data=reverse_saunderson(Q_to_R(Q_mix)))
+            mix_spec = Spectra(wavelengths=wvls, data=Q_to_R(Q_mix))
             predicted_reflectances[p][c] = mix_spec
     
-    plot_real_vs_predicted_reflectance(pigment_spectra, predicted_reflectances)
+    # plot_real_vs_predicted_reflectance(pigment_spectra, predicted_reflectances)
     
-    # TODO? save K, S to another json
+    
     
     
     
