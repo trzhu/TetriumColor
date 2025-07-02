@@ -296,14 +296,6 @@ def main():
     transformed = Q_to_R(KS_ratio(white_spectra))
     print(f"diff: {white_spectra.data - transformed}")
     
-    # is it rly reversing it
-    R_original = Spectra(wavelengths=np.array([i for i in range(100)]), data=np.linspace(0.01, 0.99, 100))
-    R_reconstructed = Q_to_R(KS_ratio(R_original))
-    error = np.abs(R_original.data - R_reconstructed)
-    print(f"diff: {error}")
-    print("Max error:", np.max(error))
-    print("Mean error:", np.mean(error))
-    
     for p in KS_values:
         for c in pigment_spectra[p].keys():
             K_mix = c * KS_values[p]["K_p"] + (100 - c) * K_white
