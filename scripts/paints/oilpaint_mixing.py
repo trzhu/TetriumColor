@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
-from TetriumColor.Observer import Spectra
+from TetriumColor.Observer import Spectra, Inks
 
 img_dpi = 48 # make smaller or larger for desired size of pngs
 
@@ -124,33 +124,44 @@ def solve_KS(Q_array: list, c_array: list, K_w):
         A.append([
             Q * c,     # coefficient for S_p
             -c         # coefficient for K_p
-        ])
-        b.append((1 - c) * (K_w - Q))  # Known terms: K_w, S_w=1
+        ], [-1, Q]])    # -K + Q * S = 0
+        b.extend([(1 - c) * (K_w - Q), 0])  # Known terms: K_w, S_w=1
 
     A = np.array(A)
     b = np.array(b)
-
-    # have to set a lower bound so it doesnt give all 0s
-    bounds = (1.0e-6, np.inf)
-    result = lsq_linear(A, b, bounds=bounds)
-
-
-    S_p, K_p = result.x
+    
+    # Walowit 1987 least squares method (I think)
+    AtA_inv = np.linalg.inv(np.dot(A.T, A))
+    Atb = np.dot(A.T, b)
+    K_p, S_p = np.dot(AtA_inv, Atb)
+    
     return K_p, S_p
 
-def Q_to_R(Q):
+def Q_to_R(Q: np.array) -> np.array:
     return (1 + Q - np.sqrt(Q**2 + 2 * Q)) / (1 + Q + np.sqrt(Q**2 + 2 * Q))
     
 def plot_real_vs_predicted_reflectance(pigment_spectra: dict, predicted_reflectances: dict):
     cols = 14 # 1 graph and 11 swatches but first plot takes 2 columns
     rows = 3 * len(predicted_reflectances)
-    fig = plt.figure(figsize=(cols * 1.5, rows * 1.5))
-    gs = gridspec.GridSpec(rows, cols, figure=fig)
+    fig = plt.figure(figsize=(cols * 1.5, rows * 1.0))
+    height_ratios = [1.5, 1.5, 0.3] * len(predicted_reflectances)
+    gs = gridspec.GridSpec(rows, cols, figure=fig, height_ratios=height_ratios)
     
     for i, pigment in enumerate(predicted_reflectances.keys()):
+        if pigment == "titanium white":
+            continue
+        
         # plot real spectra
         ax_plot_real = fig.add_subplot(gs[3*i, 0:2])
         ax_plot_real.set_title(f"{pigment} real reflectance")
+        
+        # white swatch
+        white_swatch = fig.add_subplot(gs[3*i, 2])
+        white_rgb = pigment_spectra["titanium white"][100].to_rgb()
+        white_swatch.imshow([[white_rgb]])
+        white_swatch.axis("off")
+        white_swatch.set_title("0%")
+        
         for j, conc in enumerate(sorted(pigment_spectra[pigment].keys())):
             spec = pigment_spectra[pigment][conc]
             rgb = spec.to_rgb()
@@ -159,34 +170,42 @@ def plot_real_vs_predicted_reflectance(pigment_spectra: dict, predicted_reflecta
             ax_plot_real.set_xlabel("Wavelength")
             ax_plot_real.set_ylabel("Reflectance")
             ax_plot_real.grid(True)
-            
-            ax_swatch = fig.add_subplot(gs[3*i,j+2])
+            # plot real swatches
+            ax_swatch = fig.add_subplot(gs[3*i,j+3])
             ax_swatch.imshow([[rgb]])
             ax_swatch.axis("off")
             ax_swatch.set_title(f"{conc}%")
         # plot predicted spectra
         ax_plot_predicted = fig.add_subplot(gs[3*i + 1, 0:2])
         ax_plot_predicted.set_title(f"{pigment} predicted reflectance")
+        
+        # white swatch
+        white_swatch = fig.add_subplot(gs[3*i + 1, 2])
+        white_rgb = predicted_reflectances["titanium white"][100].to_rgb()
+        white_swatch.imshow([[white_rgb]])
+        white_swatch.axis("off")
+        white_swatch.set_title("0%")
+
         for k, conc in enumerate(sorted(pigment_spectra[pigment].keys())):
             spec = predicted_reflectances[pigment][conc]
             rgb = spec.to_rgb()
-            
+            # predicted swatches
             spec.plot(name=pigment, ax=ax_plot_predicted, normalize=True, color = rgb)
             ax_plot_predicted.set_xlabel("Wavelength")
             ax_plot_predicted.set_ylabel("Reflectance")
             ax_plot_predicted.grid(True)
             
-            ax_swatch = fig.add_subplot(gs[3*i + 1,k+2])
+            ax_swatch = fig.add_subplot(gs[3*i + 1,k+3])
             ax_swatch.imshow([[rgb]])
             ax_swatch.axis("off")
             ax_swatch.set_title(f"{conc}%")
     
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    path = os.path.join(current_dir, "new_real_vs_predicted.png")
+    path = os.path.join(current_dir, "real_vs_predicted.png")
     plt.savefig(path, dpi=img_dpi)
     plt.close()
     
-    print("saved new real vs predicted image")
+    print("saved real vs predicted image")
 
 def saunderson_correction(R: np.array, S1=0.035, S2=0.6):
     return ((1 - S1)**2 * R) / (1 - (S1**2) * R) + S2
@@ -209,11 +228,12 @@ def main():
     # spec.interpolate(385, 395, )etc
     
     # apply the saunderson correction to all pigments with S_1 = 0.035 and S_2 = 0.6
+    # rn this is a direct copy, no saunderson correction
     corrected_reflectances = defaultdict(dict)
     for p in pigment_spectra.keys():
         # TODO: "The internal reflectance of white was scaled by 1.005"
         for c in pigment_spectra[p].keys():
-            corrected_reflectances[p][c] = saunderson_correction(pigment_spectra[p][c])
+            corrected_reflectances[p][c] = pigment_spectra[p][c]
     
     Q_white = KS_ratio(corrected_reflectances["titanium white"][100])
     
@@ -236,12 +256,12 @@ def main():
     S_white = np.ones_like(K_white)
     
     # dictionary that will store values for K_p, S_p
-    computed_KS_values = {}
+    KS_values = {}
     
     for p in KS_ratios.keys():
         if p == "titanium white":
-            computed_KS_values["K"] = K_white
-            computed_KS_values["S"] = np.ones_like(wvls)
+            KS_values["K"] = K_white
+            KS_values["S"] = np.ones_like(wvls)
             continue
         # K_p, S_p across each wavelength
         computed_K_ps = []
@@ -260,23 +280,37 @@ def main():
             computed_K_ps.append(K_p)
             computed_S_ps.append(S_p)
         
-        computed_KS_values[p] = {
+        KS_values[p] = {
         "K_p": np.array(computed_K_ps),
         "S_p": np.array(computed_S_ps), 
         }
         
     # compute predicted reflectance of each pigment, at each concentration
     predicted_reflectances = defaultdict(dict)
-    for p in computed_KS_values:
-        # cooked
+    # white isn't in compute_KS_values so I'll just add it manually. is that a bit disgusting?
+    predicted_reflectances["titanium white"][100] = Spectra(wavelengths=wvls, data=Q_to_R(K_white / S_white))
+    
+    # why does the predicted white look a bit darker?
+    white_spectra = predicted_reflectances["titanium white"][100]
+    transformed = Q_to_R(KS_ratio(white_spectra))
+    print(f"diff: {white_spectra.data - transformed}")
+    
+    # is it rly reversing it
+    R_original = Spectra(wavelengths=np.array([i for i in range(100)]), data=np.linspace(0.01, 0.99, 100))
+    R_reconstructed = Q_to_R(KS_ratio(R_original))
+    error = np.abs(R_original.data - R_reconstructed)
+    print(f"diff: {error}")
+    print("Max error:", np.max(error))
+    print("Mean error:", np.mean(error))
+    
+    for p in KS_values:
         for c in pigment_spectra[p].keys():
-            K_mix = c * computed_KS_values[p]["K_p"] + (100 - c) * K_white
-            S_mix = c * computed_KS_values[p]["S_p"] + (100 - c) * S_white
+            K_mix = c * KS_values[p]["K_p"] + (100 - c) * K_white
+            S_mix = c * KS_values[p]["S_p"] + (100 - c) * S_white
             Q_mix = K_mix / S_mix
             # reverse saunderson correction
-            # i think on the first call to this, things are getting clipped
-            # reverse saunderson is cooked
-            mix_spec = Spectra(wavelengths=wvls, data=reverse_saunderson(Q_to_R(Q_mix)))
+            # saunderson is making it go outside 0 to 1 range
+            mix_spec = Spectra(wavelengths=wvls, data=Q_to_R(Q_mix))
             predicted_reflectances[p][c] = mix_spec
     
     plot_real_vs_predicted_reflectance(pigment_spectra, predicted_reflectances)
