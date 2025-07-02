@@ -222,6 +222,23 @@ def reverse_saunderson(R: np.ndarray, S1=0.035, S2=0.6) -> np.ndarray:
 
     return np.clip(R, 0, 1)
 
+def save_KS(KS_values: dict):
+    data_to_save = {
+    pigment: {
+        variable: np.array(values).tolist()
+        for variable, values in inner_dict.items()
+    }
+    for pigment, inner_dict in KS_values.items()
+}
+    
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    json_path = os.path.join(current_dir, "oilpaints_KS.json")
+    
+    with open(json_path, "w") as f:
+        json.dump(data_to_save, f)
+        
+    print("saved to oilpaints_KS.json")
+
 def main():
     print("it started")
     wvls, pigment_spectra = load_reflectance_data()
@@ -261,8 +278,9 @@ def main():
     
     for p in KS_ratios.keys():
         if p == "titanium white":
-            KS_values["K"] = K_white
-            KS_values["S"] = np.ones_like(wvls)
+            KS_values[p] = {"K": K_white,
+                            "S": np.ones_like(wvls)
+            }
             continue
         # K_p, S_p across each wavelength
         computed_K_ps = []
@@ -282,8 +300,8 @@ def main():
             computed_S_ps.append(S_p)
         
         KS_values[p] = {
-        "K_p": np.array(computed_K_ps),
-        "S_p": np.array(computed_S_ps), 
+        "K": np.array(computed_K_ps),
+        "S": np.array(computed_S_ps), 
         }
         
     # compute predicted reflectance of each pigment, at each concentration
@@ -292,21 +310,17 @@ def main():
     predicted_reflectances["titanium white"][100] = Spectra(wavelengths=wvls, data=Q_to_R(K_white / S_white))
     for p in KS_values:
         for c in pigment_spectra[p].keys():
-            K_mix = c * KS_values[p]["K_p"] + (100 - c) * K_white
-            S_mix = c * KS_values[p]["S_p"] + (100 - c) * S_white
+            K_mix = c * KS_values[p]["K"] + (100 - c) * K_white
+            S_mix = c * KS_values[p]["S"] + (100 - c) * S_white
             Q_mix = K_mix / S_mix
             # TODO reverse saunderson correction
             # saunderson is making it go outside 0 to 1 range
             mix_spec = Spectra(wavelengths=wvls, data=Q_to_R(Q_mix))
             predicted_reflectances[p][c] = mix_spec
     
-    plot_real_vs_predicted_reflectance(pigment_spectra, predicted_reflectances)
+    # plot_real_vs_predicted_reflectance(pigment_spectra, predicted_reflectances)
     
-    # TODO? save K, S to another json
-    
-    
-    
-# btw FOR SOME REASON, in Artist_paint_spectra.xlsx phthalo blue is spelled pthalo blue
+    save_KS(KS_values)
 
 if __name__ == "__main__":
     main()
