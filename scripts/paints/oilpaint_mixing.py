@@ -124,8 +124,8 @@ def solve_KS(Q_array: list, c_array: list, K_w):
         A.append([
             Q * c,     # coefficient for S_p
             -c         # coefficient for K_p
-        ], [-1, Q]])    # -K + Q * S = 0
-        b.extend([(1 - c) * (K_w - Q), 0])  # Known terms: K_w, S_w=1
+        ])
+        b.append((1 - c) * (K_w - Q))  # Known terms: K_w, S_w=1
 
     A = np.array(A)
     b = np.array(b)
