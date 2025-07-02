@@ -208,19 +208,23 @@ def plot_real_vs_predicted_reflectance(pigment_spectra: dict, predicted_reflecta
     
     print("saved real vs predicted image")
 
-def saunderson_correction(R: np.array, S1=0.035, S2=0.6):
-    return ((1 - S1)**2 * R) / (1 - (S1**2) * R) + S2
+def reverse_saunderson(R_m: np.array, K1=0.035, K2=0.6) -> np.array:
+    """
+    converts R_measured to R_inf
+    """
+    R_inf = ((1 - K1)**2 * R_m) / (1 - (K1**2) * R_m) + K2
+    return R_inf
 
-# I think this is making things negative
-def reverse_saunderson(R: np.ndarray, S1=0.035, S2=0.6) -> np.ndarray:
-    numerator = R - S2
-    denominator = (1 - S1)**2 + S1**2 * (R - S2)
-    
-    # Avoid division by zero
-    with np.errstate(divide='ignore', invalid='ignore'):
-        R = np.where(denominator != 0, numerator / denominator, 0.0)
-
-    return np.clip(R, 0, 1)
+def saunderson_correction(R_inf: np.array, K1=0.035, K2=0.6):
+    """
+    converts R_inf to R_measured
+    K1 = the fraction of light coming from outside the film that is reflected back out without ever entering the surface
+    i.e. gloss, specular highlight. Berns assumed 0.035
+    K2 = the fraction of light coming from inside the film that is reflected back inside at the surface. 
+    theoretical value = 0.6
+    """
+    R_m = K1 + ((1 - K1) * (1 - K2) * R_inf) / (1 - K2 * R_inf)
+    return np.clip(R_m, 0, 1)
 
 def save_KS(KS_values: dict):
     data_to_save = {
@@ -245,29 +249,29 @@ def main():
     # if want smaller steps maybe do something like e.g.
     # spec.interpolate(385, 395, )etc
     
-    # TODO apply the saunderson correction to all pigments with S_1 = 0.035 and S_2 = 0.6
-    # rn this is a direct copy, no saunderson correction (it was making values go outside [0,1])
-    corrected_reflectances = defaultdict(dict)
+    # apply Saunderson corretion
+    R_inf = defaultdict(dict)
     for p in pigment_spectra.keys():
         # TODO: "The internal reflectance of white was scaled by 1.005"
         for c in pigment_spectra[p].keys():
-            corrected_reflectances[p][c] = pigment_spectra[p][c]
+            corrected = reverse_saunderson(pigment_spectra[p][c].data)
+            R_inf[p][c] = Spectra(wavelengths=wvls, data=corrected)
     
-    Q_white = KS_ratio(corrected_reflectances["titanium white"][100])
+    Q_white = KS_ratio(R_inf["titanium white"][100])
     
     # compute K/S ratio at each wavelength for each mixture we have
     KS_ratios = defaultdict(dict)
-    for p in corrected_reflectances.keys():
+    for p in R_inf.keys():
         if p == "titanium white":
             KS_ratios[p][100] = Q_white
             continue
         # for everything except white, its 0% reflectance is just titanium white
-        corrected_reflectances[p][0] = corrected_reflectances["titanium white"][100]
+        R_inf[p][0] = R_inf["titanium white"][100]
         KS_ratios[p][0] = Q_white
-        for c in corrected_reflectances[p]:
+        for c in R_inf[p]:
             if c == 0:
                 continue
-            KS_ratios[p][c] = KS_ratio(corrected_reflectances[p][c])
+            KS_ratios[p][c] = KS_ratio(R_inf[p][c])
     
     # assume S = 1.0 uniformly for white 
     K_white = Q_white
@@ -315,12 +319,12 @@ def main():
             Q_mix = K_mix / S_mix
             # TODO reverse saunderson correction
             # saunderson is making it go outside 0 to 1 range
-            mix_spec = Spectra(wavelengths=wvls, data=Q_to_R(Q_mix))
+            mix_spec = Spectra(wavelengths=wvls, data=saunderson_correction(Q_to_R(Q_mix)))
             predicted_reflectances[p][c] = mix_spec
     
-    # plot_real_vs_predicted_reflectance(pigment_spectra, predicted_reflectances)
+    plot_real_vs_predicted_reflectance(pigment_spectra, predicted_reflectances)
     
-    save_KS(KS_values)
+    # save_KS(KS_values)
 
 if __name__ == "__main__":
     main()
