@@ -130,6 +130,19 @@ def solve_KS(Q_array: list, c_array: list, K_w):
 
     A = np.array(A)
     b = np.array(b)
+      
+    cond = np.linalg.cond(A.T @ A)
+    if cond > 1e8:
+        print(f"Warning: Ill-conditioned matrix (cond={cond:.2e})")
+        print(A)
+        try:
+            # Safe least squares with bounds
+            result = lsq_linear(A, b, bounds=(1e-8, np.inf))
+            S_p, K_p = result.x
+            return K_p, S_p
+        except Exception as e:
+            print("Least squares failed:", e)
+            return np.nan, np.nan
     
     # Walowit 1987 least squares method (I think)
     AtA_inv = np.linalg.inv(np.dot(A.T, A))
@@ -208,12 +221,14 @@ def plot_real_vs_predicted_reflectance(pigment_spectra: dict, predicted_reflecta
     
     print("saved real vs predicted image")
 
-def reverse_saunderson(R_m: np.array, K1=0.035, K2=0.6) -> np.array:
+def reverse_saunderson(R: Spectra, K1=0.035, K2=0.6) -> Spectra:
     """
     converts R_measured to R_inf
     """
-    R_inf = ((1 - K1)**2 * R_m) / (1 - (K1**2) * R_m) + K2
-    return R_inf
+    R_m = R.data
+    R_inf = (R_m - K1) / (1 - K1 - K2 + K2 * R_m)	
+    R_inf = np.clip(R_inf, 1e-4, 1)
+    return Spectra(wavelengths=R.wavelengths, data = R_inf)
 
 def saunderson_correction(R_inf: np.array, K1=0.035, K2=0.6):
     """
@@ -254,8 +269,9 @@ def main():
     for p in pigment_spectra.keys():
         # TODO: "The internal reflectance of white was scaled by 1.005"
         for c in pigment_spectra[p].keys():
-            corrected = reverse_saunderson(pigment_spectra[p][c].data)
-            R_inf[p][c] = Spectra(wavelengths=wvls, data=corrected)
+            # SAUNDERSON CORRECTION DOESNT WORK
+            # R_inf[p][c] = pigment_spectra[p][c]
+            R_inf[p][c] = reverse_saunderson(pigment_spectra[p][c])
     
     Q_white = KS_ratio(R_inf["titanium white"][100])
     
@@ -317,10 +333,9 @@ def main():
             K_mix = c * KS_values[p]["K"] + (100 - c) * K_white
             S_mix = c * KS_values[p]["S"] + (100 - c) * S_white
             Q_mix = K_mix / S_mix
-            # TODO reverse saunderson correction
-            # saunderson is making it go outside 0 to 1 range
-            mix_spec = Spectra(wavelengths=wvls, data=saunderson_correction(Q_to_R(Q_mix)))
-            predicted_reflectances[p][c] = mix_spec
+            # saunderson correction DOESNT WORK
+            predicted_reflectances[p][c] = Spectra(wavelengths=wvls, data=saunderson_correction(Q_to_R(Q_mix)))
+            # predicted_reflectances[p][c] = Spectra(wavelengths=wvls, data=Q_to_R(Q_mix))
     
     plot_real_vs_predicted_reflectance(pigment_spectra, predicted_reflectances)
     
