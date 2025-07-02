@@ -134,7 +134,7 @@ def solve_KS(Q_array: list, c_array: list, K_w):
     # Walowit 1987 least squares method (I think)
     AtA_inv = np.linalg.inv(np.dot(A.T, A))
     Atb = np.dot(A.T, b)
-    K_p, S_p = np.dot(AtA_inv, Atb)
+    S_p, K_p = np.dot(AtA_inv, Atb)
     
     return K_p, S_p
 
@@ -228,8 +228,8 @@ def main():
     # if want smaller steps maybe do something like e.g.
     # spec.interpolate(385, 395, )etc
     
-    # apply the saunderson correction to all pigments with S_1 = 0.035 and S_2 = 0.6
-    # rn this is a direct copy, no saunderson correction
+    # TODO apply the saunderson correction to all pigments with S_1 = 0.035 and S_2 = 0.6
+    # rn this is a direct copy, no saunderson correction (it was making values go outside [0,1])
     corrected_reflectances = defaultdict(dict)
     for p in pigment_spectra.keys():
         # TODO: "The internal reflectance of white was scaled by 1.005"
@@ -290,18 +290,12 @@ def main():
     predicted_reflectances = defaultdict(dict)
     # white isn't in compute_KS_values so I'll just add it manually. is that a bit disgusting?
     predicted_reflectances["titanium white"][100] = Spectra(wavelengths=wvls, data=Q_to_R(K_white / S_white))
-    
-    # why does the predicted white look a bit darker?
-    white_spectra = predicted_reflectances["titanium white"][100]
-    transformed = Q_to_R(KS_ratio(white_spectra))
-    print(f"diff: {white_spectra.data - transformed}")
-    
     for p in KS_values:
         for c in pigment_spectra[p].keys():
             K_mix = c * KS_values[p]["K_p"] + (100 - c) * K_white
             S_mix = c * KS_values[p]["S_p"] + (100 - c) * S_white
             Q_mix = K_mix / S_mix
-            # reverse saunderson correction
+            # TODO reverse saunderson correction
             # saunderson is making it go outside 0 to 1 range
             mix_spec = Spectra(wavelengths=wvls, data=Q_to_R(Q_mix))
             predicted_reflectances[p][c] = mix_spec
