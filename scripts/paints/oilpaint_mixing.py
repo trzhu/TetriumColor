@@ -120,6 +120,7 @@ def solve_KS(Q_array: list, c_array: list, K_w):
     """
     A = []
     b = []
+    # could add -K + Q*S = 0 equations but when I tried it ruined everything
     for Q, c in zip(Q_array, c_array):
         A.append([
             Q * c,     # coefficient for S_p
@@ -138,7 +139,7 @@ def solve_KS(Q_array: list, c_array: list, K_w):
     return K_p, S_p
 
 def Q_to_R(Q: np.array) -> np.array:
-    return (1 + Q - np.sqrt(Q**2 + 2 * Q)) / (1 + Q + np.sqrt(Q**2 + 2 * Q))
+    return 1 / (1 + Q + np.sqrt(Q**2 + 2 * Q))
     
 def plot_real_vs_predicted_reflectance(pigment_spectra: dict, predicted_reflectances: dict):
     cols = 14 # 1 graph and 11 swatches but first plot takes 2 columns
