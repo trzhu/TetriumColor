@@ -15,7 +15,7 @@ sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from TetriumColor.Observer import Spectra, Inks
 
-img_dpi = 48 # make smaller or larger for desired size of pngs
+img_dpi = 72 # make smaller or larger for desired size of pngs
 
 def load_reflectance_data():
     """
@@ -156,10 +156,10 @@ def Q_to_R(Q: np.array) -> np.array:
     
 def plot_real_vs_predicted_reflectance(pigment_spectra: dict, predicted_reflectances: dict):
     cols = 14 # 1 graph and 11 swatches but first plot takes 2 columns
-    rows = 3 * len(predicted_reflectances)
-    fig = plt.figure(figsize=(cols * 1.5, rows * 1.0))
-    height_ratios = [1.5, 1.5, 0.3] * len(predicted_reflectances)
-    gs = gridspec.GridSpec(rows, cols, figure=fig, height_ratios=height_ratios)
+    rows = 3 * len(predicted_reflectances) # every 3rd row is empty (padding)
+    fig = plt.figure(figsize=(cols * 1.5, rows * 2.0))
+    height_ratios = [2.0, 2.0, 0.1] * len(predicted_reflectances)
+    gs = gridspec.GridSpec(rows, cols, figure=fig, height_ratios=height_ratios, hspace=0.4)
     
     for i, pigment in enumerate(predicted_reflectances.keys()):
         if pigment == "titanium white":
@@ -181,7 +181,8 @@ def plot_real_vs_predicted_reflectance(pigment_spectra: dict, predicted_reflecta
             rgb = spec.to_rgb()
             
             spec.plot(name=pigment, ax=ax_plot_real, normalize=True, color = rgb)
-            ax_plot_real.set_xlabel("Wavelength")
+            # ax_plot_real.set_xlabel("Wavelength") # brugg it overlaps with titles
+            ax_plot_real.tick_params(axis='x', labelbottom=False) # also overlaps with titles
             ax_plot_real.set_ylabel("Reflectance")
             ax_plot_real.grid(True)
             # plot real swatches
@@ -214,9 +215,11 @@ def plot_real_vs_predicted_reflectance(pigment_spectra: dict, predicted_reflecta
             ax_swatch.axis("off")
             ax_swatch.set_title(f"{conc}%")
     
+    fig.subplots_adjust(top=0.8, bottom=0.2, left=0.01, right=0.99)
+    
     current_dir = os.path.dirname(os.path.abspath(__file__))
     path = os.path.join(current_dir, "real_vs_predicted.png")
-    plt.savefig(path, dpi=img_dpi)
+    plt.savefig(path, dpi=img_dpi, bbox_inches='tight', pad_inches=0.2)
     plt.close()
     
     print("saved real vs predicted image")
@@ -259,19 +262,22 @@ def save_KS(KS_values: dict):
     print("saved to oilpaints_KS.json")
 
 def main():
+    useSaunderson = True
+    
     print("it started")
     wvls, pigment_spectra = load_reflectance_data()
     # if want smaller steps maybe do something like e.g.
     # spec.interpolate(385, 395, )etc
-    
-    # apply Saunderson corretion
+    # apply Saunderson correction
     R_inf = defaultdict(dict)
     for p in pigment_spectra.keys():
         # TODO: "The internal reflectance of white was scaled by 1.005"
         for c in pigment_spectra[p].keys():
-            # SAUNDERSON CORRECTION DOESNT WORK
-            # R_inf[p][c] = pigment_spectra[p][c]
-            R_inf[p][c] = reverse_saunderson(pigment_spectra[p][c])
+            # SAUNDERSON CORRECTION
+            if useSaunderson:
+                R_inf[p][c] = reverse_saunderson(pigment_spectra[p][c])
+            else:
+                R_inf[p][c] = pigment_spectra[p][c]
     
     Q_white = KS_ratio(R_inf["titanium white"][100])
     
@@ -333,9 +339,11 @@ def main():
             K_mix = c * KS_values[p]["K"] + (100 - c) * K_white
             S_mix = c * KS_values[p]["S"] + (100 - c) * S_white
             Q_mix = K_mix / S_mix
-            # saunderson correction DOESNT WORK
-            predicted_reflectances[p][c] = Spectra(wavelengths=wvls, data=saunderson_correction(Q_to_R(Q_mix)))
-            # predicted_reflectances[p][c] = Spectra(wavelengths=wvls, data=Q_to_R(Q_mix))
+            # saunderson correction
+            if useSaunderson:
+                predicted_reflectances[p][c] = Spectra(wavelengths=wvls, data=saunderson_correction(Q_to_R(Q_mix)))
+            else:
+                predicted_reflectances[p][c] = Spectra(wavelengths=wvls, data=Q_to_R(Q_mix))
     
     plot_real_vs_predicted_reflectance(pigment_spectra, predicted_reflectances)
     
