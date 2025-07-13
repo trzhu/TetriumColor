@@ -231,7 +231,7 @@ def plot_real_vs_predicted_reflectance(pigment_spectra: dict, predicted_reflecta
     
     print("saved real vs predicted image")
 
-def plot_reflectance_per_pigment(pigment_spectra: dict, predicted_reflectances: dict, useSaunderson):
+def plot_reflectance_per_pigment(pigment_spectra: dict, predicted_reflectances: dict, useSaunderson=None, scaleWhite=None):
     cols = 14  # 1 graph + 11 swatches, first plot takes 2 columns
 
     for pigment in predicted_reflectances:
@@ -296,12 +296,12 @@ def plot_reflectance_per_pigment(pigment_spectra: dict, predicted_reflectances: 
 
         # make folder if it doesn't exist
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        folder = os.path.join(current_dir, f"individual pigments saunderson {useSaunderson}")
+        folder = os.path.join(current_dir, f"real vs predicted (saunderson {useSaunderson} scale white {scaleWhite})")
         os.makedirs(folder, exist_ok=True)  # Creates the folder if it doesn't exist
 
         # Save per-pigment
         safe_name = pigment.lower().replace(" ", "_").replace("/", "_")
-        path = os.path.join(current_dir, f"individual pigments saunderson {useSaunderson}", f"real_vs_predicted_{safe_name}.png")
+        path = os.path.join(current_dir, folder, f"{safe_name} (saunderson {useSaunderson} scale white {scaleWhite}).png")
         plt.savefig(path, dpi=img_dpi, bbox_inches='tight', pad_inches=0.2)
         plt.close()
         print(f"Saved: {path}")
@@ -329,7 +329,7 @@ def saunderson_correction(R_inf: np.array, K1=0.035, K2=0.6):
     R_m = K1 + ((1 - K1) * (1 - K2) * R_inf) / (1 - K2 * R_inf)
     return np.clip(R_m, 0, 1)
 
-def save_KS(KS_values: dict):
+def save_KS(KS_values: dict, useSaunderson=None, scaleWhite=None):
     data_to_save = {
     pigment: {
         variable: np.array(values).tolist()
@@ -339,7 +339,7 @@ def save_KS(KS_values: dict):
 }
     
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    json_path = os.path.join(current_dir, "oilpaints_KS.json")
+    json_path = os.path.join(current_dir, f"oilpaints_KS_saunderson{useSaunderson}_scaleWhite{scaleWhite}.json")
     
     with open(json_path, "w") as f:
         json.dump(data_to_save, f)
@@ -348,20 +348,23 @@ def save_KS(KS_values: dict):
 
 def main():
     useSaunderson = False
+    scaleWhite = True
     
     print("it started")
     wvls, pigment_spectra = load_reflectance_data()
-    # if want smaller steps maybe do something like e.g.
-    # spec.interpolate(385, 395, )etc
+    # if want smaller steps maybe do something like e.g. spec.interpolate(385, 395, )etc
     R_inf = defaultdict(dict)
     for p in pigment_spectra.keys():
-        # TODO: "The internal reflectance of white was scaled by 1.005"
         for c in pigment_spectra[p].keys():
             # SAUNDERSON CORRECTION
             if useSaunderson:
                 R_inf[p][c] = reverse_saunderson(pigment_spectra[p][c])
             else:
                 R_inf[p][c] = pigment_spectra[p][c]
+    
+    # "The internal reflectance of white was scaled by 1.005"
+    if scaleWhite:
+        R_inf["titanium white"][100] *= 1.005
     
     Q_white = KS_ratio(R_inf["titanium white"][100])
     
@@ -399,7 +402,6 @@ def main():
             Q_vals = []
             c_vals = []
             for c in [10 * i for i in range(11)]:
-                # cooked
                 Q = KS_ratios[p][c][i]  # K/S at this wavelength and concentration
                 Q_vals.append(Q)
                 c_vals.append(c / 100)  # convert to [0, 1] range
@@ -430,9 +432,9 @@ def main():
                 predicted_reflectances[p][c] = Spectra(wavelengths=wvls, data=Q_to_R(Q_mix))
     
     # plot_real_vs_predicted_reflectance(pigment_spectra, predicted_reflectances)
-    plot_reflectance_per_pigment(pigment_spectra, predicted_reflectances, useSaunderson)
+    plot_reflectance_per_pigment(pigment_spectra, predicted_reflectances, useSaunderson, scaleWhite)
     
-    # save_KS(KS_values)
+    save_KS(KS_values, useSaunderson, scaleWhite)
 
 if __name__ == "__main__":
     main()
