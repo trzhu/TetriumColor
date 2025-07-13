@@ -296,12 +296,12 @@ def plot_reflectance_per_pigment(pigment_spectra: dict, predicted_reflectances: 
 
         # make folder if it doesn't exist
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        folder = os.path.join(current_dir, f"real vs predicted (saunderson {useSaunderson} scale white {scaleWhite})")
+        folder = os.path.join(current_dir, f"real vs predicted (saunderson {useSaunderson} scaleWhite {scaleWhite})")
         os.makedirs(folder, exist_ok=True)  # Creates the folder if it doesn't exist
 
         # Save per-pigment
         safe_name = pigment.lower().replace(" ", "_").replace("/", "_")
-        path = os.path.join(current_dir, folder, f"{safe_name} (saunderson {useSaunderson} scale white {scaleWhite}).png")
+        path = os.path.join(current_dir, folder, f"{safe_name} (saunderson {useSaunderson} scaleWhite {scaleWhite}).png")
         plt.savefig(path, dpi=img_dpi, bbox_inches='tight', pad_inches=0.2)
         plt.close()
         print(f"Saved: {path}")
@@ -313,7 +313,7 @@ def reverse_saunderson(R: Spectra, K1=0.035, K2=0.6) -> Spectra:
     R_m = R.data
     R_inf = (R_m - K1) / (1 - K1 - K2 + K2 * R_m)
     # clipping is ruining my life
-    # R_inf = np.clip(R_inf, 1e-4, 1)
+    R_inf = np.clip(R_inf, 1e-4, 1)
     # let's try clipping negative but not > 1 values
     # R_inf = np.clip(R_inf, 1e-4, None)
     return Spectra(wavelengths=R.wavelengths, data = R_inf)
@@ -347,7 +347,7 @@ def save_KS(KS_values: dict, useSaunderson=None, scaleWhite=None):
     print("saved to oilpaints_KS.json")
 
 def main():
-    useSaunderson = False
+    useSaunderson = True
     scaleWhite = True
     
     print("it started")
@@ -434,7 +434,7 @@ def main():
     # plot_real_vs_predicted_reflectance(pigment_spectra, predicted_reflectances)
     plot_reflectance_per_pigment(pigment_spectra, predicted_reflectances, useSaunderson, scaleWhite)
     
-    save_KS(KS_values, useSaunderson, scaleWhite)
+    # save_KS(KS_values, useSaunderson, scaleWhite)
 
 if __name__ == "__main__":
     main()
