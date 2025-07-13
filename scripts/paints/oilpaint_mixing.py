@@ -130,6 +130,9 @@ def solve_KS(Q_array: list, c_array: list, K_w):
 
     A = np.array(A)
     b = np.array(b)
+    
+    if not (np.all(np.isfinite(A)) and np.all(np.isfinite(b))):
+        print("Invalid result: NaN or inf")
       
     # least square version
     # result = lsq_linear(A, b, bounds=(1e-32, np.inf))
@@ -228,13 +231,91 @@ def plot_real_vs_predicted_reflectance(pigment_spectra: dict, predicted_reflecta
     
     print("saved real vs predicted image")
 
+def plot_reflectance_per_pigment(pigment_spectra: dict, predicted_reflectances: dict, useSaunderson):
+    cols = 14  # 1 graph + 11 swatches, first plot takes 2 columns
+
+    for pigment in predicted_reflectances:
+        if pigment == "titanium white":
+            continue
+
+        # help i dont need the 3rd row spacer anymore
+        # but leaving it there makes the graph a bit taller which might be better idk
+        rows = 3
+        height_ratios = [2.0, 2.0, 0.1]
+
+        fig = plt.figure(figsize=(cols * 1.5, rows * 2.0))
+        gs = gridspec.GridSpec(rows, cols, figure=fig, height_ratios=height_ratios)
+
+        ### --- REAL REFLECTANCE ---
+        ax_plot_real = fig.add_subplot(gs[0, 0:2])
+        ax_plot_real.set_title(f"{pigment} real reflectance", fontsize=9, pad=5)
+
+        white_rgb = pigment_spectra["titanium white"][100].to_rgb()
+        white_swatch = fig.add_subplot(gs[0, 2])
+        white_swatch.imshow([[white_rgb]])
+        white_swatch.axis("off")
+        white_swatch.set_title("0%", fontsize=6)
+
+        for j, conc in enumerate(sorted(pigment_spectra[pigment].keys())):
+            spec = pigment_spectra[pigment][conc]
+            rgb = spec.to_rgb()
+            spec.plot(name=pigment, ax=ax_plot_real, normalize=True, color=rgb)
+            ax_plot_real.tick_params(axis='x', labelbottom=False)
+            ax_plot_real.set_ylabel("Reflectance")
+            ax_plot_real.grid(True)
+
+            ax_swatch = fig.add_subplot(gs[0, j + 3])
+            ax_swatch.imshow([[rgb]])
+            ax_swatch.axis("off")
+            ax_swatch.set_title(f"{conc}%", fontsize=6)
+
+        ### --- PREDICTED REFLECTANCE ---
+        ax_plot_pred = fig.add_subplot(gs[1, 0:2])
+        ax_plot_pred.set_title(f"{pigment} predicted reflectance", fontsize=9, pad=5)
+
+        white_rgb_pred = predicted_reflectances["titanium white"][100].to_rgb()
+        white_swatch_pred = fig.add_subplot(gs[1, 2])
+        white_swatch_pred.imshow([[white_rgb_pred]])
+        white_swatch_pred.axis("off")
+        white_swatch_pred.set_title("0%", fontsize=6)
+
+        for k, conc in enumerate(sorted(predicted_reflectances[pigment].keys())):
+            spec = predicted_reflectances[pigment][conc]
+            rgb = spec.to_rgb()
+            spec.plot(name=pigment, ax=ax_plot_pred, normalize=True, color=rgb)
+            ax_plot_pred.set_xlabel("Wavelength")
+            ax_plot_pred.set_ylabel("Reflectance")
+            ax_plot_pred.grid(True)
+
+            ax_swatch = fig.add_subplot(gs[1, k + 3])
+            ax_swatch.imshow([[rgb]])
+            ax_swatch.axis("off")
+            ax_swatch.set_title(f"{conc}%", fontsize=6)
+
+        fig.subplots_adjust(top=0.85, bottom=0.15, left=0.01, right=0.99)
+
+        # make folder if it doesn't exist
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        folder = os.path.join(current_dir, f"individual pigments saunderson {useSaunderson}")
+        os.makedirs(folder, exist_ok=True)  # Creates the folder if it doesn't exist
+
+        # Save per-pigment
+        safe_name = pigment.lower().replace(" ", "_").replace("/", "_")
+        path = os.path.join(current_dir, f"individual pigments saunderson {useSaunderson}", f"real_vs_predicted_{safe_name}.png")
+        plt.savefig(path, dpi=img_dpi, bbox_inches='tight', pad_inches=0.2)
+        plt.close()
+        print(f"Saved: {path}")
+
 def reverse_saunderson(R: Spectra, K1=0.035, K2=0.6) -> Spectra:
     """
     converts R_measured to R_inf
     """
     R_m = R.data
-    R_inf = (R_m - K1) / (1 - K1 - K2 + K2 * R_m)	
-    R_inf = np.clip(R_inf, 1e-4, 1)
+    R_inf = (R_m - K1) / (1 - K1 - K2 + K2 * R_m)
+    # clipping is ruining my life
+    # R_inf = np.clip(R_inf, 1e-4, 1)
+    # let's try clipping negative but not > 1 values
+    # R_inf = np.clip(R_inf, 1e-4, None)
     return Spectra(wavelengths=R.wavelengths, data = R_inf)
 
 def saunderson_correction(R_inf: np.array, K1=0.035, K2=0.6):
@@ -272,7 +353,6 @@ def main():
     wvls, pigment_spectra = load_reflectance_data()
     # if want smaller steps maybe do something like e.g.
     # spec.interpolate(385, 395, )etc
-    # apply Saunderson correction
     R_inf = defaultdict(dict)
     for p in pigment_spectra.keys():
         # TODO: "The internal reflectance of white was scaled by 1.005"
@@ -349,7 +429,8 @@ def main():
             else:
                 predicted_reflectances[p][c] = Spectra(wavelengths=wvls, data=Q_to_R(Q_mix))
     
-    plot_real_vs_predicted_reflectance(pigment_spectra, predicted_reflectances)
+    # plot_real_vs_predicted_reflectance(pigment_spectra, predicted_reflectances)
+    plot_reflectance_per_pigment(pigment_spectra, predicted_reflectances, useSaunderson)
     
     # save_KS(KS_values)
 
