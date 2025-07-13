@@ -131,6 +131,10 @@ def solve_KS(Q_array: list, c_array: list, K_w):
     A = np.array(A)
     b = np.array(b)
       
+    # least square version
+    # result = lsq_linear(A, b, bounds=(1e-32, np.inf))
+    # S_p, K_p = result.x
+    
     cond = np.linalg.cond(A.T @ A)
     if cond > 1e8:
         print(f"Warning: Ill-conditioned matrix (cond={cond:.2e})")
@@ -262,7 +266,7 @@ def save_KS(KS_values: dict):
     print("saved to oilpaints_KS.json")
 
 def main():
-    useSaunderson = True
+    useSaunderson = False
     
     print("it started")
     wvls, pigment_spectra = load_reflectance_data()
