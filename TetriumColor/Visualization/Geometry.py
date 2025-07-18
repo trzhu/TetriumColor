@@ -320,6 +320,35 @@ class GeometryPrimitives:
         return GeometryPrimitives.Create3DMesh(points, rgbs)
 
     @staticmethod
+    def Create3DMeshfromNonConvexPoints(points: npt.NDArray, rgbs: npt.NDArray) -> o3d.geometry.TriangleMesh:
+        """Create a 3D Mesh from a point cloud that is not convex.
+
+        Args:
+            points (npt.NDArray): points in 3D space
+
+        Returns:
+            o3d.geometry.TriangleMesh: Point cloud mesh
+        """
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(points)
+        pcd.estimate_normals()
+
+        # Estimate appropriate radius:
+        dists = pcd.compute_nearest_neighbor_distance()
+        avg_dist = np.mean(dists)
+
+        # Try several radii (start small)
+        radii = [avg_dist * f for f in [0.5, 1.0, 1.5]]
+
+        mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(
+            pcd, o3d.utility.DoubleVector(radii)
+        )
+        mesh.compute_vertex_normals()
+        mesh.vertex_colors = o3d.utility.Vector3dVector(
+            np.array([rgbs]*len(mesh.vertices)))
+        return mesh
+
+    @staticmethod
     def Create3DMesh(points, rgbs) -> o3d.geometry.TriangleMesh:
         """Create a 3D Mesh from a point cloud and associated rgbs.
 

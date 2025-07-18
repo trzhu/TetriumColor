@@ -325,7 +325,7 @@ def RenderDisplayGamut(name: str, basis_vectors: npt.NDArray, T: npt.NDArray = n
     GeometryPrimitives.ConvertTriangleMeshToPolyscope(name, two_mesh)
 
 
-def RenderPointCloud(name: str, points: npt.NDArray, rgb: npt.NDArray | None = None, radius: float = 0.01) -> None:
+def RenderPointCloud(name: str, points: npt.NDArray, rgb: npt.NDArray | None = None, radius: float = 0.01, mode: str = 'sphere') -> None:
     """Render a point cloud in Polyscope
 
     Args:
@@ -334,7 +334,7 @@ def RenderPointCloud(name: str, points: npt.NDArray, rgb: npt.NDArray | None = N
         rgb (npt.NDArray | None, optional): N x 3 array of RGB colors. Defaults to None.
         radius (float, optional): Radius of the points. Defaults to 0.01.
     """
-    pcl = ps.register_point_cloud(name, points, radius=0.01)
+    pcl = ps.register_point_cloud(name, points, radius=0.01, point_render_mode=mode)
     if rgb is not None:
         pcl.add_color_quantity(f"{name}_colors", rgb, enabled=True)
 
@@ -393,3 +393,15 @@ def RenderGridOfArrows(name: str):
             objs.add_obj(GeometryPrimitives.CreateArrow(np.array([[x, y, -arrow_length/2], [x, y, arrow_length/2]])))
     arrow_mesh = GeometryPrimitives.CollapseMeshObjects(objs.objects)
     GeometryPrimitives.ConvertTriangleMeshToPolyscope(name, arrow_mesh)
+
+
+def RenderMeshFromNonConvexPointCloud(name: str, points: npt.NDArray, rgb: npt.NDArray | None = None) -> None:
+    """Render a 3D mesh from a point cloud in Polyscope
+    Args:
+        name (str): Name of the mesh
+        points (npt.NDArray): N x 3 array of vertices
+    """
+    if rgb is None:
+        rgb = np.ones((len(points), 3)) / 2
+    mesh = GeometryPrimitives.Create3DMeshfromNonConvexPoints(points, rgb)
+    GeometryPrimitives.ConvertTriangleMeshToPolyscope(name, mesh)

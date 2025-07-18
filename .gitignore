@@ -1,4 +1,6 @@
 # repository 
+screenshot_*.png
+scripts/inkset/ink-combos/*
 *results*
 tmp
 .vscode

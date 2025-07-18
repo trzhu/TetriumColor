@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from TetriumColor.Observer import Spectra, Illuminant, Observer
-from TetriumColor.Observer.Inks import InkLibrary
+from TetriumColor.Observer.Inks import InkLibrary, InkGamut
 
 
 def analyze_inkset(all_inks: Dict[str, Spectra], paper: Spectra, wavelengths: npt.NDArray) -> List[npt.NDArray]:
@@ -20,6 +20,12 @@ def analyze_inkset(all_inks: Dict[str, Spectra], paper: Spectra, wavelengths: np
 
     # Perform convex hull search
     top_volumes_all_inks = full_library.convex_hull_search(tetrachromat, d65)
+
+    chosen_idx = 1
+    best4 = [all_inks[ink_name] for ink_name in top_volumes_all_inks[chosen_idx][1]]
+    gamut = InkGamut(best4, paper, d65)
+
+    spectra = gamut.get_spectra([0, 0, 1, 1])
 
     # top_volumes_all_inks = full_library.cached_pca_search(tetrachromat, d65, k=4)
 
@@ -92,7 +98,7 @@ def analyze_fp_inks():
 def main():
 
     analyze_ansari()
-    analyze_fp_inks()
+    # analyze_fp_inks()
 
     print("All analyses completed successfully.")
 
