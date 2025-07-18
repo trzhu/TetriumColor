@@ -1,4 +1,3 @@
-import pandas as pd
 import numpy as np
 import json, os, math
 import matplotlib.pyplot as plt
@@ -84,6 +83,41 @@ def plot_all_pigments(pigment_data: dict):
     
     print("saved swatches image")
 
+def apply_saunderson_and_scale_white(pigment_spectra: dict, useSaunderson: bool, scaleWhite: bool):
+    R_inf = defaultdict(dict)
+    for p in pigment_spectra.keys():
+        for c in pigment_spectra[p].keys():
+            # SAUNDERSON CORRECTION
+            if useSaunderson:
+                R_inf[p][c] = reverse_saunderson(pigment_spectra[p][c])
+            else:
+                R_inf[p][c] = pigment_spectra[p][c]
+    
+    # "The internal reflectance of white was scaled by 1.005"
+    if scaleWhite:
+        R_inf["titanium white"][100] *= 1.005
+    return R_inf
+
+def compute_all_KS_ratios(R_inf):
+    # Q for quotient lol
+    Q_white = KS_ratio(R_inf["titanium white"][100])
+    
+    # compute K/S ratio at each wavelength for each mixture we have
+    KS_ratios = defaultdict(dict)
+    for p in R_inf.keys():
+        if p == "titanium white":
+            KS_ratios[p][100] = Q_white
+            continue
+        # for everything except white, its 0% reflectance is just titanium white
+        R_inf[p][0] = R_inf["titanium white"][100]
+        KS_ratios[p][0] = Q_white
+        for c in R_inf[p]:
+            if c == 0:
+                continue
+            KS_ratios[p][c] = KS_ratio(R_inf[p][c])
+
+    return KS_ratios
+
 # returns K/S = (1-R)^2 / 2R for every lambda
 def KS_ratio(spec: Spectra) -> np.ndarray:
     reflectance = spec.data
@@ -92,7 +126,7 @@ def KS_ratio(spec: Spectra) -> np.ndarray:
 # returns reflectance predicted by KM
 # as an array like the wavelength arrays
 # R_bg = reflectance of background substrate
-def mixture_KM_reflectance(weights: np.array, K_pigments: np.array, S_pigments: np.array, d=1.0, R_bg=1.0) -> np.array:
+def mix(weights: np.array, K_pigments: np.array, S_pigments: np.array, d=1.0, R_bg=1.0) -> np.array:
     if not len(weights) == len(K_pigments) == len(S_pigments):
         print("number of weights should be the same as number of pigments")
         return
@@ -158,8 +192,66 @@ def solve_KS(Q_array: list, c_array: list, K_w):
     
     return K_p, S_p
 
+def solve_all_KS(wavelengths, KS_ratios):
+    # assume S = 1.0 uniformly for white 
+    K_white = KS_ratios["titanium white"][100]
+    S_white = np.ones_like(K_white)
+    
+    # dictionary that will store values for K_p, S_p
+    KS_values = {}
+    
+    for p in KS_ratios.keys():
+        if p == "titanium white":
+            KS_values[p] = {"K": K_white,
+                            "S": np.ones_like(wavelengths)
+            }
+            continue
+        # K_p, S_p across each wavelength
+        computed_K_ps = []
+        computed_S_ps = []
+        for i in range(len(wavelengths)):
+            Q_vals = []
+            c_vals = []
+            for c in [10 * i for i in range(11)]:
+                Q = KS_ratios[p][c][i]  # K/S at this wavelength and concentration
+                Q_vals.append(Q)
+                c_vals.append(c / 100)  # convert to [0, 1] range
+
+            K_p, S_p = solve_KS(np.array(Q_vals), np.array(c_vals), K_white[i])
+            
+            computed_K_ps.append(K_p)
+            computed_S_ps.append(S_p)
+        
+        KS_values[p] = {
+        "K": np.array(computed_K_ps),
+        "S": np.array(computed_S_ps), 
+        }
+    return KS_values
+
+
 def Q_to_R(Q: np.array) -> np.array:
     return 1 / (1 + Q + np.sqrt(Q**2 + 2 * Q))
+
+# compute predicted reflectance of each pigment, at each concentration
+def predict_all_reflectance(KS_values, wvls, pigment_spectra, useSaunderson):
+    K_white = KS_values["titanium white"]["K"]
+    S_white = KS_values["titanium white"]["S"]
+    
+    predicted_reflectances = defaultdict(dict)
+    # white isn't in compute_KS_values so I'll just add it manually. is that a bit disgusting?
+    predicted_reflectances["titanium white"][100] = Spectra(wavelengths=wvls, data=Q_to_R(K_white / S_white))
+    for p in KS_values:
+        for c in pigment_spectra[p].keys():
+            K_mix = c * KS_values[p]["K"] + (100 - c) * K_white
+            S_mix = c * KS_values[p]["S"] + (100 - c) * S_white
+            Q_mix = K_mix / S_mix
+            # saunderson correction
+            if useSaunderson:
+                predicted_reflectances[p][c] = Spectra(wavelengths=wvls, data=saunderson_correction(Q_to_R(Q_mix)))
+            else:
+                predicted_reflectances[p][c] = Spectra(wavelengths=wvls, data=Q_to_R(Q_mix))
+
+    return predicted_reflectances
     
 def plot_real_vs_predicted_reflectance(pigment_spectra: dict, predicted_reflectances: dict):
     cols = 14 # 1 graph and 11 swatches but first plot takes 2 columns
@@ -346,91 +438,39 @@ def save_KS(KS_values: dict, useSaunderson=None, scaleWhite=None):
         
     print("saved to oilpaints_KS.json")
 
+def load_oilpaint_KS_data():
+    """
+    returns list of wavelengths and dictionary like 
+    KS_values[pigment]["K"] = K values over every wavelength
+    """
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    json_path = os.path.join(current_dir, "oilpaints_KS.json")
+    
+    with open(json_path, "r") as f:
+        loaded_data = json.load(f)
+    
+    KS_values = defaultdict(dict)
+    for pigment in loaded_data.keys():
+        for variable in loaded_data[pigment].keys():
+            KS_values[pigment][variable] = np.array(loaded_data[pigment][variable])
+    
+    return KS_values
+
 def main():
     useSaunderson = True
     scaleWhite = True
     
     print("it started")
     wvls, pigment_spectra = load_reflectance_data()
-    # if want smaller steps maybe do something like e.g. spec.interpolate(385, 395, )etc
-    R_inf = defaultdict(dict)
-    for p in pigment_spectra.keys():
-        for c in pigment_spectra[p].keys():
-            # SAUNDERSON CORRECTION
-            if useSaunderson:
-                R_inf[p][c] = reverse_saunderson(pigment_spectra[p][c])
-            else:
-                R_inf[p][c] = pigment_spectra[p][c]
     
-    # "The internal reflectance of white was scaled by 1.005"
-    if scaleWhite:
-        R_inf["titanium white"][100] *= 1.005
+    R_inf = apply_saunderson_and_scale_white(pigment_spectra, useSaunderson, scaleWhite)
     
-    Q_white = KS_ratio(R_inf["titanium white"][100])
+    KS_ratios = compute_all_KS_ratios(R_inf)
     
-    # compute K/S ratio at each wavelength for each mixture we have
-    KS_ratios = defaultdict(dict)
-    for p in R_inf.keys():
-        if p == "titanium white":
-            KS_ratios[p][100] = Q_white
-            continue
-        # for everything except white, its 0% reflectance is just titanium white
-        R_inf[p][0] = R_inf["titanium white"][100]
-        KS_ratios[p][0] = Q_white
-        for c in R_inf[p]:
-            if c == 0:
-                continue
-            KS_ratios[p][c] = KS_ratio(R_inf[p][c])
+    KS_values = solve_all_KS(wvls, KS_ratios)
     
-    # assume S = 1.0 uniformly for white 
-    K_white = Q_white
-    S_white = np.ones_like(K_white)
-    
-    # dictionary that will store values for K_p, S_p
-    KS_values = {}
-    
-    for p in KS_ratios.keys():
-        if p == "titanium white":
-            KS_values[p] = {"K": K_white,
-                            "S": np.ones_like(wvls)
-            }
-            continue
-        # K_p, S_p across each wavelength
-        computed_K_ps = []
-        computed_S_ps = []
-        for i in range(len(wvls)):
-            Q_vals = []
-            c_vals = []
-            for c in [10 * i for i in range(11)]:
-                Q = KS_ratios[p][c][i]  # K/S at this wavelength and concentration
-                Q_vals.append(Q)
-                c_vals.append(c / 100)  # convert to [0, 1] range
-
-            K_p, S_p = solve_KS(np.array(Q_vals), np.array(c_vals), K_white[i])
+    predicted_reflectances = predict_all_reflectance(KS_values, wvls, pigment_spectra, useSaunderson)
             
-            computed_K_ps.append(K_p)
-            computed_S_ps.append(S_p)
-        
-        KS_values[p] = {
-        "K": np.array(computed_K_ps),
-        "S": np.array(computed_S_ps), 
-        }
-        
-    # compute predicted reflectance of each pigment, at each concentration
-    predicted_reflectances = defaultdict(dict)
-    # white isn't in compute_KS_values so I'll just add it manually. is that a bit disgusting?
-    predicted_reflectances["titanium white"][100] = Spectra(wavelengths=wvls, data=Q_to_R(K_white / S_white))
-    for p in KS_values:
-        for c in pigment_spectra[p].keys():
-            K_mix = c * KS_values[p]["K"] + (100 - c) * K_white
-            S_mix = c * KS_values[p]["S"] + (100 - c) * S_white
-            Q_mix = K_mix / S_mix
-            # saunderson correction
-            if useSaunderson:
-                predicted_reflectances[p][c] = Spectra(wavelengths=wvls, data=saunderson_correction(Q_to_R(Q_mix)))
-            else:
-                predicted_reflectances[p][c] = Spectra(wavelengths=wvls, data=Q_to_R(Q_mix))
-    
     # plot_real_vs_predicted_reflectance(pigment_spectra, predicted_reflectances)
     plot_reflectance_per_pigment(pigment_spectra, predicted_reflectances, useSaunderson, scaleWhite)
     
